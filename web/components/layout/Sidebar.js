@@ -8,17 +8,12 @@ import {
 
 const NAV = [
   { group: 'ภาพรวม', items: [
-    { href: '/dashboard', label: 'ค็อกพิต',     icon: LayoutDashboard },
-    { href: '/autopilot', label: 'ออโต้ไพลอต',  icon: Rocket },
+    { href: '/dashboard', label: 'ค็อกพิต', icon: LayoutDashboard },
   ]},
   { group: 'การทำงาน', items: [
-    { href: '/queue',     label: 'คิวงาน',  icon: ListOrdered },
-    { href: '/products',  label: 'สินค้า',  icon: Package     },
-    { href: '/library',   label: 'คลังคลิป', icon: Film        },
-  ]},
-  { group: 'อุปกรณ์', items: [
-    { href: '/mirror',    label: 'จอมือถือ',     icon: Monitor    },
-    { href: '/devices',   label: 'จัดการเครื่อง', icon: Smartphone },
+    { href: '/products',  label: 'สินค้า',   icon: Package },
+    { href: '/library',   label: 'คลังคลิป', icon: Film    },
+    { href: '/mirror',    label: 'มือถือ',   icon: Smartphone },
   ]},
   { group: 'ระบบ', items: [
     { href: '/settings',  label: 'ตั้งค่า', icon: Settings },

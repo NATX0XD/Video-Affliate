@@ -16,7 +16,7 @@ const TITLES = {
   '/products':  'สินค้า',
   '/library':   'คลังคลิป',
   '/devices':   'จัดการเครื่อง',
-  '/mirror':    'จอมือถือ',
+  '/mirror':    'มือถือ',
   '/queue':     'คิวงาน',
   '/autopilot': 'ออโต้ไพลอต',
   '/settings':  'ตั้งค่า',
