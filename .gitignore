@@ -20,6 +20,7 @@ out/
 desktop/data/output/
 desktop/data/products/
 desktop/data/*.png
+desktop/data/app.db*
 
 # ── Archive: git backup ของ web เดิม (ไม่ต้อง track) ──
 _archive/web-git-backup/

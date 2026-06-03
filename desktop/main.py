@@ -10,6 +10,7 @@ from services.web_server   import WebServer
 from services.worker       import Worker
 from services.gen_worker   import GenWorker
 from services.post_worker  import PostWorker
+from services.db           import JobStore, migrate_folders
 
 
 def main():
@@ -17,6 +18,11 @@ def main():
 
     for d in [cfg.PRODUCTS_DIR, cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR]:
         d.mkdir(parents=True, exist_ok=True)
+
+    # SQLite job store (A1.1) — single source of truth, survives restarts
+    store = JobStore(cfg.DB_FILE)
+    resumed  = store.reset_stuck()              # rewind crash-interrupted jobs
+    imported = migrate_folders(store, cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR)
 
     adb    = ADBManager()
     server = WebServer(port=settings.get("server_port", 3001))
@@ -29,6 +35,7 @@ def main():
     server.worker = worker
     server.gen    = gen
     server.poster = poster
+    server.db = worker.db = gen.db = poster.db = store   # workers adopt it in A1.2
     worker.log    = server.emit_log
     gen.log       = server.emit_log
     poster.log    = server.emit_log
@@ -60,6 +67,8 @@ def main():
     print("─" * 50)
     print(f"  Backend  → http://localhost:{server.port}")
     print(f"  Web UI   → http://localhost:3000  (run: npm run dev)")
+    print(f"  Jobs DB  → {cfg.DB_FILE.name}  "
+          f"(resumed {resumed}, imported {imported}, total {store.count()})")
     print("─" * 50 + "\n")
 
     try:

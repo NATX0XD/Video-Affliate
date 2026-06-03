@@ -117,12 +117,12 @@
 
 > หลักคิดลำดับ: **ออโต้ต้องเสถียรก่อน → แล้วค่อยสวย → แล้วค่อยเก่ง**
 
-### A0 — รากฐาน ⚡ (เร็ว, ไม่กระทบของเดิม)
-- [ ] `git init` ให้ทั้ง repo (ตอนนี้ desktop/extension ไม่มี version control)
-- [ ] แก้ port mismatch (`web/lib/api.js` default 5000 → 3001)
-- [ ] ย้าย legacy → `_archive/` (`desktop/ui/app.py`, `extension-legacy/`)
-- [ ] `chmod 600 keys/*.pem`
-- [ ] เขียน `.env.example` + README วิธี dev
+### A0 — รากฐาน ⚡ ✅ เสร็จแล้ว (commit 7a79067)
+- [x] `git init` ทั้ง repo เดียวที่ root (backup web/.git → `_archive/web-git-backup`)
+- [x] แก้ port mismatch — `web/lib/api.js` + `web/hooks/useWebSocket.js` 5000 → 3001
+- [x] ย้าย legacy → `_archive/` (`desktop/ui`, `extension-legacy`)
+- [x] `chmod 600` keys/.control_* (ล็อก private key)
+- [x] `.gitignore` รวม + `.env.example` (desktop+web) + `README.md`
 
 ### A1 — ความเสถียร + Near-zero touch (หัวใจของออโต้) 🔴
 > "ลูกค้าแทบไม่แตะ" จะเป็นจริงได้ต้องมีอันนี้ก่อน

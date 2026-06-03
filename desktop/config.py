@@ -10,6 +10,8 @@ PENDING_DIR  = OUTPUT_DIR / "pending"
 DONE_DIR     = OUTPUT_DIR / "done"
 ERROR_DIR    = OUTPUT_DIR / "error"
 
+DB_FILE      = DATA_DIR / "app.db"      # SQLite job store (A1.1)
+
 CONFIG_FILE = BASE_DIR / "settings.json"
 ENV_FILE    = BASE_DIR / ".env"
 
