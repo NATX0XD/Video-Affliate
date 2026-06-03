@@ -2,8 +2,9 @@
 import { useState } from 'react'
 import { useApp }      from '../layout'
 import { DeviceCard }  from '@/components/devices/DeviceCard'
+import { PageHeader }  from '@/components/layout/PageHeader'
 import { api }         from '@/lib/api'
-import { RefreshCw, Wifi, AlertCircle } from 'lucide-react'
+import { RefreshCw, Wifi, AlertCircle, Smartphone } from 'lucide-react'
 
 export default function DevicesPage() {
   const { state, patch } = useApp()
@@ -12,77 +13,67 @@ export default function DevicesPage() {
   const [error, setError]       = useState('')
 
   const scan = async () => {
-    setScanning(true)
-    setError('')
+    setScanning(true); setError('')
     try {
       const res = await api.scan()
       patch({ devices: res.devices })
     } catch {
-      setError('ไม่สามารถเชื่อมต่อ Backend — รัน python desktop/main.py ก่อนครับ')
-    } finally {
-      setScanning(false)
-    }
+      setError('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ — เปิด backend (python desktop/main.py) ก่อน')
+    } finally { setScanning(false) }
   }
 
   const connect = async () => {
     if (!ip.trim()) return
-    try {
-      await api.wifiConnect(ip.trim())
-      setIp('')
-    } catch {
-      setError('ไม่สามารถเชื่อมต่อ Backend — รัน python desktop/main.py ก่อนครับ')
-    }
+    try { await api.wifiConnect(ip.trim()); setIp('') }
+    catch { setError('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ') }
   }
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8 max-w-[1000px]">
+      <PageHeader
+        title="จัดการเครื่อง"
+        subtitle="เชื่อมต่อและตรวจสอบมือถือที่ใช้โพสต์"
+        action={
+          <button onClick={scan} disabled={scanning}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-accent hover:bg-accent-soft transition-all active:scale-[.98] disabled:opacity-50">
+            <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} strokeWidth={2.5} />
+            {scanning ? 'กำลังสแกน…' : 'สแกนเครื่อง'}
+          </button>
+        }
+      />
 
       {error && (
-        <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm rounded-xl px-4 py-3">
-          <AlertCircle size={15} className="shrink-0" />
-          {error}
+        <div className="flex items-center gap-3 bg-danger/10 border border-danger/20 text-danger text-sm rounded-xl px-4 py-3 animate-fade-up">
+          <AlertCircle size={15} className="shrink-0" /> {error}
         </div>
       )}
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <button onClick={scan} disabled={scanning}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50"
-          style={{ background: 'linear-gradient(135deg,#7c3aed,#6d28d9)', boxShadow: '0 4px 14px rgba(124,58,237,0.3)' }}>
-          <RefreshCw size={13} className={scanning ? 'animate-spin' : ''} strokeWidth={2.5} />
-          {scanning ? 'Scanning…' : 'Scan Devices'}
+      {/* Wi-Fi connect */}
+      <div className="flex items-center gap-2 animate-fade-up" style={{ animationDelay: '40ms' }}>
+        <input
+          value={ip}
+          onChange={e => setIp(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && connect()}
+          placeholder="เชื่อมต่อผ่าน Wi-Fi: 192.168.x.x"
+          className="bg-surface border border-line text-ink text-sm px-3.5 py-2.5 rounded-lg w-64 outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 placeholder:text-ink-mute transition-all"
+        />
+        <button onClick={connect}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-medium text-ink-dim bg-surface border border-line hover:border-accent hover:text-accent transition-all">
+          <Wifi size={14} /> เชื่อมต่อ
         </button>
-
-        <div className="flex items-center gap-2">
-          <input
-            value={ip}
-            onChange={e => setIp(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && connect()}
-            placeholder="192.168.x.x"
-            className="bg-white/[0.04] border border-white/[0.08] text-white text-sm px-3 py-2 rounded-xl w-40 outline-none focus:border-violet-500/60 placeholder:text-slate-700 transition-colors"
-          />
-          <button onClick={connect}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-slate-300 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-all">
-            <Wifi size={13} /> Connect
-          </button>
-        </div>
       </div>
 
       {/* Device list */}
-      <div className="flex flex-col gap-2">
-        {state.devices.length === 0
-          ? (
-            <div className="rounded-2xl border border-white/[0.06] p-16 text-center"
-                 style={{ background: '#111120' }}>
-              <div className="w-12 h-12 rounded-2xl bg-slate-800/60 flex items-center justify-center mx-auto mb-4">
-                <RefreshCw size={20} className="text-slate-600" />
-              </div>
-              <p className="text-slate-400 font-medium mb-1">No devices found</p>
-              <p className="text-slate-600 text-sm">Connect via USB and enable USB Debugging</p>
+      <div className="flex flex-col gap-3 animate-fade-up" style={{ animationDelay: '80ms' }}>
+        {state.devices.length === 0 ? (
+          <div className="rounded-2xl border border-line bg-surface shadow-card p-16 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-elevated flex items-center justify-center mx-auto mb-4">
+              <Smartphone size={24} className="text-ink-mute" />
             </div>
-          )
-          : state.devices.map(d => <DeviceCard key={d.serial} device={d} />)
-        }
+            <p className="text-ink font-semibold mb-1">ยังไม่พบเครื่อง</p>
+            <p className="text-ink-dim text-sm">ต่อสาย USB และเปิด USB Debugging แล้วกดสแกน</p>
+          </div>
+        ) : state.devices.map(d => <DeviceCard key={d.serial} device={d} />)}
       </div>
     </div>
   )

@@ -1,67 +1,56 @@
 'use client'
 import { useApp } from '../layout'
+import { PageHeader, JOB_STATUS } from '@/components/layout/PageHeader'
 import { ListOrdered, Loader2, CheckCircle2, XCircle, Clock, Trash2 } from 'lucide-react'
 
-const STATUS = {
-  pending:    { label: 'รอ',          icon: Clock,        cls: 'text-slate-500  bg-slate-500/10  border-slate-500/20'  },
-  generating: { label: 'สร้างวิดีโอ', icon: Loader2,      cls: 'text-sky-400    bg-sky-500/10    border-sky-500/20', spin: true },
-  posting:    { label: 'กำลังโพสต์', icon: Loader2,      cls: 'text-amber-400  bg-amber-500/10  border-amber-500/20', spin: true },
-  done:       { label: 'สำเร็จ',      icon: CheckCircle2, cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
-  error:      { label: 'ผิดพลาด',     icon: XCircle,      cls: 'text-rose-400   bg-rose-500/10   border-rose-500/20'   },
+const ICON = {
+  pending: Clock, queued: Clock, generating: Loader2, generated: ListOrdered,
+  posting: Loader2, retry: Loader2, done: CheckCircle2, posted: CheckCircle2, error: XCircle,
 }
 
 export default function QueuePage() {
   const { state, patch } = useApp()
   const items = state.queueItems ?? []
-
   const clear = () => patch({ queueItems: [], currentItem: null })
 
+  const waiting = items.filter(i => ['pending', 'queued'].includes(i.status)).length
+  const done    = items.filter(i => ['done', 'posted'].includes(i.status)).length
+
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-white font-bold text-base">Product Queue</h2>
-          <p className="text-slate-500 text-sm mt-0.5">
-            {items.length} รายการ · รอ {items.filter(i => i.status === 'pending').length} · สำเร็จ {items.filter(i => i.status === 'done').length}
-          </p>
-        </div>
-        {items.length > 0 && (
+    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8 max-w-[1000px]">
+      <PageHeader
+        title="คิวงาน"
+        subtitle={`${items.length} รายการ · รอ ${waiting} · สำเร็จ ${done}`}
+        action={items.length > 0 && (
           <button onClick={clear}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-400 px-3 py-1.5 rounded-lg bg-white/[0.03] hover:bg-rose-500/10 border border-white/[0.06] transition-all">
-            <Trash2 size={11} /> Clear
+            className="flex items-center gap-1.5 text-xs font-medium text-ink-dim hover:text-danger px-3 py-2 rounded-lg bg-surface border border-line hover:border-danger/30 transition-all">
+            <Trash2 size={13} /> ล้างคิว
           </button>
         )}
-      </div>
+      />
 
       {items.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.06] p-16 text-center" style={{ background: '#111120' }}>
-          <div className="w-12 h-12 rounded-2xl bg-slate-800/60 flex items-center justify-center mx-auto mb-4">
-            <ListOrdered size={20} className="text-slate-600" />
-          </div>
-          <p className="text-slate-400 font-medium mb-1">Queue ว่าง</p>
-          <p className="text-slate-600 text-sm">ส่งสินค้าจาก Chrome Extension แล้วกด Start Auto Pilot</p>
-        </div>
+        <EmptyState />
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2.5 animate-fade-up" style={{ animationDelay: '60ms' }}>
           {items.map((item, i) => {
-            const s = STATUS[item.status] ?? STATUS.pending
-            const Icon = s.icon
+            const s = JOB_STATUS[item.status] ?? JOB_STATUS.pending
+            const Icon = ICON[item.status] ?? Clock
             return (
               <div key={item.pid ?? i}
-                   className="flex items-center gap-4 px-5 py-4 rounded-xl border border-white/[0.06] transition-all"
-                   style={{ background: '#111120' }}>
-                <div className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center shrink-0">
-                  <span className="text-slate-600 text-[11px] font-bold tabular-nums">{i + 1}</span>
+                   className="flex items-center gap-4 px-5 py-4 rounded-xl bg-surface border border-line shadow-card">
+                <div className="w-7 h-7 rounded-lg bg-elevated flex items-center justify-center shrink-0">
+                  <span className="text-ink-mute text-[11px] font-bold nums">{i + 1}</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{item.name || 'ไม่มีชื่อ'}</p>
-                  <p className="text-slate-600 text-xs mt-0.5 tabular-nums">
+                  <p className="text-ink text-sm font-medium truncate">{item.name || 'ไม่มีชื่อ'}</p>
+                  <p className="text-ink-mute text-xs mt-0.5 nums">
                     {item.price ? `฿${Number(item.price).toLocaleString()}` : '—'}
-                    {item.commission ? ` · ${item.commission}% commission` : ''}
+                    {item.commission ? ` · ค่าคอม ${item.commission}%` : ''}
                   </p>
                 </div>
                 <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold shrink-0 ${s.cls}`}>
-                  <Icon size={10} className={s.spin ? 'animate-spin' : ''} />
+                  <Icon size={11} className={s.spin ? 'animate-spin' : ''} />
                   {s.label}
                 </span>
               </div>
@@ -69,6 +58,18 @@ export default function QueuePage() {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-2xl border border-line bg-surface shadow-card p-16 text-center animate-fade-up">
+      <div className="w-14 h-14 rounded-2xl bg-elevated flex items-center justify-center mx-auto mb-4">
+        <ListOrdered size={24} className="text-ink-mute" />
+      </div>
+      <p className="text-ink font-semibold mb-1">ยังไม่มีงานในคิว</p>
+      <p className="text-ink-dim text-sm">ส่งสินค้าจาก Chrome Extension แล้วเริ่มออโต้ไพลอต</p>
     </div>
   )
 }
