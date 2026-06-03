@@ -3,7 +3,9 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { Sidebar  } from '@/components/layout/Sidebar'
 import { Topbar   } from '@/components/layout/Topbar'
 import { GenProgress } from '@/components/GenProgress'
+import { Onboarding } from '@/components/Onboarding'
 import { useStatus } from '@/hooks/useStatus'
+import { api } from '@/lib/api'
 import { usePathname } from 'next/navigation'
 
 export const AppCtx = createContext(null)
@@ -28,6 +30,25 @@ export default function AppLayout({ children }) {
 
   const [navOpen, setNavOpen] = useState(false)
   useEffect(() => { setNavOpen(false) }, [path])   // ปิด drawer เมื่อเปลี่ยนหน้า
+
+  // first-run: เช็กว่าตั้งชื่อร้านแล้วหรือยัง
+  const [setup, setSetup] = useState({ checked: false, configured: false })
+  useEffect(() => {
+    api.getSetup()
+      .then(d => setSetup({ checked: true, configured: !!d.configured }))
+      .catch(() => setSetup({ checked: true, configured: true }))  // เชื่อมไม่ได้ → ไม่บล็อก
+  }, [])
+
+  if (!setup.checked) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-base">
+        <div className="w-8 h-8 rounded-full border-2 border-line border-t-accent animate-spin" />
+      </div>
+    )
+  }
+  if (!setup.configured) {
+    return <Onboarding onDone={() => setSetup({ checked: true, configured: true })} />
+  }
 
   return (
     <AppCtx.Provider value={{ state, patch }}>

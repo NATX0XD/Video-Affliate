@@ -96,6 +96,12 @@ class JobStore:
                     message TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts);
+
+                CREATE TABLE IF NOT EXISTS app_config (
+                    key        TEXT PRIMARY KEY,
+                    value      TEXT,
+                    updated_at INTEGER
+                );
                 """
             )
             self._conn.commit()
@@ -354,6 +360,29 @@ class JobStore:
             "total": sum(by_status.values()),
             "total_cost": total_cost,
         }
+
+    # ── app config (key-value: shop_name, setup ฯลฯ) ──────────
+
+    def get_config(self, key: str, default=None):
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT value FROM app_config WHERE key=?", (key,)
+            ).fetchone()
+        return r["value"] if r else default
+
+    def set_config(self, key: str, value: str):
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO app_config (key, value, updated_at) VALUES (?,?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+                (key, value, _now()),
+            )
+            self._conn.commit()
+
+    def all_config(self) -> dict:
+        with self._lock:
+            rows = self._conn.execute("SELECT key, value FROM app_config").fetchall()
+        return {r["key"]: r["value"] for r in rows}
 
     # ── logs (A1.8) ───────────────────────────────────────────
 

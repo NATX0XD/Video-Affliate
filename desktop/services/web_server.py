@@ -460,6 +460,34 @@ class WebServer:
             return FileResponse(str(path), media_type="video/mp4",
                                 headers={"Access-Control-Allow-Origin": "*"})
 
+        # ── First-run setup (ชื่อร้าน เก็บลง DB) ──
+
+        @app.get("/api/setup")
+        def setup_status():
+            shop = self.db.get_config("shop_name", "") if self.db else ""
+            return {"configured": bool(shop), "shop_name": shop or ""}
+
+        @app.post("/api/setup")
+        async def setup_save(body: dict):
+            import config as cfg
+            shop = (body.get("shop_name") or "").strip()
+            if not shop:
+                return {"ok": False, "error": "กรุณาใส่ชื่อร้าน"}
+            # เก็บลง DB (แหล่งความจริงของสถานะ setup)
+            if self.db:
+                self.db.set_config("shop_name", shop)
+                self.db.set_config("setup_done", "1")
+            # mirror เข้า settings.json ให้ worker ใช้
+            s = cfg.load(); s["shop_name"] = shop; cfg.save(s)
+            key = (body.get("google_api_key") or "").strip()
+            if key:
+                cfg.set_secret("google_api_key", key)
+            fresh = cfg.load()
+            for w in (self.worker, self.gen, self.poster):
+                if w: w.settings = fresh
+            self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")
+            return {"ok": True, "shop_name": shop}
+
         @app.get("/api/settings")
         def get_settings():
             import config as cfg

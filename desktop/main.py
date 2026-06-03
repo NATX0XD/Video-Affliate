@@ -24,6 +24,10 @@ def main():
     store = JobStore(cfg.DB_FILE)
     resumed  = store.reset_stuck()              # rewind crash-interrupted jobs
     imported = migrate_folders(store, cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR)
+    # ย้ายชื่อร้านเดิมจาก settings เข้า DB (กัน onboarding ซ้ำสำหรับผู้ใช้เดิม)
+    if store.get_config("shop_name") is None and settings.get("shop_name"):
+        store.set_config("shop_name", settings["shop_name"])
+        store.set_config("setup_done", "1")
 
     adb    = ADBManager()
     server = WebServer(port=settings.get("server_port", 3001))
