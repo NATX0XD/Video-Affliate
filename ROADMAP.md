@@ -136,7 +136,10 @@
   - [x] A1.2c — PostWorker → DB (e866335): claim generated→posting→posted/error
   - [x] A1.2b — read API จาก DB (5610a95): /api/status + /api/videos เป็น source of truth
   - หมายเหตุ: legacy Veo Worker/GenWorker ยังเดิม (Flow คือเส้นทางหลัก) — migrate ภายหลังถ้าจำเป็น
-- [ ] **A1.3 — Retry + recovery + OCR** — retry อัตโนมัติเมื่อพลาด, OCR ยืนยันโพสต์สำเร็จ (กันโพสต์ซ้ำหลัง resume)
+- [x] **A1.3 — Retry + verify** ✅
+  - [x] A1.3a — auto-retry + exponential backoff (1273d03)
+  - [x] A1.3b — verify โพสต์สำเร็จด้วย Gemini Vision, conservative (e34dcad)
+  - ※ ส่วนเรียก Gemini Vision จริงต้องเทสต์กับ key + มือถือจริง (ยังไม่ได้รัน)
 - [ ] **A1.4 — Budget/quota guard** — ประเมิน+คุมต้นทุน Flow/Gemini, หยุดเมื่อถึงเพดาน
 - [ ] **A1.5 — Self-healing** — watchdog, ADB หลุด→ต่อใหม่เอง, login มือถือหมดอายุ→กู้เอง
 - [ ] **A1.6 — Always-on** — auto-start เมื่อเปิดเครื่อง + ปุ่มหยุดฉุกเฉิน
