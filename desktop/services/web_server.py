@@ -107,12 +107,29 @@ class WebServer:
                         "streaming": d.serial in self.mirrors and
                                      self.mirrors[d.serial].is_running,
                     })
+            running = bool(
+                (self.worker and self.worker.is_running) or
+                (self.gen    and self.gen.is_running) or
+                (self.poster and self.poster.is_running)
+            )
+            if self.db:
+                by = self.db.stats()["by_status"]
+                queue = (by.get(QUEUED, 0) + by.get(GENERATING, 0) +
+                         by.get(GENERATED, 0) + by.get(POSTING, 0))  # งานที่ยังไม่จบ
+                return {
+                    "devices":       devices,
+                    "queue":         queue,
+                    "done":          by.get(POSTED, 0),
+                    "errors":        by.get(ERROR, 0),
+                    "pilot_running": running,
+                    "jobs":          self.db.stats(),   # breakdown ละเอียดสำหรับค็อกพิต
+                }
             return {
                 "devices":    devices,
                 "queue":      len(self.worker.queue) if self.worker else 0,
                 "done":       getattr(self.worker, "done_count", 0) if self.worker else 0,
                 "errors":     getattr(self.worker, "err_count",  0) if self.worker else 0,
-                "pilot_running": self.worker.is_running if self.worker else False,
+                "pilot_running": running,
             }
 
         @app.post("/api/scan")
@@ -349,6 +366,35 @@ class WebServer:
         @app.get("/api/videos")
         def list_videos():
             import config as cfg, json
+            from pathlib import Path
+
+            # DB เป็น source of truth: map สถานะ → โฟลเดอร์เดิมที่ frontend รู้จัก
+            if self.db:
+                status_folder = {GENERATED: "pending", POSTED: "done", ERROR: "error"}
+                vids = []
+                for st, folder in status_folder.items():
+                    for j in self.db.list(st, limit=9999):
+                        vp = j.get("video_path")
+                        if not vp:
+                            continue
+                        p = Path(vp)
+                        prod = j.get("product", {}) or {}
+                        bi   = prod.get("basic_info", {}) or {}
+                        vids.append({
+                            "name":   p.name,
+                            "folder": folder,
+                            "size":   p.stat().st_size if p.exists() else 0,
+                            "mtime":  int(p.stat().st_mtime) if p.exists() else (j.get("updated_at") or 0),
+                            "url":    f"/video/{folder}/{p.name}",
+                            "product":    j.get("name") or bi.get("name", ""),
+                            "price":      bi.get("price", ""),
+                            "commission": (prod.get("commission", {}) or {}).get("rate", ""),
+                            "status":     st,
+                        })
+                vids.sort(key=lambda v: v["mtime"], reverse=True)
+                return {"videos": vids}
+
+            # ── legacy folder scan (db ไม่พร้อม) ──
             vids = []
             for label, d in [("pending", cfg.PENDING_DIR),
                              ("done", cfg.DONE_DIR),
