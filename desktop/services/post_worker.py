@@ -84,7 +84,7 @@ class PostWorker:
     # ── Loop ──────────────────────────────────────────────────
 
     def _run(self):
-        poster = AutoPoster(self.adb, log_cb=self.log)
+        poster = AutoPoster(self.adb, log_cb=self.log, settings=self.settings)
         if not self.db:
             return self._run_legacy(poster)   # legacy จบงาน + on_finished เอง
         else:

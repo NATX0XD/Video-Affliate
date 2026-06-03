@@ -29,9 +29,11 @@ class AutoPoster:
         "post_button":    (0.500, 0.955),   # "โพสต์" button
     }
 
-    def __init__(self, adb_manager, log_cb: Optional[Callable] = None):
+    def __init__(self, adb_manager, log_cb: Optional[Callable] = None,
+                 settings: Optional[dict] = None):
         self.adb = adb_manager
         self.log = log_cb or print
+        self.settings = settings or {}      # ใช้สำหรับ verify_post (A1.3b)
         self._w = 1080
         self._h = 2340
         self._scrcpy = None   # ScrcpyControl session (set during posting)
@@ -211,8 +213,21 @@ class AutoPoster:
 
         # 9. Post
         self.log("[POST] กดโพสต์...")
-        self._tap_r(serial, "post_button", settle=4)
-        self.log("[POST] เสร็จสิ้น flow ✓ (ตรวจสอบผลบนมือถือ)")
+        self._tap_r(serial, "post_button", settle=5)
+
+        # 9b. ยืนยันผลด้วย Gemini Vision (A1.3b) — ปิดช่อง silent failure
+        if self.settings.get("verify_post", True) and self.settings.get("google_api_key"):
+            from services.post_verifier import verify_post
+            model = self.settings.get("prompt_model", "gemini-2.0-flash")
+            res = verify_post(self.adb, serial, self.settings["google_api_key"],
+                              model=model, log=self.log)
+            if not res["verified"]:
+                self.log(f"[POST] ✗ ยืนยันแล้วว่าโพสต์ไม่สำเร็จ: {res['reason']}")
+                return False
+            self.log("[POST] ✓ ยืนยันโพสต์สำเร็จ")
+            return True
+
+        self.log("[POST] เสร็จสิ้น flow ✓ (ไม่ได้เปิดการยืนยัน)")
         return True
 
     # ── Full flow ─────────────────────────────────────────────

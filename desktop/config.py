@@ -48,6 +48,7 @@ DEFAULT = {
     "adb_port": 5037,
     "post_delay_min": 30,
     "post_delay_max": 120,
+    "verify_post": True,         # ยืนยันโพสต์สำเร็จด้วย Gemini Vision (A1.3b)
     "hot_folder": str(PENDING_DIR),
     "shop_name": "",
     # Video generation settings

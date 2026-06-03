@@ -90,7 +90,7 @@ class Worker:
         )
         gen.log = self.log
 
-        poster = AutoPoster(self.adb, log_cb=self.log)
+        poster = AutoPoster(self.adb, log_cb=self.log, settings=self.settings)
 
         while self._running and self._queue:
             product = self._queue.pop(0)
