@@ -66,6 +66,8 @@ class WebServer:
         self.gen    = None        # GenWorker (generate-only)
         self.poster = None        # PostWorker (publish-only)
         self.db     = None        # JobStore (A1.2) — persistent flow queue
+        self.budget = None        # BudgetGuard (A1.4)
+        self._budget_blocked = False   # throttle log เตือนงบเต็ม
         self.flow_queue: list = []  # legacy fallback เมื่อ db ไม่พร้อม
         self.mirrors: dict = {}   # serial → ScreenMirror
 
@@ -123,6 +125,7 @@ class WebServer:
                     "errors":        by.get(ERROR, 0),
                     "pilot_running": running,
                     "jobs":          self.db.stats(),   # breakdown ละเอียดสำหรับค็อกพิต
+                    "budget":        self.budget.snapshot() if self.budget else None,
                 }
             return {
                 "devices":    devices,
@@ -579,6 +582,16 @@ class WebServer:
         def flow_next():
             """extension ดึงงานถัดไป — ได้สินค้า + prompt ภาษาไทยพร้อมป้อน Flow."""
             if self.db:
+                # คุมงบ (A1.4): งบเดือนนี้เต็ม → ไม่แจกงานสร้าง (หยุดเอง)
+                if self.budget and not self.budget.can_generate():
+                    if not self._budget_blocked:
+                        self._budget_blocked = True
+                        snap = self.budget.snapshot()
+                        self.emit_log(f"[BUDGET] งบเดือนนี้เต็ม (ใช้ {snap['spent']}/{snap['budget']} บาท) "
+                                      f"— หยุดสร้างชั่วคราว")
+                        self.ws.broadcast_sync({"type": "budget_exceeded", **snap})
+                    return {"ok": True, "empty": True, "budget_exceeded": True}
+                self._budget_blocked = False
                 # คิว DB ว่าง → ดูดสินค้าที่ดูดมา (worker.queue) เข้า DB ก่อน (persistent)
                 if self.db.count(QUEUED) == 0 and self.worker and getattr(self.worker, "queue", None):
                     moved = self.db.add_many(list(self.worker.queue))
@@ -667,21 +680,26 @@ class WebServer:
             out_mp4.with_suffix(".json").write_text(
                 json.dumps(sidecar, ensure_ascii=False, indent=2), encoding="utf-8")
 
-            # อัปเดต DB: งานนี้สร้างคลิปเสร็จแล้ว → generated (พร้อมโพสต์)
+            # อัปเดต DB: งานนี้สร้างคลิปเสร็จแล้ว → generated (พร้อมโพสต์) + บันทึกต้นทุน
             if self.db:
                 job = self.db.get_by_product(pid)
                 if job:
-                    self.db.update(job["id"], status=GENERATED,
+                    jid = job["id"]
+                    self.db.update(jid, status=GENERATED,
                                    video_path=str(out_mp4), caption=sidecar["name"])
                 else:
                     # คลิปที่ไม่ได้ผ่าน /flow/next (เช่นส่งมาตรง) → สร้าง record ใหม่
-                    self.db.import_clip({
+                    jid = self.db.import_clip({
                         "product_id": pid,
                         "basic_info": {"name": sidecar["name"], "price": sidecar["price"],
                                        "sold_count": sidecar["sold_count"]},
                         "commission": {"rate": sidecar["commission"]},
                         "links": {"affiliate_link": sidecar["link"]},
                     }, GENERATED, str(out_mp4))
+                # บันทึกต้นทุนต่อคลิป (A1.4) — สะสมยอดใช้จ่ายเดือนนี้
+                cost = self.budget.cost_per_clip() if self.budget else 0
+                if jid and cost:
+                    self.db.add_cost(jid, cost)
 
             self.emit_log(f"[FLOW] รับวิดีโอ {pid} → pending (link={'มี' if sidecar['link'] else 'ไม่มี!'})")
             self.ws.broadcast_sync({"type": "flow_video", "pid": pid, "name": sidecar["name"]})
@@ -691,7 +709,10 @@ class WebServer:
         @app.get("/api/flow/status")
         def flow_status():
             q = self.db.count(QUEUED) if self.db else len(self.flow_queue)
-            return {"ok": True, "queued": q}
+            out = {"ok": True, "queued": q}
+            if self.budget:
+                out["budget"] = self.budget.snapshot()
+            return out
 
         # ── Snapshot (pre-capture cache — responds instantly) ──
 

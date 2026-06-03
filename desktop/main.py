@@ -11,6 +11,7 @@ from services.worker       import Worker
 from services.gen_worker   import GenWorker
 from services.post_worker  import PostWorker
 from services.db           import JobStore, migrate_folders
+from services.budget       import BudgetGuard
 
 
 def main():
@@ -36,6 +37,7 @@ def main():
     server.gen    = gen
     server.poster = poster
     server.db = worker.db = gen.db = poster.db = store   # workers adopt it in A1.2
+    server.budget = BudgetGuard(store)                   # คุมงบ (A1.4)
     worker.log    = server.emit_log
     gen.log       = server.emit_log
     poster.log    = server.emit_log

@@ -49,6 +49,8 @@ DEFAULT = {
     "post_delay_min": 30,
     "post_delay_max": 120,
     "verify_post": True,         # ยืนยันโพสต์สำเร็จด้วย Gemini Vision (A1.3b)
+    "monthly_budget": 0,         # งบรายเดือน (บาท), 0 = ไม่จำกัด (A1.4)
+    "cost_per_clip": 0,          # ต้นทุนประเมินต่อคลิป (บาท) Flow+Gemini
     "hot_folder": str(PENDING_DIR),
     "shop_name": "",
     # Video generation settings

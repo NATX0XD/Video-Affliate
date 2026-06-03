@@ -79,6 +79,7 @@ class JobStore:
                     attempts      INTEGER DEFAULT 0,
                     max_attempts  INTEGER DEFAULT 3,
                     cost          REAL DEFAULT 0,
+                    cost_at       INTEGER DEFAULT 0,
                     next_retry_at INTEGER DEFAULT 0,
                     created_at    INTEGER,
                     updated_at    INTEGER,
@@ -98,6 +99,8 @@ class JobStore:
             adds = []
             if "next_retry_at" not in cols:
                 adds.append("ALTER TABLE jobs ADD COLUMN next_retry_at INTEGER DEFAULT 0")
+            if "cost_at" not in cols:
+                adds.append("ALTER TABLE jobs ADD COLUMN cost_at INTEGER DEFAULT 0")
             for sql in adds:
                 self._conn.execute(sql)
             if adds:
@@ -314,6 +317,18 @@ class JobStore:
             else:
                 r = self._conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()
         return r["c"]
+
+    def add_cost(self, job_id: int, amount: float):
+        """Record cost incurred for a job (timestamped) — for budget tracking."""
+        self.update(job_id, cost=amount, cost_at=_now())
+
+    def spend_since(self, ts: int) -> float:
+        """Total cost incurred since timestamp `ts` (by cost_at)."""
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT COALESCE(SUM(cost),0) s FROM jobs WHERE cost_at>=?", (ts,)
+            ).fetchone()
+        return float(r["s"] or 0)
 
     def stats(self) -> dict:
         """Counts per status + total cost — for the cockpit/dashboard."""
