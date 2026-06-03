@@ -31,13 +31,10 @@ export function MirrorCell({ idx, device, onFullscreen }) {
   return (
     <div
       onClick={() => connected && onFullscreen(device?.serial)}
-      className={`relative flex flex-col rounded-xl overflow-hidden border bg-base transition-all duration-200 cursor-pointer group
-        ${streaming
-          ? 'border-success/50 glow-accent'
-          : connected
-            ? 'border-accent/30 hover:border-accent/60'
-            : 'border-line'}`}
-      style={streaming ? { boxShadow: '0 0 16px rgba(46,189,133,0.12)' } : undefined}
+      className={`group lift relative flex flex-col rounded-2xl overflow-hidden border bg-surface shadow-card
+        ${connected ? 'cursor-pointer' : ''}
+        ${streaming ? 'border-success/50' : connected ? 'border-accent/40' : 'border-line'}`}
+      style={streaming ? { boxShadow: '0 0 0 1px rgba(34,197,94,0.35), 0 8px 22px -8px rgba(34,197,94,0.4)' } : undefined}
     >
       {/* Thumbnail */}
       <div className="aspect-[9/16] relative bg-black flex items-center justify-center overflow-hidden">
@@ -76,19 +73,19 @@ export function MirrorCell({ idx, device, onFullscreen }) {
       </div>
 
       {/* Info bar */}
-      <div className="flex items-center justify-between px-2 py-1.5 border-t border-line bg-surface">
-        <span className="text-[9px] text-ink-dim truncate max-w-[65%] font-medium">
-          {device?.model || 'ว่าง'}
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+        <span className={`text-xs truncate font-medium ${connected ? 'text-ink' : 'text-ink-mute'}`}>
+          {device?.model || `ช่อง ${String(idx + 1).padStart(2, '0')}`}
         </span>
         {connected && (
           <button onClick={toggle}
-            className={`flex items-center justify-center w-5 h-5 rounded-md transition-all
+            className={`flex items-center justify-center w-6 h-6 rounded-lg shrink-0 transition-all
               ${streaming
-                ? 'bg-danger/20 text-danger hover:bg-danger/30'
-                : 'bg-accent/20 text-accent hover:bg-accent/30'}`}>
+                ? 'bg-danger/15 text-danger hover:bg-danger/25'
+                : 'bg-accent/15 text-accent hover:bg-accent/25'}`}>
             {streaming
-              ? <Square size={7} className="fill-current" />
-              : <Play   size={7} className="fill-current" />}
+              ? <Square size={9} className="fill-current" />
+              : <Play   size={9} className="fill-current" />}
           </button>
         )}
       </div>
