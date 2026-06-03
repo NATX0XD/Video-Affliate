@@ -87,6 +87,15 @@ class JobStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_jobs_status  ON jobs(status);
                 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
+
+                CREATE TABLE IF NOT EXISTS logs (
+                    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts      INTEGER,
+                    level   TEXT DEFAULT 'info',   -- info|success|warn|error
+                    source  TEXT DEFAULT '',       -- FLOW|POST|BUDGET|VERIFY|...
+                    message TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts);
                 """
             )
             self._conn.commit()
@@ -345,6 +354,56 @@ class JobStore:
             "total": sum(by_status.values()),
             "total_cost": total_cost,
         }
+
+    # ── logs (A1.8) ───────────────────────────────────────────
+
+    LOG_CAP = 5000   # เก็บ log ล่าสุดเท่านี้ (prune ส่วนเกิน)
+
+    def add_log(self, message: str, level: str = "info", source: str = ""):
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO logs (ts, level, source, message) VALUES (?,?,?,?)",
+                (_now(), level, source, (message or "")[:2000]),
+            )
+            # prune เป็นระยะ (ทุก ~200 บรรทัด) กันตารางบวม
+            if cur.lastrowid and cur.lastrowid % 200 == 0:
+                self._conn.execute(
+                    "DELETE FROM logs WHERE id <= (SELECT MAX(id) FROM logs) - ?",
+                    (self.LOG_CAP,),
+                )
+            self._conn.commit()
+
+    def list_logs(self, level: Optional[str] = None, source: Optional[str] = None,
+                  limit: int = 200, since_id: int = 0) -> list:
+        q = "SELECT * FROM logs WHERE id > ?"
+        args: list = [since_id]
+        if level:
+            q += " AND level=?"; args.append(level)
+        if source:
+            q += " AND source=?"; args.append(source)
+        q += " ORDER BY id DESC LIMIT ?"; args.append(limit)
+        with self._lock:
+            rows = self._conn.execute(q, args).fetchall()
+        return [dict(r) for r in rows]
+
+    def clear_logs(self):
+        with self._lock:
+            self._conn.execute("DELETE FROM logs")
+            self._conn.commit()
+
+    def log_stats(self) -> dict:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT level, COUNT(*) c FROM logs GROUP BY level"
+            ).fetchall()
+        return {r["level"]: r["c"] for r in rows}
+
+    def last_error(self) -> Optional[dict]:
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT * FROM logs WHERE level='error' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return dict(r) if r else None
 
     # ── recovery (near-zero-touch) ────────────────────────────
 

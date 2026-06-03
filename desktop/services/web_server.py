@@ -5,6 +5,7 @@ Replaces the old HTTPServer-based APIServer for web UI integration
 import asyncio
 import io
 import json
+import re
 import threading
 import time
 from typing import Optional, Callable
@@ -15,6 +16,24 @@ from fastapi.responses import StreamingResponse, JSONResponse, Response
 import uvicorn
 
 from services.db import QUEUED, GENERATING, GENERATED, POSTED, ERROR
+
+
+# ── Log classification (A1.8) ─────────────────────────────────
+
+_ERR_KW  = ("✗", "ไม่สำเร็จ", "พลาด", "ล้มเหลว", "ผิดพลาด", "ส่งไม่ได้", "error", "failed")
+_OK_KW   = ("✓", "สำเร็จ", "เสร็จ", "ครบแล้ว")
+_WARN_KW = ("⚠", "เตือน", "งบ", "หยุด", "ข้าม")
+
+def _classify_level(msg: str) -> str:
+    m = msg or ""
+    if any(k in m for k in _ERR_KW):  return "error"
+    if any(k in m for k in _OK_KW):   return "success"
+    if any(k in m for k in _WARN_KW): return "warn"
+    return "info"
+
+def _source_of(msg: str) -> str:
+    m = re.search(r"\[([^\]]+)\]", msg or "")
+    return m.group(1) if m else ""
 
 
 # ── WebSocket broadcast manager ───────────────────────────────
@@ -77,6 +96,7 @@ class WebServer:
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
+        self._started_at: Optional[float] = None   # uptime (A1.8)
 
         self.app = self._build_app()
 
@@ -714,6 +734,45 @@ class WebServer:
                 out["budget"] = self.budget.snapshot()
             return out
 
+        # ── Logs + diagnostics (A1.8) ──
+
+        @app.get("/api/logs")
+        def get_logs(level: str = None, source: str = None,
+                     limit: int = 200, since_id: int = 0):
+            if not self.db:
+                return {"logs": [], "stats": {}}
+            return {"logs":  self.db.list_logs(level, source, limit, since_id),
+                    "stats": self.db.log_stats()}
+
+        @app.post("/api/logs/clear")
+        def clear_logs():
+            if self.db:
+                self.db.clear_logs()
+            return {"ok": True}
+
+        @app.get("/api/diagnostics")
+        def diagnostics():
+            devices = []
+            if self.adb:
+                for d in self.adb.devices.values():
+                    devices.append({"serial": d.serial, "model": d.model,
+                                    "status": d.status, "battery": d.battery})
+            return {
+                "ok":         True,
+                "db":         str(getattr(self.db, "path", "")) if self.db else None,
+                "uptime_sec": int(time.time() - self._started_at) if self._started_at else 0,
+                "devices":    devices,
+                "workers": {
+                    "pilot":  bool(self.worker and self.worker.is_running),
+                    "gen":    bool(self.gen and self.gen.is_running),
+                    "poster": bool(self.poster and self.poster.is_running),
+                },
+                "jobs":       self.db.stats() if self.db else None,
+                "budget":     self.budget.snapshot() if self.budget else None,
+                "logs":       self.db.log_stats() if self.db else {},
+                "last_error": self.db.last_error() if self.db else None,
+            }
+
         # ── Snapshot (pre-capture cache — responds instantly) ──
 
         @app.get("/snapshot/{serial}")
@@ -869,8 +928,15 @@ class WebServer:
 
     # ── Broadcast helpers (call from threads) ─────────────────
 
-    def emit_log(self, msg: str):
-        self.ws.broadcast_sync({"type": "log", "msg": msg})
+    def emit_log(self, msg: str, level: str = None, source: str = None):
+        lvl = level or _classify_level(msg)
+        src = source if source is not None else _source_of(msg)
+        if self.db:
+            try:
+                self.db.add_log(msg, lvl, src)        # เก็บถาวร (A1.8)
+            except Exception:
+                pass
+        self.ws.broadcast_sync({"type": "log", "msg": msg, "level": lvl, "source": src})
 
     def emit_devices(self, devices: list):
         self.ws.broadcast_sync({"type": "devices", "devices": devices})
@@ -893,6 +959,8 @@ class WebServer:
     # ── Start/Stop ────────────────────────────────────────────
 
     def start(self):
+        self._started_at = time.time()
+
         async def _run():
             self._loop = asyncio.get_running_loop()
             self.ws._loop = self._loop
