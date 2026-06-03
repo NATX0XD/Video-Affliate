@@ -34,7 +34,7 @@ export function Sidebar({ wsConnected }) {
       {/* Brand */}
       <div className="flex items-center gap-3 px-5 h-[64px] border-b border-line-soft">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 glow-accent"
-             style={{ background: 'linear-gradient(135deg,#fb8c3a,#f97316)' }}>
+             style={{ background: 'linear-gradient(135deg,#b975f9,#a855f7)' }}>
           <Zap size={17} className="text-white fill-white" />
         </div>
         <div>

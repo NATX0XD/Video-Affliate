@@ -31,8 +31,8 @@ export default function DashboardPage() {
       {/* Page header */}
       <div className="flex items-end justify-between animate-fade-up">
         <div>
-          <h2 className="text-ink text-2xl font-bold tracking-tight">ภาพรวมระบบ</h2>
-          <p className="text-ink-dim text-sm mt-1">ระบบสร้างและเผยแพร่วิดีโออัตโนมัติ</p>
+          <h2 className="text-ink text-[32px] font-extrabold tracking-tight leading-none">ภาพรวมระบบ</h2>
+          <p className="text-ink-dim text-sm mt-2">ระบบสร้างและเผยแพร่วิดีโออัตโนมัติ</p>
         </div>
         <Link href="/autopilot"
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-accent text-white text-sm font-semibold shadow-xs transition-all hover:bg-accent-soft active:scale-[.98]">
