@@ -125,17 +125,19 @@
 - [x] `.gitignore` รวม + `.env.example` (desktop+web) + `README.md`
 
 ### A1 — ความเสถียร + Near-zero touch (หัวใจของออโต้) 🔴
-> "ลูกค้าแทบไม่แตะ" จะเป็นจริงได้ต้องมีอันนี้ก่อน
-- [ ] เปลี่ยน file-queue (pending/done/error) → **SQLite**
-- [ ] Job model: สถานะ, retry อัตโนมัติ, error log, timestamp, resume
-- [ ] **Budget/quota guard** — ประเมิน+คุมต้นทุน Flow/Gemini, หยุดเมื่อถึงเพดาน
-- [ ] Error recovery ใน worker + ปุ่มหยุดฉุกเฉิน (kill switch)
-- [ ] **Self-healing** — watchdog, ADB หลุด→ต่อใหม่เอง, login มือถือหมดอายุ→กู้เอง
-- [ ] **มือถือทำเองล้วน** — ปิด popup เอง + **OCR ยืนยันโพสต์สำเร็จจริง** (ไม่สำเร็จ→retry)
-- [ ] **Always-on** — auto-start เมื่อเปิดเครื่อง + ฟื้นงานค้างหลังรีสตาร์ท
-- [ ] **คุมทางไกลจากมือถือ** — Telegram bot (local polling): ดูสถานะ/สั่งหยุด/อนุมัติ
-- [ ] แจ้งเตือน (desktop + Telegram) เมื่อพลาด/ต้องการคน
-- [ ] Structured logging + หน้า diagnostics
+> "ลูกค้าแทบไม่แตะ" จะเป็นจริงได้ต้องมีอันนี้ก่อน — แตกเป็นชิ้นย่อย
+
+- [x] **A1.1 — SQLite job store** ✅ (commit 1710d9e)
+  - `services/db.py`: JobStore (lifecycle, atomic claim, retry/attempts, cost, stats)
+  - `reset_stuck()` resume งานค้าง + `migrate_folders()` นำเข้าคลิปเดิม
+  - wire init ใน main.py (additive — worker ยังเดิม)
+- [ ] **A1.2 — ย้าย worker มาใช้ DB** (Worker/GenWorker/PostWorker อ่าน-เขียน job store แทน in-memory) + API ใน web_server อ่านจาก DB
+- [ ] **A1.3 — Retry + recovery + OCR** — retry อัตโนมัติเมื่อพลาด, OCR ยืนยันโพสต์สำเร็จ (กันโพสต์ซ้ำหลัง resume)
+- [ ] **A1.4 — Budget/quota guard** — ประเมิน+คุมต้นทุน Flow/Gemini, หยุดเมื่อถึงเพดาน
+- [ ] **A1.5 — Self-healing** — watchdog, ADB หลุด→ต่อใหม่เอง, login มือถือหมดอายุ→กู้เอง
+- [ ] **A1.6 — Always-on** — auto-start เมื่อเปิดเครื่อง + ปุ่มหยุดฉุกเฉิน
+- [ ] **A1.7 — คุมทางไกล + แจ้งเตือน** — Telegram bot (local polling): ดู/หยุด/อนุมัติ + เตือนเมื่อพลาด
+- [ ] **A1.8 — Logging + diagnostics** — structured log + หน้าดู health
 
 ### A2 — UI ใหม่ (แผงคุม + มอนิเตอร์) 🎨 (จุดเจ็บปวด #1)
 > แดชบอร์ด = "ตั้งค่าออโต้ + ดูสถานะ" ไม่ใช่กดทีละขั้น
