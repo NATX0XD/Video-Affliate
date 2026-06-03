@@ -20,7 +20,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="th" data-theme="dark"
+    <html lang="th" data-theme="light"
           className={`h-full ${inter.variable} ${thai.variable}`}>
       <body className="h-full bg-base text-ink antialiased">
         {children}

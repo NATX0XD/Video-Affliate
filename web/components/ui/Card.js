@@ -1,7 +1,7 @@
 export function Card({ children, className = '', glass = false }) {
   const base = glass
-    ? 'bg-surface/60 backdrop-blur-md border border-line rounded-2xl'
-    : 'bg-surface border border-line rounded-2xl'
+    ? 'bg-surface/70 backdrop-blur-md border border-line rounded-2xl'
+    : 'bg-surface border border-line rounded-2xl shadow-card'
   return <div className={`${base} ${className}`}>{children}</div>
 }
 
