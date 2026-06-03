@@ -14,6 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 import uvicorn
 
+from services.db import QUEUED, GENERATING, GENERATED, POSTED, ERROR
+
 
 # ── WebSocket broadcast manager ───────────────────────────────
 
@@ -63,7 +65,8 @@ class WebServer:
         self.worker = None
         self.gen    = None        # GenWorker (generate-only)
         self.poster = None        # PostWorker (publish-only)
-        self.flow_queue: list = []  # สินค้าที่รอ extension สร้างผ่าน Google Flow
+        self.db     = None        # JobStore (A1.2) — persistent flow queue
+        self.flow_queue: list = []  # legacy fallback เมื่อ db ไม่พร้อม
         self.mirrors: dict = {}   # serial → ScreenMirror
 
         # Pre-capture cache: background thread continuously screenshots each device
@@ -494,26 +497,23 @@ class WebServer:
         async def flow_enqueue(body: dict):
             products = body.get("products") or ([body["product"]] if body.get("product") else [])
             products = [p for p in products if p]
+            if self.db:
+                added = self.db.add_many(products)          # deduped, persistent
+                q = self.db.count(QUEUED)
+                self.emit_log(f"[FLOW] เข้าคิว {added} ชิ้น (รอสร้าง: {q})")
+                return {"ok": True, "queued": q, "added": added}
+            # fallback (db ไม่พร้อม)
             self.flow_queue.extend(products)
             self.emit_log(f"[FLOW] เข้าคิว {len(products)} ชิ้น (รอสร้าง: {len(self.flow_queue)})")
             return {"ok": True, "queued": len(self.flow_queue)}
 
-        @app.get("/api/flow/next")
-        def flow_next():
-            """extension ดึงงานถัดไป — ได้สินค้า + prompt ภาษาไทยพร้อมป้อน Flow."""
-            # ถ้าคิว Flow ว่าง → ดึงจากสินค้าที่ดูดมาปกติ (worker.queue) ให้เลย (ไม่ต้อง curl)
-            if not self.flow_queue and self.worker and getattr(self.worker, "queue", None):
-                self.flow_queue.extend(list(self.worker.queue))
-                self.worker.queue.clear()
-                self.emit_log(f"[FLOW] ดึงจากคิวสินค้าที่ดูดมา {len(self.flow_queue)} ชิ้น")
-            if not self.flow_queue:
-                return {"ok": True, "empty": True}
-            product = self.flow_queue.pop(0)
+        def _flow_payload(product: dict, remaining: int, job_id=None) -> dict:
             prompt = _flow_prompt(product)        # prompt เดียว ระบุ 20 วิ → agent แบ่งเอง
             return {
                 "ok": True,
                 "empty": False,
-                "remaining": len(self.flow_queue),
+                "remaining": remaining,
+                "job_id": job_id,
                 "product": {
                     "product_id": product.get("product_id", ""),
                     "name":       product.get("basic_info", {}).get("name", ""),
@@ -528,6 +528,30 @@ class WebServer:
                 },
                 "prompt": prompt,
             }
+
+        @app.get("/api/flow/next")
+        def flow_next():
+            """extension ดึงงานถัดไป — ได้สินค้า + prompt ภาษาไทยพร้อมป้อน Flow."""
+            if self.db:
+                # คิว DB ว่าง → ดูดสินค้าที่ดูดมา (worker.queue) เข้า DB ก่อน (persistent)
+                if self.db.count(QUEUED) == 0 and self.worker and getattr(self.worker, "queue", None):
+                    moved = self.db.add_many(list(self.worker.queue))
+                    self.worker.queue.clear()
+                    if moved:
+                        self.emit_log(f"[FLOW] ดึงจากคิวสินค้าที่ดูดมา {moved} ชิ้น")
+                job = self.db.claim(QUEUED, GENERATING)   # atomic: queued → generating
+                if not job:
+                    return {"ok": True, "empty": True}
+                return _flow_payload(job["product"], self.db.count(QUEUED), job["id"])
+            # ── legacy fallback (db ไม่พร้อม) ──
+            if not self.flow_queue and self.worker and getattr(self.worker, "queue", None):
+                self.flow_queue.extend(list(self.worker.queue))
+                self.worker.queue.clear()
+                self.emit_log(f"[FLOW] ดึงจากคิวสินค้าที่ดูดมา {len(self.flow_queue)} ชิ้น")
+            if not self.flow_queue:
+                return {"ok": True, "empty": True}
+            product = self.flow_queue.pop(0)
+            return _flow_payload(product, len(self.flow_queue))
 
         @app.post("/api/flow/prompt")
         async def flow_prompt_ep(body: dict):
@@ -596,6 +620,23 @@ class WebServer:
             }
             out_mp4.with_suffix(".json").write_text(
                 json.dumps(sidecar, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            # อัปเดต DB: งานนี้สร้างคลิปเสร็จแล้ว → generated (พร้อมโพสต์)
+            if self.db:
+                job = self.db.get_by_product(pid)
+                if job:
+                    self.db.update(job["id"], status=GENERATED,
+                                   video_path=str(out_mp4), caption=sidecar["name"])
+                else:
+                    # คลิปที่ไม่ได้ผ่าน /flow/next (เช่นส่งมาตรง) → สร้าง record ใหม่
+                    self.db.import_clip({
+                        "product_id": pid,
+                        "basic_info": {"name": sidecar["name"], "price": sidecar["price"],
+                                       "sold_count": sidecar["sold_count"]},
+                        "commission": {"rate": sidecar["commission"]},
+                        "links": {"affiliate_link": sidecar["link"]},
+                    }, GENERATED, str(out_mp4))
+
             self.emit_log(f"[FLOW] รับวิดีโอ {pid} → pending (link={'มี' if sidecar['link'] else 'ไม่มี!'})")
             self.ws.broadcast_sync({"type": "flow_video", "pid": pid, "name": sidecar["name"]})
             ready = len(self.poster.ready_clips()) if self.poster else 0
@@ -603,7 +644,8 @@ class WebServer:
 
         @app.get("/api/flow/status")
         def flow_status():
-            return {"ok": True, "queued": len(self.flow_queue)}
+            q = self.db.count(QUEUED) if self.db else len(self.flow_queue)
+            return {"ok": True, "queued": q}
 
         # ── Snapshot (pre-capture cache — responds instantly) ──
 
