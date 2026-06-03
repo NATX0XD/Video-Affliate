@@ -10,7 +10,7 @@ export function Topbar({ title, devices = 0, queue = 0, onMenu }) {
 
       <h1 className="text-ink font-bold text-[17px] lg:text-[19px] tracking-tight truncate flex-1">{title}</h1>
 
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="hidden sm:flex items-center gap-2.5 shrink-0">
         <Pill icon={Smartphone}  val={devices} label="มือถือ" />
         <Pill icon={ListOrdered} val={queue}   label="คิวงาน" />
       </div>

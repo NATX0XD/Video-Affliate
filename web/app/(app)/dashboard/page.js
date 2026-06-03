@@ -1,22 +1,36 @@
 'use client'
-import Link from 'next/link'
 import { useApp }    from '../layout'
 import { StatCard }  from '@/components/dashboard/StatCard'
 import { SystemLog } from '@/components/dashboard/SystemLog'
+import { api }       from '@/lib/api'
 import {
-  Smartphone, ListOrdered, CheckCircle2, XCircle,
-  Package, Rocket, Monitor, ArrowRight, Play
+  Smartphone, ListOrdered, CheckCircle2, XCircle, Wallet,
+  Rocket, Play, Square, Search, Clapperboard, Send, ChevronRight
 } from 'lucide-react'
 
-const QUICK = [
-  { href: '/products', icon: Package, title: 'นำเข้าสินค้า', desc: 'ดึงรายการจาก Extension' },
-  { href: '/mirror',   icon: Monitor, title: 'จอมือถือ',     desc: 'ควบคุมอุปกรณ์เรียลไทม์' },
+// ขั้นตอนของไปป์ไลน์ (ตรงกับสถานะใน DB)
+const PIPELINE = [
+  { key: 'queued',     label: 'รอคิว',      icon: ListOrdered },
+  { key: 'generating', label: 'กำลังสร้าง', icon: Clapperboard },
+  { key: 'generated',  label: 'รอเผยแพร่',  icon: Search },
+  { key: 'posting',    label: 'กำลังโพสต์', icon: Send },
+  { key: 'posted',     label: 'เผยแพร่แล้ว', icon: CheckCircle2 },
 ]
 
 export default function DashboardPage() {
   const { state, patch } = useApp()
   const online  = state.devices.filter(d => d.status === 'device').length
   const running = state.pilot_running
+  const by      = state.jobs?.by_status || {}
+  const budget  = state.budget
+
+  const toggle = () => {
+    if (running) { api.pilotStop().catch(() => {}) }
+    else {
+      const dev = state.devices.find(d => d.status === 'device')
+      api.pilotStart(dev?.serial || '').catch(() => {})
+    }
+  }
 
   const stats = [
     { icon: Smartphone,   label: 'อุปกรณ์ออนไลน์', value: online },
@@ -26,18 +40,72 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8 h-full">
+    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8">
 
-      {/* Page header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between animate-fade-up">
-        <div>
-          <h2 className="text-ink text-[28px] lg:text-[32px] font-extrabold tracking-tight leading-none">ภาพรวมระบบ</h2>
-          <p className="text-ink-dim text-sm mt-2">ระบบสร้างและเผยแพร่วิดีโออัตโนมัติ</p>
+      {/* Header */}
+      <div className="flex flex-col gap-1 animate-fade-up">
+        <h2 className="text-ink text-[26px] lg:text-[30px] font-extrabold tracking-tight leading-none">ภาพรวมระบบ</h2>
+        <p className="text-ink-dim text-sm">ระบบสร้างและเผยแพร่วิดีโอ Shopee อัตโนมัติ</p>
+      </div>
+
+      {/* ── Auto-Pilot Control Center (hero) ── */}
+      <div className="relative overflow-hidden rounded-2xl border border-line bg-surface shadow-card animate-fade-up"
+           style={{ animationDelay: '60ms' }}>
+        <div className="absolute -top-24 -right-16 w-72 h-72 rounded-full bg-accent/10 blur-3xl pointer-events-none" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center gap-6 p-6 lg:p-7">
+
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="relative w-14 h-14 rounded-2xl flex items-center justify-center bg-accent-wash shrink-0">
+              <Rocket size={26} strokeWidth={2} className="text-accent" />
+              {running && <span className="absolute inset-0 rounded-2xl border-2 border-accent/40 animate-ping" />}
+            </div>
+            <div className="min-w-0">
+              <p className="text-accent text-[11px] font-bold uppercase tracking-[0.15em]">ออโต้ไพลอต</p>
+              <p className="text-ink text-2xl font-extrabold tracking-tight leading-tight">
+                {running ? 'กำลังทำงาน' : 'พร้อมเริ่มงาน'}
+              </p>
+              <p className="text-ink-dim text-sm truncate">
+                {running
+                  ? (state.currentItem?.name ? `กำลังประมวลผล: ${state.currentItem.name}` : 'ค้นหา · สร้าง · เผยแพร่ ตามลำดับ')
+                  : 'ตั้งค่าแล้วกดเริ่ม ระบบจะทำงานเองทั้งหมด'}
+              </p>
+            </div>
+          </div>
+
+          <div className="lg:ml-auto flex items-center gap-3 shrink-0">
+            <button onClick={toggle}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-white transition-all active:scale-[.97]
+                ${running ? 'bg-danger hover:opacity-90' : 'bg-accent hover:bg-accent-soft glow-accent'}`}>
+              {running ? <Square size={16} className="fill-current" /> : <Play size={16} className="fill-current" />}
+              {running ? 'หยุดทำงาน' : 'เริ่มทำงาน'}
+            </button>
+          </div>
         </div>
-        <Link href="/autopilot"
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-accent text-white text-sm font-semibold shadow-xs transition-all hover:bg-accent-soft active:scale-[.98]">
-          <Play size={15} className="fill-current" /> เริ่มออโต้ไพลอต
-        </Link>
+
+        {/* Pipeline (stepper กระจายเต็มความกว้าง) */}
+        <div className="relative border-t border-line px-6 lg:px-10 py-6">
+          <div className="flex items-start overflow-x-auto">
+            {PIPELINE.map((s, i) => {
+              const n = by[s.key] || 0
+              const active = n > 0
+              return (
+                <div key={s.key} className="flex items-center" style={{ flex: i < PIPELINE.length - 1 ? '1 1 0' : '0 0 auto' }}>
+                  <div className="flex flex-col items-center gap-1.5 shrink-0">
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-colors
+                      ${active ? 'bg-accent-wash text-accent ring-2 ring-accent/20' : 'bg-elevated text-ink-mute'}`}>
+                      <s.icon size={18} strokeWidth={2} />
+                    </div>
+                    <span className="text-ink text-lg font-bold nums leading-none">{n}</span>
+                    <span className="text-ink-mute text-[11px] whitespace-nowrap">{s.label}</span>
+                  </div>
+                  {i < PIPELINE.length - 1 && (
+                    <div className={`flex-1 h-0.5 mx-2 mb-9 rounded-full ${active ? 'bg-accent/40' : 'bg-line'}`} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Stats */}
@@ -45,50 +113,53 @@ export default function DashboardPage() {
         {stats.map((s, i) => <StatCard key={s.label} index={i} {...s} />)}
       </div>
 
-      {/* Lower: log (กว้าง) + panel ขวา */}
-      <div className="flex-1 min-h-[300px] grid grid-cols-1 lg:grid-cols-3 gap-5">
-
-        {/* Activity log */}
-        <div className="lg:col-span-2 min-h-[300px] animate-fade-up" style={{ animationDelay: '140ms' }}>
+      {/* Lower: activity + budget */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 h-[360px] animate-fade-up" style={{ animationDelay: '160ms' }}>
           <SystemLog logs={state.logs} onClear={() => patch({ logs: [] })} />
         </div>
 
-        {/* Side panel */}
-        <div className="flex flex-col gap-5 animate-fade-up" style={{ animationDelay: '200ms' }}>
-
-          {/* Auto-pilot status */}
-          <div className="rounded-xl bg-surface border border-line shadow-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-accent-wash">
-                <Rocket size={19} strokeWidth={2.2} className="text-accent" />
-              </div>
-              <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border
-                ${running ? 'bg-accent-wash text-accent border-accent/20' : 'bg-elevated text-ink-mute border-line'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-accent animate-pulse-dot' : 'bg-ink-mute'}`} />
-                {running ? 'ทำงานอยู่' : 'หยุดทำงาน'}
-              </span>
-            </div>
-            <p className="text-ink text-[15px] font-semibold">ระบบอัตโนมัติ</p>
-            <p className="text-ink-dim text-sm mt-1">
-              {running ? 'กำลังค้นหา สร้าง และเผยแพร่ตามลำดับ' : 'พร้อมเริ่มทำงาน ตั้งค่าแล้วกดเริ่มได้ทันที'}
-            </p>
-          </div>
-
-          {/* Quick links */}
-          {QUICK.map(({ href, icon: Icon, title, desc }) => (
-            <Link key={href} href={href}
-              className="group lift rounded-xl bg-surface border border-line shadow-card p-4 flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-elevated group-hover:bg-accent-wash transition-colors shrink-0">
-                <Icon size={19} strokeWidth={2.2} className="text-ink-dim group-hover:text-accent transition-colors" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-ink text-sm font-semibold">{title}</p>
-                <p className="text-ink-dim text-xs truncate">{desc}</p>
-              </div>
-              <ArrowRight size={16} className="text-ink-mute group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
-            </Link>
-          ))}
+        <div className="animate-fade-up" style={{ animationDelay: '220ms' }}>
+          <BudgetCard budget={budget} cost={state.jobs?.total_cost || 0} />
         </div>
+      </div>
+    </div>
+  )
+}
+
+function BudgetCard({ budget, cost }) {
+  const unlimited = !budget || budget.unlimited
+  const spent = budget?.spent ?? cost ?? 0
+  const total = budget?.budget ?? 0
+  const pct = unlimited || !total ? 0 : Math.min(100, (spent / total) * 100)
+
+  return (
+    <div className="h-full rounded-xl bg-surface border border-line shadow-card p-5 flex flex-col">
+      <div className="flex items-center gap-2.5 mb-4">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-accent-wash">
+          <Wallet size={17} className="text-accent" />
+        </div>
+        <span className="text-ink text-sm font-semibold">งบประมาณเดือนนี้</span>
+      </div>
+
+      <p className="text-ink text-[28px] font-extrabold nums leading-none">
+        ฿{spent.toLocaleString('th-TH')}
+      </p>
+      <p className="text-ink-mute text-xs mt-1.5">
+        {unlimited ? 'ไม่จำกัดงบ' : `จาก ฿${total.toLocaleString('th-TH')}`}
+      </p>
+
+      {!unlimited && (
+        <div className="mt-4">
+          <div className="h-2 rounded-full bg-elevated overflow-hidden">
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <p className="text-ink-mute text-[11px] mt-2">ใช้ไป {pct.toFixed(0)}%</p>
+        </div>
+      )}
+
+      <div className="mt-auto pt-4 text-[11px] text-ink-mute leading-relaxed">
+        ต้นทุนรวมจาก Flow + Gemini ของงานทั้งหมด
       </div>
     </div>
   )

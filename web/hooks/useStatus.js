@@ -6,9 +6,11 @@ import { useWebSocket } from './useWebSocket'
 const DEFAULT = {
   devices: [], queue: 0, done: 0, errors: 0,
   pilot_running: false, logs: [], ws_connected: false,
-  queueItems: [],   // { pid, name, price, commission, status }
+  jobs: { by_status: {}, total: 0, total_cost: 0 },
+  budget: null,
+  queueItems: [],
   currentItem: null,
-  genProgress: null,  // { pid, stage, detail, error }
+  genProgress: null,
 }
 
 export function useStatus() {
@@ -30,30 +32,24 @@ export function useStatus() {
       case 'log':
         setState(prev => ({
           ...prev,
-          logs: [...prev.logs.slice(-199), { time: new Date().toLocaleTimeString(), msg: msg.msg }]
+          logs: [...prev.logs.slice(-199), {
+            time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            msg: msg.msg, level: msg.level, source: msg.source,
+          }]
         }))
         break
 
-      // New products added to queue
       case 'queue_items':
-        setState(prev => ({
-          ...prev,
-          queueItems: [...prev.queueItems, ...msg.items],
-        }))
+        setState(prev => ({ ...prev, queueItems: [...prev.queueItems, ...msg.items] }))
         break
 
-      // Generation progress (prompt → submit → rendering → downloading → done/error)
       case 'gen_progress':
-        patch({
-          genProgress: {
-            pid: msg.pid, stage: msg.stage, detail: msg.detail,
-            error: msg.stage === 'error' ? msg.detail : null,
-            ts: Date.now(),
-          }
-        })
+        patch({ genProgress: {
+          pid: msg.pid, stage: msg.stage, detail: msg.detail,
+          error: msg.stage === 'error' ? msg.detail : null, ts: Date.now(),
+        }})
         break
 
-      // Worker status update for a specific product
       case 'worker_status':
         setState(prev => ({
           ...prev,
@@ -61,8 +57,7 @@ export function useStatus() {
             ? prev.queueItems.find(i => i.pid === msg.pid) ?? prev.currentItem
             : prev.currentItem,
           queueItems: prev.queueItems.map(item =>
-            item.pid === msg.pid ? { ...item, status: msg.status } : item
-          ),
+            item.pid === msg.pid ? { ...item, status: msg.status } : item),
         }))
         break
 
@@ -80,12 +75,21 @@ export function useStatus() {
 
   useWebSocket(handleMsg)
 
+  // โหลดสถานะ + poll เป็นระยะ (jobs/budget/devices ไม่ได้มาทาง WS ทุกตัว)
   useEffect(() => {
-    api.status().then(d => patch({
-      devices: d.devices, queue: d.queue,
-      done: d.done, errors: d.errors,
-      pilot_running: d.pilot_running,
-    })).catch(() => {})
+    let alive = true
+    const pull = () => api.status().then(d => {
+      if (!alive) return
+      patch({
+        devices: d.devices, queue: d.queue, done: d.done, errors: d.errors,
+        pilot_running: d.pilot_running,
+        jobs: d.jobs || DEFAULT.jobs,
+        budget: d.budget ?? null,
+      })
+    }).catch(() => {})
+    pull()
+    const id = setInterval(pull, 5000)
+    return () => { alive = false; clearInterval(id) }
   }, [patch])
 
   return { state, patch }
