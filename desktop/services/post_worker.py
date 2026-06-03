@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional, Callable
 import config as cfg
 from services.adb.autoposter import AutoPoster
+from services.db import GENERATED, POSTING
 
 
 class PostWorker:
@@ -20,6 +21,7 @@ class PostWorker:
         self.settings = settings
         self.adb = adb_manager
         self.log: Callable = print
+        self.db = None              # JobStore (A1.2c) — injected by main.py
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -39,7 +41,10 @@ class PostWorker:
     # ── Library scan ──────────────────────────────────────────
 
     def ready_clips(self) -> list:
-        """List clips in pending/ that have sidecar metadata (ready to post)."""
+        """Clips ready to post = jobs in 'generated' (DB).
+        Fallback: scan pending/ folder when db is unavailable."""
+        if self.db:
+            return self.db.list(GENERATED, limit=9999)
         clips = []
         for mp4 in sorted(cfg.PENDING_DIR.glob("*.mp4"), key=lambda x: x.stat().st_mtime):
             side = mp4.with_suffix(".json")
@@ -80,6 +85,73 @@ class PostWorker:
 
     def _run(self):
         poster = AutoPoster(self.adb, log_cb=self.log)
+        if not self.db:
+            return self._run_legacy(poster)   # legacy จบงาน + on_finished เอง
+        else:
+            self.log(f"[POST-ALL] เริ่มโพสต์ (คลังพร้อม {self.db.count(GENERATED)}) → {self._serial}")
+            while self._running:
+                job = self.db.claim(GENERATED, POSTING)   # atomic
+                if not job:
+                    break
+                jid     = job["id"]
+                product = job["product"]
+                pid     = product.get("product_id") or str(jid)
+                name    = (product.get("basic_info", {}) or {}).get("name", "")[:35]
+                video   = Path(job["video_path"]) if job.get("video_path") else None
+
+                self._status(pid, "posting")
+                if not video or not video.exists():
+                    self.db.mark_error(jid, "ไฟล์วิดีโอหาย")
+                    self.err_count += 1
+                    self._status(pid, "error")
+                    self._stats(self.db.count(GENERATED))
+                    continue
+
+                self.log(f"[POST-ALL] {name}")
+                ok = poster.process(self._serial, video, product)
+
+                # ย้ายไฟล์เก็บ + อัปเดต DB (source of truth)
+                dest = cfg.DONE_DIR if ok else cfg.ERROR_DIR
+                dest.mkdir(parents=True, exist_ok=True)
+                new_path = dest / video.name
+                try:
+                    video.rename(new_path)
+                    side = video.with_suffix(".json")
+                    if side.exists():
+                        side.rename(dest / side.name)
+                except Exception:
+                    new_path = video
+
+                if ok:
+                    self.db.mark_posted(jid, video_path=str(new_path))
+                    self.done_count += 1
+                    self._status(pid, "done")
+                else:
+                    self.db.mark_error(jid, "โพสต์ไม่สำเร็จ")
+                    self.db.update(jid, video_path=str(new_path))
+                    self.err_count += 1
+                    self._status(pid, "error")
+                self._stats(self.db.count(GENERATED))
+
+                if self._running and self.db.count(GENERATED) > 0:
+                    self._delay()
+
+        self._running = False
+        self.log(f"[POST-ALL] จบ ✅ สำเร็จ {self.done_count} ผิดพลาด {self.err_count}")
+        if self.on_finished:
+            self.on_finished()
+
+    def _delay(self):
+        delay = random.randint(int(self.settings.get("post_delay_min", 30)),
+                               int(self.settings.get("post_delay_max", 120)))
+        self.log(f"[POST-ALL] รอ {delay}s ก่อนคลิปต่อไป...")
+        for _ in range(delay):
+            if not self._running:
+                break
+            time.sleep(1)
+
+    # ── legacy folder-based loop (db ไม่พร้อม) ──
+    def _run_legacy(self, poster):
         clips = self.ready_clips()
         total = len(clips)
         self.log(f"[POST-ALL] เริ่มโพสต์ {total} คลิป → {self._serial}")
