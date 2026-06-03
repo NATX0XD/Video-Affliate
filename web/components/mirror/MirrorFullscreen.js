@@ -39,47 +39,44 @@ export function MirrorFullscreen({ device, onBack }) {
 
   if (!device) return (
     <div className="flex-1 flex items-center justify-center">
-      <p className="text-slate-500 text-sm">Device not found</p>
+      <p className="text-ink-mute text-sm">ไม่พบเครื่อง</p>
     </div>
   )
 
   const NAV_BTNS = [
-    { label: 'Back',    icon: RotateCcw, fn: () => key('KEYCODE_BACK')      },
-    { label: 'Home',    icon: Home,      fn: () => key('KEYCODE_HOME')       },
-    { label: 'Recents', icon: Grid2x2,   fn: () => key('KEYCODE_APP_SWITCH') },
+    { label: 'ย้อนกลับ', icon: RotateCcw, fn: () => key('KEYCODE_BACK')      },
+    { label: 'หน้าหลัก', icon: Home,      fn: () => key('KEYCODE_HOME')       },
+    { label: 'แอปล่าสุด', icon: Grid2x2,  fn: () => key('KEYCODE_APP_SWITCH') },
   ]
 
   return (
     <div className="flex flex-col h-full">
 
       {/* Header */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-white/[0.05] shrink-0"
-           style={{ background: '#0a0a16' }}>
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-line shrink-0 bg-surface">
         <button onClick={onBack}
-          className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] px-3 py-1.5 rounded-lg transition-all">
-          <ArrowLeft size={12} /> Grid
+          className="flex items-center gap-1.5 text-xs font-medium text-ink-dim hover:text-ink bg-elevated hover:bg-line border border-line px-3 py-1.5 rounded-lg transition-all">
+          <ArrowLeft size={12} /> กริด
         </button>
-        <span className="text-white font-semibold text-sm">{device.model}</span>
-        <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse-dot" />
+        <span className="text-ink font-semibold text-sm">{device.model}</span>
+        <span className="flex items-center gap-1.5 text-[10px] font-bold text-success bg-success/10 border border-success/20 px-2.5 py-1 rounded-full">
+          <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse-dot" />
           Live
         </span>
-        <span className="ml-auto text-[11px] text-slate-700">
-          Click = Tap · Drag = Swipe · Right-click = Back
+        <span className="ml-auto text-[11px] text-ink-mute">
+          คลิก = แตะ · ลาก = ปัด · คลิกขวา = ย้อนกลับ
         </span>
       </div>
 
       <div className="flex flex-1 overflow-hidden min-h-0">
 
-        {/* Phone screen — MJPEG stream直接ใส่ใน <img src> */}
-        <div className="flex-1 flex items-center justify-center p-6 overflow-hidden"
-             style={{ background: '#060610' }}>
+        {/* Phone screen — MJPEG stream ใส่ใน <img src> */}
+        <div className="flex-1 flex items-center justify-center p-6 overflow-hidden bg-base">
           <div className="relative h-full flex items-center justify-center">
-            <div className="relative rounded-[2rem] overflow-hidden border-[3px] h-full bg-black"
+            <div className="relative rounded-[2rem] overflow-hidden border-[3px] border-line h-full bg-black"
                  style={{
                    aspectRatio: '9/19.5',
-                   borderColor: 'rgba(255,255,255,0.08)',
-                   boxShadow: '0 40px 100px rgba(0,0,0,0.9), 0 0 80px rgba(124,58,237,0.06)',
+                   boxShadow: '0 40px 100px rgba(0,0,0,0.7), 0 0 80px rgba(255,92,43,0.08)',
                  }}>
               <img
                 ref={imgRef}
@@ -97,15 +94,14 @@ export function MirrorFullscreen({ device, onBack }) {
         </div>
 
         {/* Controls panel */}
-        <div className="w-52 shrink-0 border-l border-white/[0.05] flex flex-col gap-5 p-4 overflow-y-auto"
-             style={{ background: '#0a0a16' }}>
+        <div className="w-52 shrink-0 border-l border-line flex flex-col gap-5 p-4 overflow-y-auto bg-surface">
 
           <div>
-            <p className="text-slate-600 text-[10px] font-bold uppercase tracking-widest mb-2.5">Navigation</p>
+            <p className="text-ink-mute text-[10px] font-bold uppercase tracking-widest mb-2.5">นำทาง</p>
             <div className="flex flex-col gap-1.5">
               {NAV_BTNS.map(({ label, icon: Icon, fn }) => (
                 <button key={label} onClick={fn}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-400 text-xs font-medium bg-white/[0.03] hover:bg-white/[0.07] hover:text-white border border-white/[0.05] transition-all">
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-ink-dim text-xs font-medium bg-elevated hover:bg-line hover:text-ink border border-line transition-all">
                   <Icon size={12} strokeWidth={2} /> {label}
                 </button>
               ))}
@@ -113,14 +109,14 @@ export function MirrorFullscreen({ device, onBack }) {
           </div>
 
           <div>
-            <p className="text-slate-600 text-[10px] font-bold uppercase tracking-widest mb-2.5">Volume</p>
+            <p className="text-ink-mute text-[10px] font-bold uppercase tracking-widest mb-2.5">เสียง</p>
             <div className="grid grid-cols-2 gap-1.5">
               {[
-                { icon: Volume2, label: 'Up',   code: 'KEYCODE_VOLUME_UP'   },
-                { icon: VolumeX, label: 'Down', code: 'KEYCODE_VOLUME_DOWN' },
+                { icon: Volume2, label: 'เพิ่ม', code: 'KEYCODE_VOLUME_UP'   },
+                { icon: VolumeX, label: 'ลด',   code: 'KEYCODE_VOLUME_DOWN' },
               ].map(({ icon: Icon, label, code }) => (
                 <button key={label} onClick={() => key(code)}
-                  className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-400 text-xs font-medium bg-white/[0.03] hover:bg-white/[0.07] hover:text-white border border-white/[0.05] transition-all">
+                  className="flex items-center justify-center gap-1.5 py-2 rounded-xl text-ink-dim text-xs font-medium bg-elevated hover:bg-line hover:text-ink border border-line transition-all">
                   <Icon size={11} /> {label}
                 </button>
               ))}
@@ -129,8 +125,8 @@ export function MirrorFullscreen({ device, onBack }) {
 
           <div className="mt-auto">
             <button onClick={() => api.openShopee(device.serial)}
-              className="flex items-center justify-center gap-2 w-full py-2 rounded-xl text-xs font-semibold text-violet-400 bg-violet-500/10 hover:bg-violet-500/15 border border-violet-500/20 transition-all">
-              <ExternalLink size={11} /> Open Shopee
+              className="flex items-center justify-center gap-2 w-full py-2 rounded-xl text-xs font-semibold text-accent bg-accent/10 hover:bg-accent/15 border border-accent/20 transition-all">
+              <ExternalLink size={11} /> เปิด Shopee
             </button>
           </div>
         </div>

@@ -1,22 +1,73 @@
 @import "tailwindcss";
 
-:root {
-  --bg-base:     #07070e;
-  --bg-surface:  #0f0f1c;
-  --bg-elevated: #141422;
-  --border:      rgba(255,255,255,0.06);
+/* ── Themeable semantic colors (dark default + light override) ── */
+:root, [data-theme="dark"] {
+  --c-base:     #0e0f11;   /* พื้นหลังสุด (warm near-black) */
+  --c-surface:  #16181c;   /* การ์ด */
+  --c-elevated: #1e2126;   /* modal / popover / control */
+  --c-line:     rgba(255,255,255,0.08);   /* hairline */
+  --c-ink:      #f2f3f5;   /* ข้อความหลัก */
+  --c-ink-dim:  #9ba1a8;   /* รอง */
+  --c-ink-mute: #6b7178;   /* จาง */
+}
+[data-theme="light"] {
+  --c-base:     #f5f6f8;
+  --c-surface:  #ffffff;
+  --c-elevated: #ffffff;
+  --c-line:     rgba(15,17,20,0.10);
+  --c-ink:      #14171a;
+  --c-ink-dim:  #5b6166;
+  --c-ink-mute: #8a9097;
 }
 
+/* ── Tailwind v4 tokens (utilities: bg-base, text-ink, border-line, bg-accent…) ── */
+@theme inline {
+  --color-base:     var(--c-base);
+  --color-surface:  var(--c-surface);
+  --color-elevated: var(--c-elevated);
+  --color-line:     var(--c-line);
+  --color-ink:      var(--c-ink);
+  --color-ink-dim:  var(--c-ink-dim);
+  --color-ink-mute: var(--c-ink-mute);
+
+  /* accent = ส้ม Shopee */
+  --color-accent:      #ff5c2b;
+  --color-accent-soft: #ff6e42;
+
+  /* semantic */
+  --color-success: #2ebd85;
+  --color-warning: #f5a623;
+  --color-danger:  #f0413e;
+  --color-info:    #4c8dff;
+
+  --font-sans: var(--font-inter), var(--font-thai), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ── Base ── */
 * { box-sizing: border-box; }
-html, body { height: 100%; background: var(--bg-base); }
-
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 9999px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.3; }
+html, body { height: 100%; }
+body {
+  background: var(--c-base);
+  color: var(--c-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ตัวเลข/สถิติ ให้ความกว้างเท่ากัน (เงิน/นับ) */
+.nums { font-variant-numeric: tabular-nums; }
+
+/* accent glow แบบ Raycast */
+.glow-accent { box-shadow: 0 0 24px rgba(255,92,43,0.22); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-line); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--c-ink-mute); }
+
+/* ── Motion ── */
+@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 .animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.animate-fade-up { animation: fade-up 0.25s ease-out both; }

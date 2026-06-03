@@ -10,14 +10,14 @@ export const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
 
 const TITLES = {
-  '/dashboard': 'Dashboard',
-  '/products':  'Products',
-  '/library':   'Clips Library',
-  '/devices':   'Devices / ADB',
-  '/mirror':    'Screen Mirror',
-  '/queue':     'Queue',
-  '/autopilot': 'Auto Pilot',
-  '/settings':  'Settings',
+  '/dashboard': 'ค็อกพิต',
+  '/products':  'สินค้า',
+  '/library':   'คลังคลิป',
+  '/devices':   'จัดการเครื่อง',
+  '/mirror':    'จอมือถือ',
+  '/queue':     'คิวงาน',
+  '/autopilot': 'ออโต้ไพลอต',
+  '/settings':  'ตั้งค่า',
 }
 
 export default function AppLayout({ children }) {

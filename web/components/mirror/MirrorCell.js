@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { Play, Square, Maximize2, Smartphone } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -31,16 +31,13 @@ export function MirrorCell({ idx, device, onFullscreen }) {
   return (
     <div
       onClick={() => connected && onFullscreen(device?.serial)}
-      className={`relative flex flex-col rounded-xl overflow-hidden border transition-all duration-200 cursor-pointer group
+      className={`relative flex flex-col rounded-xl overflow-hidden border bg-base transition-all duration-200 cursor-pointer group
         ${streaming
-          ? 'border-emerald-500/50'
+          ? 'border-success/50 glow-accent'
           : connected
-            ? 'border-violet-500/25 hover:border-violet-400/50'
-            : 'border-white/[0.05]'}`}
-      style={{
-        background: '#0a0a16',
-        boxShadow: streaming ? '0 0 16px rgba(52,211,153,0.07)' : 'none',
-      }}
+            ? 'border-accent/30 hover:border-accent/60'
+            : 'border-line'}`}
+      style={streaming ? { boxShadow: '0 0 16px rgba(46,189,133,0.12)' } : undefined}
     >
       {/* Thumbnail */}
       <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden min-h-0">
@@ -54,10 +51,10 @@ export function MirrorCell({ idx, device, onFullscreen }) {
         ) : (
           <div className="flex flex-col items-center gap-1.5 select-none p-2">
             <Smartphone size={20}
-              className={connected ? 'text-violet-500/40' : 'text-white/[0.05]'}
+              className={connected ? 'text-accent/40' : 'text-ink-mute/30'}
               strokeWidth={1.5} />
-            <span className="text-[9px] font-bold text-slate-700 tracking-wider uppercase">
-              {connected ? 'Ready' : String(idx + 1).padStart(2, '0')}
+            <span className="text-[9px] font-bold text-ink-mute tracking-wider uppercase">
+              {connected ? 'พร้อม' : String(idx + 1).padStart(2, '0')}
             </span>
           </div>
         )}
@@ -65,8 +62,8 @@ export function MirrorCell({ idx, device, onFullscreen }) {
         {/* Live badge */}
         {streaming && (
           <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-black/60 backdrop-blur-sm rounded-full px-1.5 py-0.5">
-            <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse-dot" />
-            <span className="text-[8px] text-emerald-400 font-black tracking-wider">LIVE</span>
+            <span className="w-1 h-1 rounded-full bg-success animate-pulse-dot" />
+            <span className="text-[8px] text-success font-black tracking-wider">LIVE</span>
           </div>
         )}
 
@@ -79,17 +76,16 @@ export function MirrorCell({ idx, device, onFullscreen }) {
       </div>
 
       {/* Info bar */}
-      <div className="flex items-center justify-between px-2 py-1.5 border-t border-white/[0.04]"
-           style={{ background: '#0d0d1a' }}>
-        <span className="text-[9px] text-slate-600 truncate max-w-[65%] font-medium">
-          {device?.model || 'Empty'}
+      <div className="flex items-center justify-between px-2 py-1.5 border-t border-line bg-surface">
+        <span className="text-[9px] text-ink-dim truncate max-w-[65%] font-medium">
+          {device?.model || 'ว่าง'}
         </span>
         {connected && (
           <button onClick={toggle}
             className={`flex items-center justify-center w-5 h-5 rounded-md transition-all
               ${streaming
-                ? 'bg-rose-500/20 text-rose-400 hover:bg-rose-500/30'
-                : 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30'}`}>
+                ? 'bg-danger/20 text-danger hover:bg-danger/30'
+                : 'bg-accent/20 text-accent hover:bg-accent/30'}`}>
             {streaming
               ? <Square size={7} className="fill-current" />
               : <Play   size={7} className="fill-current" />}
