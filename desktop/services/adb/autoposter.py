@@ -62,8 +62,20 @@ class AutoPoster:
         self._tap_xy(serial, x, y)
         time.sleep(settle)
 
+    def _is_locked(self, serial: str) -> bool:
+        _, out = self.adb._adb("shell", "dumpsys", "window", serial=serial)
+        return "isKeyguardShowing=true" in out or "mDreamingLockscreen=true" in out
+
     def _wake(self, serial: str):
+        # ปลุกจอ + ปลดล็อก keyguard แบบปัด (เครื่องที่ไม่มี secure lock) + กันจอดับ (A1.5)
         self.adb._adb("shell", "input", "keyevent", "KEYCODE_WAKEUP", serial=serial)
+        time.sleep(0.5)
+        self.adb._adb("shell", "wm", "dismiss-keyguard", serial=serial)
+        time.sleep(0.6)
+        self.adb._adb("shell", "svc", "power", "stayon", "true", serial=serial)  # เสียบชาร์จไว้ จอไม่ดับ
+        if self._is_locked(serial):
+            self.log("[POST] ⚠ มือถือยังล็อกอยู่ (secure lock) — โปรดปิด screen lock "
+                     "บนเครื่องโพสต์ (ตั้งเป็น 'ปัด' หรือ 'ไม่มี') ไม่งั้นโพสต์อัตโนมัติไม่ได้")
         time.sleep(0.5)
 
     def _current_activity(self, serial: str) -> str:
