@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 import uvicorn
 
-from services.db import QUEUED, GENERATING, GENERATED, POSTED, ERROR
+from services.db import QUEUED, GENERATING, GENERATED, POSTING, POSTED, ERROR
 
 
 # ── Log classification (A1.8) ─────────────────────────────────
