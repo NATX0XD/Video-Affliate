@@ -110,36 +110,46 @@ class PostWorker:
                 self.log(f"[POST-ALL] {name}")
                 ok = poster.process(self._serial, video, product)
 
-                # ย้ายไฟล์เก็บ + อัปเดต DB (source of truth)
-                dest = cfg.DONE_DIR if ok else cfg.ERROR_DIR
-                dest.mkdir(parents=True, exist_ok=True)
-                new_path = dest / video.name
-                try:
-                    video.rename(new_path)
-                    side = video.with_suffix(".json")
-                    if side.exists():
-                        side.rename(dest / side.name)
-                except Exception:
-                    new_path = video
-
                 if ok:
+                    new_path = self._move(video, cfg.DONE_DIR)
                     self.db.mark_posted(jid, video_path=str(new_path))
                     self.done_count += 1
                     self._status(pid, "done")
                 else:
-                    self.db.mark_error(jid, "โพสต์ไม่สำเร็จ")
-                    self.db.update(jid, video_path=str(new_path))
-                    self.err_count += 1
-                    self._status(pid, "error")
+                    # auto-retry: คลิปอยู่ pending/ เหมือนเดิม รอ backoff แล้วโพสต์ใหม่เอง
+                    res = self.db.record_failure(jid, GENERATED, "โพสต์ไม่สำเร็จ")
+                    if res["retrying"]:
+                        self.log(f"[POST-ALL] {name} พลาด — ลองใหม่ครั้งที่ "
+                                 f"{res['attempts']+1} ใน {res['retry_in']}s")
+                        self._status(pid, "retry")
+                    else:
+                        new_path = self._move(video, cfg.ERROR_DIR)
+                        self.db.update(jid, video_path=str(new_path))
+                        self.err_count += 1
+                        self._status(pid, "error")
+                        self.log(f"[POST-ALL] {name} ล้มเหลวถาวร (ครบ {res['attempts']} ครั้ง)")
                 self._stats(self.db.count(GENERATED))
 
-                if self._running and self.db.count(GENERATED) > 0:
+                if self._running and self.db.has_due(GENERATED):
                     self._delay()
 
         self._running = False
         self.log(f"[POST-ALL] จบ ✅ สำเร็จ {self.done_count} ผิดพลาด {self.err_count}")
         if self.on_finished:
             self.on_finished()
+
+    def _move(self, video: Path, dest_dir: Path) -> Path:
+        """ย้ายคลิป + sidecar ไปโฟลเดอร์ปลายทาง คืน path ใหม่ (หรือ path เดิมถ้าย้ายไม่ได้)."""
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        new_path = dest_dir / video.name
+        try:
+            video.rename(new_path)
+            side = video.with_suffix(".json")
+            if side.exists():
+                side.rename(dest_dir / side.name)
+            return new_path
+        except Exception:
+            return video
 
     def _delay(self):
         delay = random.randint(int(self.settings.get("post_delay_min", 30)),

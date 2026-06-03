@@ -79,6 +79,7 @@ class JobStore:
                     attempts      INTEGER DEFAULT 0,
                     max_attempts  INTEGER DEFAULT 3,
                     cost          REAL DEFAULT 0,
+                    next_retry_at INTEGER DEFAULT 0,
                     created_at    INTEGER,
                     updated_at    INTEGER,
                     posted_at     INTEGER
@@ -88,6 +89,19 @@ class JobStore:
                 """
             )
             self._conn.commit()
+            self._migrate_schema()
+
+    def _migrate_schema(self):
+        """Add columns missing from an older DB (idempotent schema evolution)."""
+        with self._lock:
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(jobs)")}
+            adds = []
+            if "next_retry_at" not in cols:
+                adds.append("ALTER TABLE jobs ADD COLUMN next_retry_at INTEGER DEFAULT 0")
+            for sql in adds:
+                self._conn.execute(sql)
+            if adds:
+                self._conn.commit()
 
     # ── helpers ───────────────────────────────────────────────
 
@@ -160,8 +174,10 @@ class JobStore:
         ts = _now()
         with self._lock:
             row = self._conn.execute(
-                "SELECT id FROM jobs WHERE status=? ORDER BY created_at LIMIT 1",
-                (from_status,),
+                """SELECT id FROM jobs
+                   WHERE status=? AND (next_retry_at IS NULL OR next_retry_at<=?)
+                   ORDER BY created_at LIMIT 1""",
+                (from_status, ts),
             ).fetchone()
             if row is None:
                 return None
@@ -192,10 +208,11 @@ class JobStore:
         self.update(job_id, status=status, **extra)
 
     def mark_posted(self, job_id: int, **extra):
-        self.update(job_id, status=POSTED, posted_at=_now(), error="", **extra)
+        self.update(job_id, status=POSTED, posted_at=_now(),
+                    error="", next_retry_at=0, **extra)
 
     def mark_error(self, job_id: int, message: str):
-        """Record a failure and bump the attempt counter."""
+        """Record a terminal failure and bump the attempt counter."""
         with self._lock:
             self._conn.execute(
                 """UPDATE jobs
@@ -205,13 +222,59 @@ class JobStore:
             )
             self._conn.commit()
 
+    def record_failure(self, job_id: int, retry_status: str, message: str,
+                       backoff_base: int = 60, backoff_cap: int = 3600) -> dict:
+        """A step failed. Auto-decide: retry (with exponential backoff) or give up.
+          - attempts+1 < max_attempts → status=retry_status, schedule next_retry_at
+          - otherwise                 → status=error (terminal)
+        Returns {retrying: bool, attempts, retry_in?, status}. The pipeline keeps
+        running by itself — this is what makes failures recover unattended.
+        """
+        j = self.get(job_id)
+        if not j:
+            return {"retrying": False, "attempts": 0, "status": ERROR}
+        attempts = j["attempts"] + 1
+        msg = (message or "")[:1000]
+        now = _now()
+        if attempts < j["max_attempts"]:
+            delay = min(backoff_base * (2 ** (attempts - 1)), backoff_cap)
+            with self._lock:
+                self._conn.execute(
+                    """UPDATE jobs SET status=?, error=?, attempts=?,
+                       next_retry_at=?, updated_at=? WHERE id=?""",
+                    (retry_status, msg, attempts, now + delay, now, job_id),
+                )
+                self._conn.commit()
+            return {"retrying": True, "attempts": attempts,
+                    "retry_in": delay, "status": retry_status}
+        with self._lock:
+            self._conn.execute(
+                """UPDATE jobs SET status=?, error=?, attempts=?, updated_at=?
+                   WHERE id=?""",
+                (ERROR, msg, attempts, now, job_id),
+            )
+            self._conn.commit()
+        return {"retrying": False, "attempts": attempts, "status": ERROR}
+
     def can_retry(self, job_id: int) -> bool:
         j = self.get(job_id)
         return bool(j) and j["attempts"] < j["max_attempts"]
 
+    def has_due(self, status: str) -> bool:
+        """Is there at least one job in `status` whose retry backoff has elapsed?"""
+        now = _now()
+        with self._lock:
+            r = self._conn.execute(
+                """SELECT 1 FROM jobs
+                   WHERE status=? AND (next_retry_at IS NULL OR next_retry_at<=?)
+                   LIMIT 1""",
+                (status, now),
+            ).fetchone()
+        return r is not None
+
     def requeue(self, job_id: int, status: str = QUEUED):
-        """Send a job back to be retried (e.g. an errored job)."""
-        self.update(job_id, status=status, error="")
+        """Send a job back to be retried now (clears error + backoff)."""
+        self.update(job_id, status=status, error="", next_retry_at=0)
 
     # ── read ──────────────────────────────────────────────────
 
@@ -284,11 +347,11 @@ class JobStore:
         ts = _now()
         with self._lock:
             cur1 = self._conn.execute(
-                "UPDATE jobs SET status=?, stage='', updated_at=? WHERE status=?",
+                "UPDATE jobs SET status=?, stage='', next_retry_at=0, updated_at=? WHERE status=?",
                 (QUEUED, ts, GENERATING),
             )
             cur2 = self._conn.execute(
-                "UPDATE jobs SET status=?, stage='', updated_at=? WHERE status=?",
+                "UPDATE jobs SET status=?, stage='', next_retry_at=0, updated_at=? WHERE status=?",
                 (GENERATED, ts, POSTING),
             )
             self._conn.commit()
