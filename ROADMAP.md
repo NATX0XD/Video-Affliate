@@ -140,7 +140,7 @@
   - [x] A1.3a — auto-retry + exponential backoff (1273d03)
   - [x] A1.3b — verify โพสต์สำเร็จด้วย Gemini Vision, conservative (e34dcad)
   - ※ ส่วนเรียก Gemini Vision จริงต้องเทสต์กับ key + มือถือจริง (ยังไม่ได้รัน)
-- [ ] **A1.4 — Budget/quota guard** — ประเมิน+คุมต้นทุน Flow/Gemini, หยุดเมื่อถึงเพดาน
+- [x] **A1.4 — Budget/quota guard** ✅ (509be35) — งบรายเดือน+ราคาต่อคลิป, หยุดเองเมื่อเกิน, snapshot ให้ค็อกพิต
 - [ ] **A1.5 — Self-healing** — watchdog, ADB หลุด→ต่อใหม่เอง, login มือถือหมดอายุ→กู้เอง
 - [ ] **A1.6 — Always-on** — auto-start เมื่อเปิดเครื่อง + ปุ่มหยุดฉุกเฉิน
 - [ ] **A1.7 — คุมทางไกล + แจ้งเตือน** — Telegram bot (local polling): ดู/หยุด/อนุมัติ + เตือนเมื่อพลาด
