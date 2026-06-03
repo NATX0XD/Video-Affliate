@@ -1,63 +1,50 @@
 @import "tailwindcss";
 
-/* ── Light เป็นหลัก (เนื้อหาสว่าง) + dark override สำหรับสลับทีหลัง ── */
+/* ── Professional all-white palette (Untitled UI grayscale + ส้ม accent เดียว) ── */
 :root, [data-theme="light"] {
-  --c-base:     #f3f4f7;   /* พื้นเนื้อหา (เทาอ่อน) */
-  --c-surface:  #ffffff;   /* การ์ดขาว */
-  --c-elevated: #f7f8fa;   /* chip / control */
-  --c-line:     rgba(17,24,39,0.08);
-  --c-ink:      #1b2433;   /* ข้อความหลัก (navy เข้ม) */
-  --c-ink-dim:  #5a6473;
-  --c-ink-mute: #98a1ad;
+  --c-base:     #eceef2;   /* พื้นเนื้อหา (เทานวล มีน้ำหนัก ให้การ์ดเด้ง) */
+  --c-surface:  #ffffff;   /* การ์ด */
+  --c-elevated: #f3f5f8;   /* chip / hover */
+  --c-line:     #e1e4ea;   /* เส้นขอบ */
+  --c-line-soft:#edeff3;   /* เส้นจาง */
+  --c-ink:      #1a2231;   /* หัวข้อ */
+  --c-ink-dim:  #51607a;   /* เนื้อความ */
+  --c-ink-mute: #9098a8;   /* จาง */
 }
 [data-theme="dark"] {
-  --c-base:     #0e0f11;
-  --c-surface:  #16181c;
-  --c-elevated: #1e2126;
+  --c-base:     #0d0e12;
+  --c-surface:  #16181d;
+  --c-elevated: #1d2026;
   --c-line:     rgba(255,255,255,0.08);
-  --c-ink:      #f2f3f5;
-  --c-ink-dim:  #9ba1a8;
-  --c-ink-mute: #6b7178;
-}
-
-/* ── Sidebar = navy เข้มเสมอ (ไม่ขึ้นกับธีม) — เหมือน reference ── */
-:root {
-  --side-bg:     #1b2530;
-  --side-bg2:    #161e27;
-  --side-ink:    #e6eaf0;
-  --side-dim:    #8a95a3;
-  --side-mute:   #5e6877;
-  --side-line:   rgba(255,255,255,0.07);
+  --c-line-soft:rgba(255,255,255,0.05);
+  --c-ink:      #f5f6f8;
+  --c-ink-dim:  #a0a6b0;
+  --c-ink-mute: #6b7280;
 }
 
 @theme inline {
-  --color-base:     var(--c-base);
-  --color-surface:  var(--c-surface);
-  --color-elevated: var(--c-elevated);
-  --color-line:     var(--c-line);
-  --color-ink:      var(--c-ink);
-  --color-ink-dim:  var(--c-ink-dim);
-  --color-ink-mute: var(--c-ink-mute);
+  --color-base:      var(--c-base);
+  --color-surface:   var(--c-surface);
+  --color-elevated:  var(--c-elevated);
+  --color-line:      var(--c-line);
+  --color-line-soft: var(--c-line-soft);
+  --color-ink:       var(--c-ink);
+  --color-ink-dim:   var(--c-ink-dim);
+  --color-ink-mute:  var(--c-ink-mute);
 
-  /* sidebar (navy คงที่) */
-  --color-side-bg:   var(--side-bg);
-  --color-side-ink:  var(--side-ink);
-  --color-side-dim:  var(--side-dim);
-  --color-side-mute: var(--side-mute);
-  --color-side-line: var(--side-line);
+  /* accent เดียว = ส้ม */
+  --color-accent:       #f97316;
+  --color-accent-soft:  #fb8c3a;
+  --color-accent-wash:  #fff3ec;   /* พื้นอ่อนของ accent (light) */
 
-  /* accent = ส้ม (อบอุ่น เหมาะกับ light) */
-  --color-accent:      #f97316;
-  --color-accent-soft: #fb8c3a;
+  /* semantic — ใช้เฉพาะสถานะจริง (error/ok) */
+  --color-success: #12b76a;
+  --color-danger:  #f04438;
 
-  --color-success: #16a34a;
-  --color-warning: #f59e0b;
-  --color-danger:  #ef4444;
-  --color-info:    #3b82f6;
-
-  /* เงาการ์ดนุ่ม (light) */
-  --shadow-card: 0 1px 2px rgba(16,24,40,0.04), 0 6px 20px rgba(16,24,40,0.06);
-  --shadow-hero: 0 10px 30px rgba(16,24,40,0.18);
+  /* เงานุ่มมือโปร (Untitled UI) */
+  --shadow-xs:   0 1px 2px rgba(16,24,40,0.05);
+  --shadow-card: 0 1px 3px rgba(16,24,40,0.06), 0 1px 2px rgba(16,24,40,0.04);
+  --shadow-lift: 0 12px 24px -8px rgba(16,24,40,0.12), 0 4px 8px -4px rgba(16,24,40,0.06);
 
   --font-sans: var(--font-inter), var(--font-thai), ui-sans-serif, system-ui, sans-serif;
 }
@@ -70,19 +57,29 @@ body {
   color: var(--c-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-
 .nums { font-variant-numeric: tabular-nums; }
-.glow-accent { box-shadow: 0 6px 18px rgba(249,115,22,0.30); }
+.glow-accent { box-shadow: 0 8px 20px -6px rgba(249,115,22,0.45); }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(17,24,39,0.15); border-radius: 9999px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(17,24,39,0.28); }
+::-webkit-scrollbar-thumb { background: #d0d5dd; border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #98a1ad; }
 
-/* ── Motion ── */
-@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+/* ── Animations / ลูกเล่น ── */
+@keyframes fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scale-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes shimmer { 100% { background-position: -200% 0; } }
+
+.animate-fade-up { animation: fade-up .5s cubic-bezier(.16,1,.3,1) both; }
+.animate-fade-in { animation: fade-in .4s ease-out both; }
+.animate-scale-in { animation: scale-in .35s cubic-bezier(.16,1,.3,1) both; }
 .animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
-@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.animate-fade-up { animation: fade-up 0.25s ease-out both; }
+
+/* hover lift ใช้ซ้ำ */
+.lift { transition: transform .18s ease, box-shadow .18s ease; }
+.lift:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }

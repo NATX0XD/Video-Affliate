@@ -16,15 +16,15 @@ export function SystemLog({ logs = [], onClear }) {
   }, [logs])
 
   return (
-    <div className="flex flex-col overflow-hidden h-full rounded-2xl border border-line bg-surface">
+    <div className="flex flex-col overflow-hidden h-full rounded-xl border border-line bg-surface shadow-card">
 
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-line">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-accent/10">
-            <Terminal size={13} className="text-accent" />
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-accent-wash">
+            <Terminal size={14} className="text-accent" />
           </div>
-          <span className="text-ink text-sm font-semibold">บันทึกระบบ</span>
+          <span className="text-ink text-sm font-semibold">บันทึกการทำงาน</span>
           {logs.length > 0 && (
             <span className="text-[10px] text-ink-mute font-medium bg-elevated px-2 py-0.5 rounded-full nums">
               {logs.length}
