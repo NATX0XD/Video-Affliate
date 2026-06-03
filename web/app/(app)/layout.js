@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
 import { Sidebar  } from '@/components/layout/Sidebar'
 import { Topbar   } from '@/components/layout/Topbar'
 import { GenProgress } from '@/components/GenProgress'
@@ -26,13 +26,18 @@ export default function AppLayout({ children }) {
   const title  = TITLES[path] ?? 'Shopee VDO Gen'
   const online = state.devices.filter(d => d.status === 'device').length
 
+  const [navOpen, setNavOpen] = useState(false)
+  useEffect(() => { setNavOpen(false) }, [path])   // ปิด drawer เมื่อเปลี่ยนหน้า
+
   return (
     <AppCtx.Provider value={{ state, patch }}>
       <div className="flex h-screen overflow-hidden">
-        <Sidebar wsConnected={state.ws_connected} />
+        <Sidebar wsConnected={state.ws_connected}
+                 open={navOpen} onClose={() => setNavOpen(false)} />
         <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-          <Topbar title={title} devices={online} queue={state.queue} />
-          <div className="flex-1 overflow-auto">
+          <Topbar title={title} devices={online} queue={state.queue}
+                  onMenu={() => setNavOpen(true)} />
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
             {children}
           </div>
         </main>
