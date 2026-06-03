@@ -131,7 +131,11 @@
   - `services/db.py`: JobStore (lifecycle, atomic claim, retry/attempts, cost, stats)
   - `reset_stuck()` resume งานค้าง + `migrate_folders()` นำเข้าคลิปเดิม
   - wire init ใน main.py (additive — worker ยังเดิม)
-- [ ] **A1.2 — ย้าย worker มาใช้ DB** (Worker/GenWorker/PostWorker อ่าน-เขียน job store แทน in-memory) + API ใน web_server อ่านจาก DB
+- [x] **A1.2 — ย้าย pipeline มาใช้ DB** ✅ (Flow คือเส้นทางหลัก)
+  - [x] A1.2a — Flow generation queue → DB (8523d48): enqueue/next/video/status
+  - [x] A1.2c — PostWorker → DB (e866335): claim generated→posting→posted/error
+  - [x] A1.2b — read API จาก DB (5610a95): /api/status + /api/videos เป็น source of truth
+  - หมายเหตุ: legacy Veo Worker/GenWorker ยังเดิม (Flow คือเส้นทางหลัก) — migrate ภายหลังถ้าจำเป็น
 - [ ] **A1.3 — Retry + recovery + OCR** — retry อัตโนมัติเมื่อพลาด, OCR ยืนยันโพสต์สำเร็จ (กันโพสต์ซ้ำหลัง resume)
 - [ ] **A1.4 — Budget/quota guard** — ประเมิน+คุมต้นทุน Flow/Gemini, หยุดเมื่อถึงเพดาน
 - [ ] **A1.5 — Self-healing** — watchdog, ADB หลุด→ต่อใหม่เอง, login มือถือหมดอายุ→กู้เอง
