@@ -144,7 +144,7 @@
 - [ ] **A1.5 — Self-healing** — watchdog, ADB หลุด→ต่อใหม่เอง, login มือถือหมดอายุ→กู้เอง
 - [ ] **A1.6 — Always-on** — auto-start เมื่อเปิดเครื่อง + ปุ่มหยุดฉุกเฉิน
 - [ ] **A1.7 — คุมทางไกล + แจ้งเตือน** — Telegram bot (local polling): ดู/หยุด/อนุมัติ + เตือนเมื่อพลาด
-- [ ] **A1.8 — Logging + diagnostics** — structured log + หน้าดู health
+- [x] **A1.8 — Logging + diagnostics** ✅ (9081827) — log เก็บ DB+จัด level/source, /api/logs + /api/diagnostics
 
 ### A2 — UI ใหม่ (แผงคุม + มอนิเตอร์) 🎨 (จุดเจ็บปวด #1)
 > แดชบอร์ด = "ตั้งค่าออโต้ + ดูสถานะ" ไม่ใช่กดทีละขั้น
