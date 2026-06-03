@@ -66,14 +66,7 @@ export default function MirrorPage() {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        {connected.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-3 text-center px-6">
-            <p className="text-ink font-semibold">ยังไม่พบมือถือ</p>
-            <p className="text-ink-dim text-sm">ต่อสาย USB + เปิด USB Debugging แล้วกด "สแกนเครื่อง"</p>
-          </div>
-        ) : (
-          <MirrorGrid devices={connected} />
-        )}
+        <MirrorGrid devices={connected} />
       </div>
     </div>
   )

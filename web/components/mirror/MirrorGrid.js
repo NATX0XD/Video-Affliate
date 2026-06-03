@@ -19,18 +19,12 @@ export function MirrorGrid({ devices }) {
   }
 
   return (
-    <div
-      className="grid gap-2 p-3 h-full"
-      style={{ gridTemplateColumns: 'repeat(5, 1fr)', gridTemplateRows: 'repeat(4, 1fr)' }}
-    >
-      {slots.map(({ idx, device }) => (
-        <MirrorCell
-          key={idx}
-          idx={idx}
-          device={device}
-          onFullscreen={setFsSerial}
-        />
-      ))}
+    <div className="h-full overflow-auto p-4 lg:p-5">
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
+        {slots.map(({ idx, device }) => (
+          <MirrorCell key={idx} idx={idx} device={device} onFullscreen={setFsSerial} />
+        ))}
+      </div>
     </div>
   )
 }

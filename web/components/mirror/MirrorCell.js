@@ -40,7 +40,7 @@ export function MirrorCell({ idx, device, onFullscreen }) {
       style={streaming ? { boxShadow: '0 0 16px rgba(46,189,133,0.12)' } : undefined}
     >
       {/* Thumbnail */}
-      <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden min-h-0">
+      <div className="aspect-[9/16] relative bg-black flex items-center justify-center overflow-hidden">
         {thumbSrc ? (
           <img
             src={thumbSrc}
