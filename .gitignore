@@ -1,0 +1,29 @@
+# ── Secrets & keys ──
+.env
+.env.*
+!.env.example
+**/.env.local
+keys/
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Node / Next.js ──
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# ── Generated data / outputs ──
+desktop/data/output/
+desktop/data/products/
+desktop/data/*.png
+
+# ── Archive: git backup ของ web เดิม (ไม่ต้อง track) ──
+_archive/web-git-backup/
+
+# ── OS ──
+.DS_Store
+Thumbs.db

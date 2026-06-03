@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shopee VDO Gen — Dashboard</title>
+  <style>
+    :root {
+      --bg:      #0a0a14;
+      --bg2:     #10101e;
+      --bg3:     #16162a;
+      --bg4:     #1c1c34;
+      --border:  #252540;
+      --accent:  #ee4d2d;
+      --accent2: #ff7043;
+      --green:   #00e676;
+      --blue:    #448aff;
+      --gold:    #ffd740;
+      --purple:  #7c4dff;
+      --red:     #ff1744;
+      --text:    #e8e8f5;
+      --muted:   #5a5a80;
+      --radius:  12px;
+      --sidebar: 220px;
+    }
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar);
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-brand {
+      padding: 20px 18px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand-logo {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 900; color: white;
+      margin-bottom: 10px;
+    }
+
+    .brand-name { font-size: 15px; font-weight: 700; }
+    .brand-sub  { font-size: 10px; color: var(--muted); letter-spacing: 1px; margin-top: 2px; }
+    .brand-ver  {
+      display: inline-block; margin-top: 6px;
+      background: rgba(238,77,45,0.15); border: 1px solid rgba(238,77,45,0.3);
+      border-radius: 5px; padding: 2px 8px;
+      font-size: 10px; color: var(--accent);
+    }
+
+    /* Nav */
+    .nav { flex: 1; padding: 10px 0; overflow-y: auto; }
+
+    .nav-section {
+      padding: 6px 18px 4px;
+      font-size: 9px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 18px; cursor: pointer;
+      font-size: 13px; color: var(--muted);
+      border-radius: 0; transition: all 0.15s;
+      position: relative;
+    }
+
+    .nav-item:hover { color: var(--text); background: var(--bg3); }
+    .nav-item.active {
+      color: var(--accent); background: rgba(238,77,45,0.08);
+      font-weight: 600;
+    }
+    .nav-item.active::before {
+      content: ''; position: absolute;
+      left: 0; top: 4px; bottom: 4px;
+      width: 3px; background: var(--accent);
+      border-radius: 0 3px 3px 0;
+    }
+
+    .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+    .nav-badge {
+      margin-left: auto;
+      background: var(--accent); color: white;
+      font-size: 9px; font-weight: 700;
+      padding: 2px 6px; border-radius: 10px;
+      min-width: 18px; text-align: center;
+    }
+    .nav-badge.green { background: var(--green); color: #000; }
+    .nav-badge.blue  { background: var(--blue); }
+
+    /* Status */
+    .sidebar-status {
+      padding: 12px 18px;
+      border-top: 1px solid var(--border);
+    }
+    .status-row { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot.red    { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+    .dot.yellow { background: var(--gold);  box-shadow: 0 0 6px var(--gold); }
+
+    /* ── Main ── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Topbar */
+    .topbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      height: 56px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .topbar-title { font-size: 17px; font-weight: 700; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+
+    .topbar-stat {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 8px; padding: 5px 12px;
+      font-size: 12px; display: flex; align-items: center; gap: 6px;
+    }
+    .topbar-stat-val { font-weight: 700; color: var(--accent); }
+
+    /* Content area */
+    .content {
+      flex: 1; overflow-y: auto;
+      padding: 24px 28px;
+    }
+
+    /* Pages */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Home Page ── */
+    .home-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .stat-card:hover { border-color: var(--accent); }
+    .stat-card::before {
+      content: ''; position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+    }
+    .stat-card.blue::before  { background: var(--blue); }
+    .stat-card.green::before { background: var(--green); }
+    .stat-card.gold::before  { background: var(--gold); }
+    .stat-card.purple::before{ background: var(--purple); }
+
+    .stat-icon { font-size: 28px; margin-bottom: 12px; }
+    .stat-val  { font-size: 32px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
+    .stat-val.blue   { color: var(--blue); }
+    .stat-val.green  { color: var(--green); }
+    .stat-val.gold   { color: var(--gold); }
+    .stat-val.purple { color: var(--purple); }
+    .stat-lbl  { font-size: 12px; color: var(--muted); }
+
+    .home-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .card-title { font-size: 14px; font-weight: 600; }
+    .card-body  { padding: 20px; }
+
+    /* Quick actions */
+    .quick-actions {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .qa-btn {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px;
+      cursor: pointer; transition: all 0.15s;
+      text-align: left;
+    }
+    .qa-btn:hover { border-color: var(--accent); background: rgba(238,77,45,0.06); }
+    .qa-icon { font-size: 24px; margin-bottom: 8px; }
+    .qa-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+    .qa-desc  { font-size: 11px; color: var(--muted); }
+
+    /* Recent list */
+    .recent-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .recent-item:last-child { border-bottom: none; }
+    .recent-thumb {
+      width: 44px; height: 44px;
+      border-radius: 8px; object-fit: cover;
+      background: var(--bg3); flex-shrink: 0;
+    }
+    .recent-info { flex: 1; min-width: 0; }
+    .recent-name { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .recent-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .recent-status {
+      font-size: 10px; padding: 3px 8px; border-radius: 6px; font-weight: 600;
+    }
+    .rs-pending    { background: rgba(90,90,128,0.2); color: var(--muted); }
+    .rs-processing { background: rgba(68,138,255,0.2); color: var(--blue); }
+    .rs-done       { background: rgba(0,230,118,0.2); color: var(--green); }
+
+    /* ── Products Page ── */
+    .products-toolbar {
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 20px; flex-wrap: wrap;
+    }
+
+    .search-wrap {
+      flex: 1; min-width: 220px;
+      display: flex; gap: 8px;
+    }
+
+    .search-inp {
+      flex: 1;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 9px 14px;
+      color: var(--text); font-size: 13px; outline: none;
+      transition: border 0.2s;
+    }
+    .search-inp:focus { border-color: var(--accent); }
+    .search-inp::placeholder { color: var(--muted); }
+
+    .btn {
+      padding: 9px 16px; border: none; border-radius: 9px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn.primary  { background: var(--accent); color: white; }
+    .btn.primary:hover:not(:disabled) { background: var(--accent2); }
+    .btn.secondary{ background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+    .btn.secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .btn.green-btn{ background: var(--green); color: #000; }
+    .btn.blue-btn { background: var(--blue);  color: white; }
+    .btn.red-btn  { background: var(--red);   color: white; }
+
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 7px; padding: 5px 12px;
+      font-size: 11px; cursor: pointer; transition: all 0.15s; color: var(--muted);
+    }
+    .chip.on { background: rgba(238,77,45,0.12); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+    .products-info {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .products-info-left { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+    .products-info-left b { color: var(--accent); }
+    .products-info-right { display: flex; gap: 8px; }
+
+    /* Product Grid */
+    .prod-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 14px;
+    }
+
+    .pcard {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+      cursor: pointer; transition: all 0.15s;
+      position: relative;
+    }
+    .pcard:hover { border-color: rgba(238,77,45,0.5); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .pcard.selected { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(238,77,45,0.4); }
+
+    .pcard-check {
+      position: absolute; top: 8px; left: 8px; z-index: 3;
+      width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;
+    }
+
+    .pcard-img-wrap {
+      width: 100%; aspect-ratio: 1;
+      background: var(--bg3); position: relative;
+    }
+    .pcard-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pcard-ph  {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 36px; color: var(--muted);
+    }
+    .pcard-extracomm {
+      position: absolute; bottom: 6px; left: 6px;
+      background: rgba(255,136,0,0.92); color: white;
+      font-size: 8px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+    .pcard-discount {
+      position: absolute; top: 6px; right: 6px;
+      background: rgba(238,77,45,0.9); color: white;
+      font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 5px;
+    }
+
+    .pcard-body { padding: 10px 12px 12px; }
+    .pcard-name {
+      font-size: 12px; line-height: 1.35; margin-bottom: 8px;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .pcard-price-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+    .pcard-price { color: var(--accent); font-size: 15px; font-weight: 700; }
+    .pcard-comm {
+      background: rgba(255,215,64,0.12); color: var(--gold);
+      font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+    }
+    .pcard-sold { font-size: 10px; color: var(--muted); }
+
+    /* Empty */
+    .empty {
+      text-align: center; padding: 80px 20px; color: var(--muted);
+      grid-column: 1/-1;
+    }
+    .empty-icon { font-size: 56px; margin-bottom: 16px; }
+    .empty-text { font-size: 14px; line-height: 1.7; }
+
+    /* ── Settings Page ── */
+    .settings-layout {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+    }
+
+    .settings-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+    }
+    .settings-card-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 600;
+      background: var(--bg3);
+    }
+    .settings-card-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; }
+
+    .setting-row { display: flex; flex-direction: column; gap: 6px; }
+    .setting-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .sel, .inp {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text);
+      padding: 9px 12px; font-size: 13px; outline: none; width: 100%;
+      transition: border 0.2s; appearance: none;
+    }
+    .sel:focus, .inp:focus { border-color: var(--accent); }
+    .inp { font-family: monospace; font-size: 12px; }
+
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 2px 0;
+    }
+    .toggle-label { font-size: 13px; }
+    .toggle {
+      width: 42px; height: 23px; background: var(--border);
+      border-radius: 12px; position: relative; cursor: pointer; transition: 0.2s;
+    }
+    .toggle.on { background: var(--accent); }
+    .toggle::after {
+      content: ''; position: absolute;
+      width: 17px; height: 17px; background: white;
+      border-radius: 50%; top: 3px; left: 3px; transition: 0.2s;
+    }
+    .toggle.on::after { left: 22px; }
+
+    /* ── Pilot Page ── */
+    .pilot-layout {
+      display: grid; grid-template-columns: 1fr 320px; gap: 20px;
+    }
+
+    .pilot-stats {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+      margin-bottom: 20px;
+    }
+    .ps-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px; text-align: center;
+    }
+    .ps-val  { font-size: 28px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
+    .ps-lbl  { font-size: 11px; color: var(--muted); }
+
+    .pilot-btn {
+      width: 100%; padding: 16px;
+      background: linear-gradient(135deg, #6200ea, #1565c0);
+      color: white; border: none; border-radius: var(--radius);
+      font-size: 15px; font-weight: 700; cursor: pointer;
+      transition: all 0.2s; margin-bottom: 20px;
+    }
+    .pilot-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .pilot-btn.running {
+      background: linear-gradient(135deg, #cc0000, #880000);
+    }
+
+    .logbox {
+      background: #000; border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px;
+      font-family: 'Courier New', monospace; font-size: 11px;
+      color: #00e676; white-space: pre-wrap;
+      overflow-y: auto; height: 280px;
+    }
+    .logbox .e { color: #ff1744; }
+    .logbox .w { color: var(--gold); }
+    .logbox .i { color: var(--blue); }
+
+    /* ── Queue Page ── */
+    .queue-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; }
+    .queue-table th {
+      text-align: left; padding: 8px 14px;
+      font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      font-weight: 600;
+    }
+    .queue-table td {
+      padding: 10px 14px;
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .queue-table td:first-child { border-left: 1px solid var(--border); border-radius: 10px 0 0 10px; }
+    .queue-table td:last-child  { border-right: 1px solid var(--border); border-radius: 0 10px 10px 0; }
+
+    .q-thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; background: var(--bg3); }
+    .q-name  { font-size: 12px; max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .q-meta  { font-size: 11px; color: var(--muted); }
+
+    .qbadge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 3px 10px; border-radius: 6px;
+    }
+    .qbadge.pending    { background: rgba(90,90,128,0.2); color: var(--muted); }
+    .qbadge.processing { background: rgba(68,138,255,0.2); color: var(--blue); }
+    .qbadge.done       { background: rgba(0,230,118,0.2); color: var(--green); }
+    .qbadge.error      { background: rgba(255,23,68,0.2); color: var(--red); }
+
+    /* ── Divider ── */
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    .section-title {
+      font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      margin-bottom: 14px; font-weight: 600;
+    }
+
+    .summary-box {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px;
+      font-size: 13px; line-height: 2; color: var(--muted);
+    }
+    .summary-box b { color: var(--text); }
+  </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-logo">S</div>
+    <div class="brand-name">Shopee VDO Gen</div>
+    <div class="brand-sub">AUTO PILOT SYSTEM</div>
+    <div class="brand-ver">v3.5.0</div>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-section">หลัก</div>
+    <div class="nav-item active" data-page="home">
+      <span class="nav-icon">🏠</span> Home
+    </div>
+    <div class="nav-item" data-page="products">
+      <span class="nav-icon">📦</span> สินค้า
+      <span class="nav-badge blue" id="nb-products">0</span>
+    </div>
+
+    <div class="nav-section" style="margin-top:8px;">วิดีโอ</div>
+    <div class="nav-item" data-page="settings">
+      <span class="nav-icon">🎬</span> ตั้งค่าวิดีโอ
+    </div>
+    <div class="nav-item" data-page="pilot">
+      <span class="nav-icon">🚀</span> Auto Pilot
+    </div>
+    <div class="nav-item" data-page="queue">
+      <span class="nav-icon">📋</span> Queue
+      <span class="nav-badge" id="nb-queue">0</span>
+    </div>
+  </nav>
+
+  <div class="sidebar-status">
+    <div class="status-row">
+      <div class="dot yellow" id="sdot"></div>
+      <span id="smsg" style="font-size:11px;">ตรวจสอบ...</span>
+    </div>
+  </div>
+</aside>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="topbar-title" id="page-title">Dashboard</div>
+    <div class="topbar-right">
+      <div class="topbar-stat">
+        สินค้า <span class="topbar-stat-val" id="tb-products">0</span>
+      </div>
+      <div class="topbar-stat">
+        สำเร็จ <span class="topbar-stat-val" id="tb-done" style="color:var(--green)">0</span>
+      </div>
+      <button class="btn primary" id="btn-scrape-top">ดึงจากหน้า Affiliate</button>
+    </div>
+  </header>
+
+  <!-- Content -->
+  <div class="content">
+
+    <!-- ── Home ── -->
+    <div class="page active" id="page-home">
+
+      <div class="home-stats">
+        <div class="stat-card blue">
+          <div class="stat-icon">📦</div>
+          <div class="stat-val blue" id="hs-total">0</div>
+          <div class="stat-lbl">สินค้าทั้งหมด</div>
+        </div>
+        <div class="stat-card gold">
+          <div class="stat-icon">⭐</div>
+          <div class="stat-val gold" id="hs-extracomm">0</div>
+          <div class="stat-lbl">ExtraComm</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon">✅</div>
+          <div class="stat-val green" id="hs-done">0</div>
+          <div class="stat-lbl">วิดีโอสำเร็จ</div>
+        </div>
+        <div class="stat-card purple">
+          <div class="stat-icon">📋</div>
+          <div class="stat-val purple" id="hs-queue">0</div>
+          <div class="stat-lbl">รอในคิว</div>
+        </div>
+      </div>
+
+      <div class="home-grid">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Quick Actions</span>
+          </div>
+          <div class="card-body">
+            <div class="quick-actions">
+              <div class="qa-btn" id="qa-scrape">
+                <div class="qa-icon">🔍</div>
+                <div class="qa-title">ดึงข้อมูล ExtraComm</div>
+                <div class="qa-desc">ดึงจากหน้า Affiliate ที่เปิดอยู่</div>
+              </div>
+              <div class="qa-btn" id="qa-products">
+                <div class="qa-icon">📦</div>
+                <div class="qa-title">ดูสินค้าทั้งหมด</div>
+                <div class="qa-desc">จัดการและเลือกสินค้า</div>
+              </div>
+              <div class="qa-btn" id="qa-pilot">
+                <div class="qa-icon">🚀</div>
+                <div class="qa-title">เริ่ม Auto Pilot</div>
+                <div class="qa-desc">สร้างวิดีโออัตโนมัติ</div>
+              </div>
+              <div class="qa-btn" id="qa-settings">
+                <div class="qa-icon">🎬</div>
+                <div class="qa-title">ตั้งค่าวิดีโอ</div>
+                <div class="qa-desc">AI, สไตล์, ฉากหลัง</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">สินค้าล่าสุด</span>
+            <button class="btn secondary" style="padding:5px 10px;font-size:11px;" onclick="goPage('products')">ดูทั้งหมด</button>
+          </div>
+          <div class="card-body" id="recent-list" style="padding:10px 20px;">
+            <div style="text-align:center;padding:30px 0;color:var(--muted);font-size:12px;">ยังไม่มีสินค้า</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Products ── -->
+    <div class="page" id="page-products">
+
+      <div class="products-toolbar">
+        <div class="search-wrap">
+          <input class="search-inp" id="kw-inp" placeholder="ค้นหา keyword เช่น รองเท้า, ครีม, กระเป๋า..." />
+          <button class="btn primary" id="btn-kw">ค้นหา</button>
+        </div>
+        <div class="filter-chips">
+          <div class="chip on" data-f="extracomm">ExtraComm</div>
+          <div class="chip" data-f="hot">ขายดี</div>
+          <div class="chip" data-f="highcomm">คอมสูง</div>
+        </div>
+      </div>
+
+      <div class="products-info">
+        <div class="products-info-left">
+          เลือก <b id="sel-n">0</b> / <span id="sel-total">0</span> รายการ
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;">
+            <input type="checkbox" id="chk-all" style="accent-color:var(--accent);" /> เลือกทั้งหมด
+          </label>
+        </div>
+        <div class="products-info-right">
+          <button class="btn secondary" id="btn-export">Export JSON</button>
+          <button class="btn secondary" id="btn-clr">ล้างทั้งหมด</button>
+          <button class="btn primary"   id="btn-add-queue">เพิ่มเข้า Queue</button>
+        </div>
+      </div>
+
+      <div class="prod-grid" id="prod-grid">
+        <div class="empty">
+          <div class="empty-icon">🔍</div>
+          <div class="empty-text">ค้นหา keyword หรือกด "ดึงจากหน้า Affiliate"</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Settings ── -->
+    <div class="page" id="page-settings">
+      <div class="settings-layout">
+
+        <div>
+          <div class="settings-card" style="margin-bottom:20px;">
+            <div class="settings-card-header">🎯 กลุ่มเป้าหมาย</div>
+            <div class="settings-card-body">
+              <div class="setting-row">
+                <div class="setting-label">กลุ่มอายุ</div>
+                <select class="sel" id="cfg-age">
+                  <option value="random">🎲 Random ทุกครั้ง</option>
+                  <option value="genz">Gen Z  (18–25 ปี)</option>
+                  <option value="millennial">Millennial  (26–40 ปี)</option>
+                  <option value="genx">Gen X  (41–55 ปี)</option>
+                  <option value="all">ทุกกลุ่มอายุ</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">บุคลิกผู้นำเสนอ</div>
+                <select class="sel" id="cfg-personality">
+                  <option value="random">🎲 Random</option>
+                  <option value="friendly">เป็นกันเอง สนุกสนาน</option>
+                  <option value="pro">มืออาชีพ น่าเชื่อถือ</option>
+                  <option value="excited">ตื่นเต้น กระตือรือร้น</option>
+                  <option value="calm">สงบ ให้ข้อมูลตรงๆ</option>
+                  <option value="trendy">เท่ ทันสมัย</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-card-header">🎬 สไตล์วิดีโอ</div>
+            <div class="settings-card-body">
+              <div class="setting-row">
+                <div class="setting-label">สไตล์การนำเสนอ</div>
+                <select class="sel" id="cfg-style">
+                  <option value="random">🎲 Random</option>
+                  <option value="review">รีวิวจริง บอกข้อดีข้อเสีย</option>
+                  <option value="demo">สาธิตวิธีใช้งาน</option>
+                  <option value="story">เล่าเรื่อง ประสบการณ์</option>
+                  <option value="compare">เปรียบเทียบ คุ้มค่า</option>
+                  <option value="flash">Flash Sale โปรพิเศษ</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">ฉากหลัง</div>
+                <select class="sel" id="cfg-bg">
+                  <option value="random">🎲 Random</option>
+                  <option value="white">พื้นขาว สตูดิโอ</option>
+                  <option value="lifestyle">Lifestyle ในบ้าน</option>
+                  <option value="outdoor">กลางแจ้ง ธรรมชาติ</option>
+                  <option value="minimal">Minimal เรียบสะอาด</option>
+                  <option value="colorful">สีสัน สดใส</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">ความยาวคลิป</div>
+                <select class="sel" id="cfg-dur">
+                  <option value="30">30 วินาที</option>
+                  <option value="45">45 วินาที</option>
+                  <option value="60" selected>60 วินาที</option>
+                  <option value="90">90 วินาที</option>
+                </select>
+              </div>
+              <div class="toggle-row">
+                <span class="toggle-label">Random ทุกครั้งที่สร้าง</span>
+                <div class="toggle on" id="tog-random"></div>
+              </div>
+              <div class="toggle-row">
+                <span class="toggle-label">Subtitle อัตโนมัติ</span>
+                <div class="toggle on" id="tog-sub"></div>
+              </div>
+              <div class="toggle-row">
+                <span class="toggle-label">ดนตรีพื้นหลัง</span>
+                <div class="toggle on" id="tog-music"></div>
+              </div>
+              <div class="toggle-row">
+                <span class="toggle-label">Watermark</span>
+                <div class="toggle" id="tog-wm"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="settings-card" style="margin-bottom:20px;">
+            <div class="settings-card-header">🔑 API Keys</div>
+            <div class="settings-card-body">
+              <div class="setting-row">
+                <div class="setting-label">Claude API Key (Anthropic)</div>
+                <input class="inp" type="password" id="cfg-claude" placeholder="sk-ant-api03-..." />
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">Google AI API Key (Veo 2)</div>
+                <input class="inp" type="password" id="cfg-google" placeholder="AIzaSy..." />
+              </div>
+              <div class="setting-row">
+                <div class="setting-label">Desktop App Port</div>
+                <input class="inp" type="text" id="cfg-port" placeholder="3001" value="3001" />
+              </div>
+              <button class="btn green-btn" style="width:100%;justify-content:center;" id="btn-save">
+                บันทึกการตั้งค่า ✓
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-card-header">📊 สถานะระบบ</div>
+            <div class="settings-card-body">
+              <div style="font-size:12px;color:var(--muted);line-height:2;">
+                <div>Desktop App: <span id="app-status" style="color:var(--text);">ไม่พบ</span></div>
+                <div>Claude API: <span id="claude-status" style="color:var(--text);">ยังไม่ได้ตั้งค่า</span></div>
+                <div>Google API: <span id="google-status" style="color:var(--text);">ยังไม่ได้ตั้งค่า</span></div>
+              </div>
+              <button class="btn secondary" style="width:100%;margin-top:8px;" id="btn-check">ตรวจสอบการเชื่อมต่อ</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Auto Pilot ── -->
+    <div class="page" id="page-pilot">
+      <div class="pilot-layout">
+
+        <div>
+          <div class="pilot-stats">
+            <div class="ps-card">
+              <div class="ps-val" style="color:var(--blue)" id="ps-total">0</div>
+              <div class="ps-lbl">ทั้งหมด</div>
+            </div>
+            <div class="ps-card">
+              <div class="ps-val" style="color:var(--gold)" id="ps-pend">0</div>
+              <div class="ps-lbl">รอสร้าง</div>
+            </div>
+            <div class="ps-card">
+              <div class="ps-val" style="color:var(--green)" id="ps-done">0</div>
+              <div class="ps-lbl">สำเร็จ</div>
+            </div>
+            <div class="ps-card">
+              <div class="ps-val" style="color:var(--red)" id="ps-err">0</div>
+              <div class="ps-lbl">ผิดพลาด</div>
+            </div>
+          </div>
+
+          <button class="pilot-btn" id="btn-pilot">🚀 เริ่ม Auto Pilot</button>
+
+          <div class="section-title">PILOT LOG</div>
+          <div class="logbox" id="pilot-log">รอเริ่มต้น...</div>
+        </div>
+
+        <div>
+          <div class="section-title">สรุปการตั้งค่า</div>
+          <div class="summary-box" id="pilot-summary">กำลังโหลด...</div>
+
+          <div class="divider"></div>
+
+          <div class="section-title">สินค้าที่เลือก</div>
+          <div style="font-size:13px;color:var(--muted);" id="pilot-sel-info">
+            ยังไม่ได้เลือกสินค้า
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Queue ── -->
+    <div class="page" id="page-queue">
+      <div style="display:flex;gap:10px;margin-bottom:20px;">
+        <button class="btn secondary" id="btn-clr-q">ล้าง Queue</button>
+        <button class="btn secondary" id="btn-exp-q">Export JSON</button>
+      </div>
+      <table class="queue-table">
+        <thead>
+          <tr>
+            <th>สินค้า</th>
+            <th>ราคา</th>
+            <th>% คอม</th>
+            <th>สถานะ</th>
+            <th>เวลา</th>
+          </tr>
+        </thead>
+        <tbody id="queue-tbody"></tbody>
+      </table>
+      <div id="queue-empty" style="display:none">
+        <div class="empty" style="grid-column:unset">
+          <div class="empty-icon">📋</div>
+          <div class="empty-text">ยังไม่มี Queue<br>เพิ่มสินค้าแล้วกด Auto Pilot</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<script src="dashboard.js"></script>
+</body>
+</html>

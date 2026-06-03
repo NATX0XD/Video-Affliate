@@ -1,0 +1,11 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated data / outputs
+data/output/
+data/products/
+data/*.png

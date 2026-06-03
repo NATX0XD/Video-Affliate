@@ -1,0 +1,74 @@
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+import config as cfg
+from services.adb.manager import ADBManager
+from services.web_server   import WebServer
+from services.worker       import Worker
+from services.gen_worker   import GenWorker
+from services.post_worker  import PostWorker
+
+
+def main():
+    settings = cfg.load()
+
+    for d in [cfg.PRODUCTS_DIR, cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
+
+    adb    = ADBManager()
+    server = WebServer(port=settings.get("server_port", 3001))
+    worker = Worker(settings, adb)
+    gen    = GenWorker(settings)
+    poster = PostWorker(settings, adb)
+
+    # Wire up cross-references
+    server.adb    = adb
+    server.worker = worker
+    server.gen    = gen
+    server.poster = poster
+    worker.log    = server.emit_log
+    gen.log       = server.emit_log
+    poster.log    = server.emit_log
+
+    worker.on_status_change = server.emit_worker_status
+    worker.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
+    worker.on_finished      = lambda: server.emit_log("[Worker] Auto Pilot completed ✓")
+
+    # Generation-only worker → emit progress + announce ready clips
+    gen.on_status_change = server.emit_worker_status
+    gen.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
+    gen.on_video_ready   = server.emit_video_ready
+    gen.on_progress      = server.emit_gen_progress
+    gen.on_finished      = lambda: server.emit_log("[Gen] สร้างคลิปครบแล้ว ✓")
+
+    # Post-all worker
+    poster.on_status_change = server.emit_worker_status
+    poster.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
+    poster.on_finished      = lambda: server.emit_log("[Post] โพสต์ครบทุกคลิปแล้ว ✓")
+
+    adb.log = server.emit_log
+
+    # Start services
+    server.start()
+    adb.start_watch(interval=5)
+
+    print("\n" + "─" * 50)
+    print("  Shopee VDO Gen — Web UI Mode")
+    print("─" * 50)
+    print(f"  Backend  → http://localhost:{server.port}")
+    print(f"  Web UI   → http://localhost:3000  (run: npm run dev)")
+    print("─" * 50 + "\n")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nShutting down…")
+        adb.stop_watch()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shopee VDO Gen</title>
+  <style>
+    :root {
+      --bg:     #0f0f1a;
+      --bg2:    #16162a;
+      --bg3:    #1e1e38;
+      --border: #2a2a50;
+      --accent: #ee4d2d;
+      --green:  #00e676;
+      --blue:   #448aff;
+      --gold:   #ffd740;
+      --text:   #e8e8f5;
+      --muted:  #6b6b90;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 360px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 13px;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #1a0500, #2d0d05);
+      border-bottom: 2px solid var(--accent);
+      padding: 12px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand { display: flex; align-items: center; gap: 9px; }
+    .brand-icon {
+      width: 32px; height: 32px;
+      background: var(--accent); border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; color: white; font-size: 16px;
+    }
+    .brand-name { font-size: 14px; font-weight: 700; }
+    .brand-sub  { font-size: 9px; color: var(--muted); }
+    .ver { font-size: 10px; color: var(--accent); background: rgba(238,77,45,0.12); border: 1px solid rgba(238,77,45,0.25); border-radius: 5px; padding: 2px 8px; }
+
+    /* Status */
+    .statusbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .status-left { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; }
+    .dot.green  { background: var(--green);  box-shadow: 0 0 6px var(--green); }
+    .dot.red    { background: #ff1744;        box-shadow: 0 0 6px #ff1744; }
+    .dot.yellow { background: var(--gold);    box-shadow: 0 0 6px var(--gold); }
+    .btn-dashboard {
+      font-size: 10px; background: var(--bg3); color: var(--muted);
+      border: 1px solid var(--border); border-radius: 5px;
+      padding: 3px 8px; cursor: pointer;
+    }
+    .btn-dashboard:hover { color: var(--text); border-color: var(--accent); }
+
+    /* Tabs */
+    .tabs {
+      display: flex; background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      flex: 1; padding: 8px 4px; text-align: center;
+      font-size: 11px; color: var(--muted); cursor: pointer;
+      border-bottom: 2px solid transparent; transition: all 0.15s;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab:hover:not(.active) { color: var(--text); background: var(--bg3); }
+
+    /* Panes */
+    .pane { display: none; padding: 14px; }
+    .pane.active { display: block; }
+
+    /* Scrape pane */
+    .page-info {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 10px 12px;
+      font-size: 12px; line-height: 1.6; margin-bottom: 12px;
+      color: var(--muted);
+    }
+    .page-info b { color: var(--text); }
+    .page-info .url { font-size: 10px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .btn-scrape {
+      width: 100%; padding: 11px;
+      background: var(--green); color: #000;
+      border: none; border-radius: 9px;
+      font-size: 13px; font-weight: 700;
+      cursor: pointer; transition: all 0.15s;
+      margin-bottom: 10px;
+    }
+    .btn-scrape:hover { opacity: 0.9; }
+    .btn-scrape:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .option-row {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px;
+      margin-bottom: 8px; cursor: pointer;
+    }
+    .option-row input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; }
+    .option-label { font-size: 12px; color: var(--gold); font-weight: 500; }
+
+    .progress-row {
+      display: flex; gap: 10px; margin-bottom: 10px;
+    }
+    .prog-box {
+      flex: 1; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px; text-align: center;
+    }
+    .prog-lbl { font-size: 9px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; }
+    .prog-val { font-size: 22px; font-weight: 800; }
+    .prog-val.g { color: var(--green); }
+    .prog-val.b { color: var(--blue); }
+
+    .prog-bar-wrap {
+      background: var(--bg3); border-radius: 4px;
+      height: 4px; margin-bottom: 10px; overflow: hidden;
+    }
+    .prog-bar { height: 100%; background: var(--green); border-radius: 4px; width: 0%; transition: width 0.3s; }
+
+    /* Log */
+    .logbox {
+      background: #000; border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px;
+      font-family: monospace; font-size: 10px;
+      color: var(--green); height: 90px;
+      overflow-y: auto; white-space: pre-wrap;
+    }
+    .logbox .e { color: #ff1744; }
+    .logbox .w { color: var(--gold); }
+    .logbox .i { color: var(--blue); }
+
+    /* Storage pane */
+    .storage-info {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 12px;
+      margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .storage-count { font-size: 28px; font-weight: 800; color: var(--blue); }
+    .storage-lbl { font-size: 11px; color: var(--muted); }
+
+    .btn-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .btn {
+      flex: 1; padding: 9px; border: none; border-radius: 8px;
+      font-size: 11px; font-weight: 600; cursor: pointer; transition: 0.15s;
+    }
+    .btn.blue   { background: var(--blue);   color: white; }
+    .btn.purple { background: #7c4dff;        color: white; }
+    .btn.red    { background: #cc0000;        color: white; }
+    .btn.open   { background: var(--accent);  color: white; width: 100%; padding: 10px; margin-top: 4px; }
+
+    .recent-list { display: flex; flex-direction: column; gap: 6px; }
+    .recent-item {
+      display: flex; align-items: center; gap: 9px;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 7px 10px;
+    }
+    .r-thumb {
+      width: 36px; height: 36px; border-radius: 6px;
+      object-fit: cover; background: var(--bg3); flex-shrink: 0;
+    }
+    .r-info { flex: 1; min-width: 0; }
+    .r-name { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .r-meta { font-size: 10px; color: var(--muted); margin-top: 1px; }
+    .r-comm { font-size: 10px; color: var(--gold); font-weight: 600; }
+
+    /* Tools pane */
+    .conn-box {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 9px; padding: 12px; margin-bottom: 10px;
+      font-size: 12px; line-height: 2;
+    }
+    .conn-row { display: flex; justify-content: space-between; }
+    .conn-val { font-weight: 600; }
+    .conn-val.ok  { color: var(--green); }
+    .conn-val.err { color: #ff1744; }
+    .conn-val.na  { color: var(--muted); }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <div class="brand-icon">S</div>
+      <div>
+        <div class="brand-name">Shopee VDO Gen</div>
+        <div class="brand-sub">Auto Pilot System</div>
+      </div>
+    </div>
+    <div class="ver">v3.5.0</div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="statusbar">
+    <div class="status-left">
+      <div class="dot yellow" id="sdot"></div>
+      <span id="smsg">กำลังตรวจสอบ...</span>
+    </div>
+    <button class="btn-dashboard" id="btn-open-dash">เปิด Dashboard ↗</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-tab="scrape">ดึงข้อมูล</div>
+    <div class="tab" data-tab="storage">Storage</div>
+    <div class="tab" data-tab="tools">Tools</div>
+  </div>
+
+  <!-- ── Scrape ── -->
+  <div class="pane active" id="tab-scrape">
+
+    <div class="page-info" id="page-info">
+      <b>กำลังตรวจสอบหน้าปัจจุบัน...</b>
+    </div>
+
+    <button class="btn-scrape" id="btn-scrape" disabled>
+      เริ่มดึงข้อมูลจากหน้านี้
+    </button>
+
+    <div class="option-row" id="row-extracomm">
+      <input type="checkbox" id="chk-extracomm" checked />
+      <label class="option-label" for="chk-extracomm">ดึงเฉพาะ ExtraComm (นายหน้า)</label>
+    </div>
+
+    <div class="option-row" id="row-captcha">
+      <input type="checkbox" id="chk-captcha" />
+      <label class="option-label" for="chk-captcha" style="color:var(--muted);">แสดงหน้าต่างซ่อนลิงก์ (แก้ Captcha)</label>
+    </div>
+
+    <div class="progress-row">
+      <div class="prog-box">
+        <div class="prog-lbl">เป้าหมาย</div>
+        <div class="prog-val b" id="prog-target">0</div>
+      </div>
+      <div class="prog-box">
+        <div class="prog-lbl">สำเร็จแล้ว</div>
+        <div class="prog-val g" id="prog-done">0</div>
+      </div>
+    </div>
+
+    <div class="prog-bar-wrap">
+      <div class="prog-bar" id="prog-bar"></div>
+    </div>
+
+    <div class="logbox" id="log">รอการดึงข้อมูล...</div>
+  </div>
+
+  <!-- ── Storage ── -->
+  <div class="pane" id="tab-storage">
+
+    <div class="storage-info">
+      <div>
+        <div class="storage-count" id="storage-count">0</div>
+        <div class="storage-lbl">สินค้าที่บันทึกไว้</div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:var(--muted);">
+        ExtraComm: <b style="color:var(--gold)" id="storage-extracomm">0</b><br>
+        วิดีโอแล้ว: <b style="color:var(--green)" id="storage-done">0</b>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn purple" id="btn-import">Import JSON</button>
+      <button class="btn blue"   id="btn-export">Export JSON</button>
+      <button class="btn red"    id="btn-clear">ล้าง</button>
+    </div>
+
+    <div class="recent-list" id="recent-list">
+      <div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">ยังไม่มีข้อมูล</div>
+    </div>
+
+    <button class="btn open" id="btn-open-dash2">เปิด Dashboard เต็มจอ ↗</button>
+  </div>
+
+  <!-- ── Tools ── -->
+  <div class="pane" id="tab-tools">
+
+    <div class="conn-box">
+      <div class="conn-row"><span>Desktop App</span><span class="conn-val na" id="app-conn">ไม่พบ</span></div>
+      <div class="conn-row"><span>Claude API</span><span class="conn-val na" id="claude-conn">ยังไม่ตั้งค่า</span></div>
+      <div class="conn-row"><span>Google Veo 2</span><span class="conn-val na" id="veo-conn">ยังไม่ตั้งค่า</span></div>
+      <div class="conn-row"><span>Queue</span><span class="conn-val ok" id="queue-count">0 รายการ</span></div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn blue" id="btn-send-all">ส่งทั้งหมดไป App</button>
+      <button class="btn red"  id="btn-clear-q">ล้าง Queue</button>
+    </div>
+
+    <div class="logbox" id="tools-log" style="height:70px;">-</div>
+
+    <button class="btn open" style="margin-top:10px;" id="btn-open-dash3">เปิด Dashboard ↗</button>
+  </div>
+
+  <input type="file" id="file-input" accept=".json" style="display:none" />
+  <script src="popup.js"></script>
+</body>
+</html>

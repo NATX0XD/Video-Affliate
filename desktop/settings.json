@@ -1,0 +1,21 @@
+{
+  "server_port": 3001,
+  "adb_host": "localhost",
+  "adb_port": 5037,
+  "post_delay_min": 30,
+  "post_delay_max": 120,
+  "hot_folder": "/Users/mewwi/dev/shopee-automation/desktop/data/output/pending",
+  "shop_name": "",
+  "age_group": "ทุกวัย",
+  "personality": "สนุกสนาน",
+  "style": "ไลฟ์สไตล์",
+  "background": "สตูดิโอ",
+  "duration": 8,
+  "engine": "template",
+  "vdo_model": "veo-3.0-fast-generate-001",
+  "prompt_model": "gemini-2.0-flash",
+  "generate_audio": true,
+  "avatar_url": "https://create-images-results.d-id.com/DefaultPresenters/Noelle_f/image.png",
+  "avatar_voice": "th-TH-PremwadeeNeural",
+  "review_seconds": 18
+}

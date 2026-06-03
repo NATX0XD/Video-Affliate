@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shopee VDO Gen — ศูนย์ควบคุม</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#08080f;--card:#14141f;--card2:#1a1a28;--line:rgba(255,255,255,.07);
+    --txt:#eef0f6;--dim:#8b8ba3;--faint:#5b5b72;
+    --violet:#8b5cf6;--violet2:#7c3aed;--blue:#38bdf8;--green:#34d399;--amber:#fbbf24;
+  }
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--txt);font-family:'SF Pro Text',system-ui,-apple-system,sans-serif;
+    font-size:13px;display:flex;flex-direction:column;overflow:hidden}
+  svg{display:block}
+  ::-webkit-scrollbar{width:7px}::-webkit-scrollbar-thumb{background:#2a2a3a;border-radius:4px}
+  button{font-family:inherit;border:0;cursor:pointer;border-radius:12px;font-weight:650;
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:filter .15s,opacity .15s}
+  button:disabled{opacity:.5}button:not(:disabled):hover{filter:brightness(1.08)}
+
+  header{display:flex;align-items:center;gap:10px;padding:14px 15px;border-bottom:1px solid var(--line);
+    background:linear-gradient(160deg,rgba(139,92,246,.14),transparent 65%)}
+  header .logo{width:34px;height:34px;border-radius:10px;flex-shrink:0;background:linear-gradient(135deg,#8b5cf6,#6d28d9);
+    display:grid;place-items:center;box-shadow:0 5px 16px rgba(124,58,237,.35)}
+  header h1{font-size:14.5px;font-weight:750}header .sub{font-size:10px;color:var(--dim);letter-spacing:1.2px}
+
+  .strip{display:flex;align-items:center;gap:8px;padding:10px 15px;border-bottom:1px solid var(--line);font-size:11.5px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex-shrink:0}
+  .dot.on{background:var(--green);box-shadow:0 0 8px rgba(52,211,153,.6)}.dot.warn{background:var(--amber)}
+  .strip .lbl{color:var(--dim)}.strip .t{margin-left:auto;color:var(--faint);font-size:10.5px}
+
+  .body{flex:1;overflow-y:auto;padding:15px;display:flex;flex-direction:column;gap:14px}
+  .hero{background:linear-gradient(150deg,rgba(139,92,246,.2),rgba(56,189,248,.06));
+    border:1px solid rgba(139,92,246,.22);border-radius:16px;padding:16px}
+  .hero h2{font-size:15px;font-weight:750}.hero p{font-size:11.5px;color:var(--dim);margin-top:4px;line-height:1.6}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px 8px;text-align:center}
+  .stat .v{font-size:23px;font-weight:780;letter-spacing:-.5px}
+  .stat .l{font-size:9.5px;color:var(--dim);margin-top:3px}
+
+  .btn-violet{padding:15px;font-size:14.5px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);color:#fff;
+    box-shadow:0 6px 18px rgba(124,58,237,.34)}
+  .btn-blue{padding:12px;font-size:13px;background:linear-gradient(135deg,#38bdf8,#0284c7);color:#fff}
+  .btn-ghost{padding:12px;font-size:12.5px;background:var(--card2);color:var(--dim);border:1px solid var(--line)}
+  .btn-ghost:hover{color:var(--txt)}
+
+  .nowbox{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px 14px}
+  .nowbox .h{font-size:11px;color:var(--dim);font-weight:600;margin-bottom:5px;display:flex;align-items:center;gap:6px}
+  .nowbox .m{font-size:11.5px;color:#7dd3fc;font-family:ui-monospace,monospace;line-height:1.55;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .logbox{background:var(--card);border:1px solid var(--line);border-radius:13px;overflow:hidden;display:flex;flex-direction:column;flex:1;min-height:120px}
+  .logh{display:flex;align-items:center;gap:7px;padding:11px 13px 7px;font-size:11.5px;font-weight:650}
+  .logh .ic{color:var(--violet)}.logh .clr{margin-left:auto;font-size:10.5px;color:var(--faint);cursor:pointer;font-weight:500}
+  .logh .clr:hover{color:var(--txt)}
+  .log{flex:1;background:#06060d;margin:0 11px 11px;border:1px solid var(--line);border-radius:10px;padding:9px 11px;
+    font-family:ui-monospace,monospace;font-size:10.5px;line-height:1.65;color:#7dd3fc;overflow-y:auto;min-height:90px}
+  .log .s{color:#4ade80}.log .e{color:#fb7185}.log .i{color:#9292a8}.log .dim{color:#6b6b80}
+  .hint{font-size:10.5px;color:var(--faint);text-align:center;line-height:1.6}
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+    <div><h1>ศูนย์ควบคุม</h1><div class="sub">SHOPEE VDO GEN</div></div>
+  </header>
+
+  <div class="strip">
+    <span class="dot" id="dDot"></span><span class="lbl" id="dLbl">กำลังเชื่อมต่อ desktop…</span>
+    <span class="t" id="dTime"></span>
+  </div>
+
+  <div class="body">
+    <div class="hero">
+      <h2>รีโมตควบคุม</h2>
+      <p>ดูดสินค้าจากหน้าต่างลอยบน Shopee แล้วเปิด Dashboard จอใหญ่เพื่อเลือก/สร้างคลิป</p>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="v" id="sProd" style="color:#a78bfa">0</div><div class="l">สินค้า</div></div>
+      <div class="stat"><div class="v" id="sLink" style="color:#34d399">0</div><div class="l">มีตะกร้า</div></div>
+      <div class="stat"><div class="v" id="sDone" style="color:#38bdf8">0</div><div class="l">สร้างแล้ว</div></div>
+    </div>
+
+    <button class="btn-violet" id="openDash">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+      เปิด Dashboard
+    </button>
+    <button class="btn-blue" id="openAff">เปิดหน้า Affiliate (ดูดสินค้า)</button>
+
+    <div class="nowbox">
+      <div class="h"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> สถานะล่าสุด</div>
+      <div class="m" id="nowMsg">— ยังไม่มีงาน —</div>
+    </div>
+
+    <div class="logbox">
+      <div class="logh">
+        <span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+        บันทึกการทำงาน
+        <span class="clr" id="clrLog">ล้าง</span>
+      </div>
+      <div class="log" id="ctrlLog"><span class="i">รอเริ่มงาน…</span></div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
