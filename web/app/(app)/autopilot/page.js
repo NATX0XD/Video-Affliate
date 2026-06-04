@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useApp }   from '../layout'
 import { api }      from '@/lib/api'
+import { Select }    from '@/components/ui/Select'
 import { PageHeader, JOB_STATUS } from '@/components/layout/PageHeader'
 import {
   Play, Square, RefreshCw, Rocket, ListOrdered, CheckCircle2, XCircle,
@@ -78,12 +79,10 @@ export default function AutoPilotPage() {
           {/* Device selector */}
           <div className="relative flex items-center gap-3">
             <label className="text-ink-dim text-sm w-16 shrink-0">มือถือ</label>
-            <select value={selSerial} onChange={e => setSelSerial(e.target.value)}
-              className="flex-1 bg-elevated border border-line text-ink text-sm px-3.5 py-2.5 rounded-lg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 appearance-none cursor-pointer transition-all">
-              {connected.length === 0
-                ? <option value="">ยังไม่มีเครื่องเชื่อมต่อ</option>
-                : connected.map(d => <option key={d.serial} value={d.serial}>{d.model} ({d.serial})</option>)}
-            </select>
+            <Select value={selSerial || connected[0]?.serial || ''} onChange={setSelSerial}
+              className="flex-1"
+              placeholder="ยังไม่มีเครื่องเชื่อมต่อ"
+              options={connected.map(d => ({ value: d.serial, label: `${d.model} (${d.serial})` }))} />
             <button onClick={() => api.scan().then(r => patch({ devices: r.devices }))}
               className="p-2.5 rounded-lg text-ink-dim bg-elevated border border-line hover:border-accent hover:text-accent transition-all">
               <RefreshCw size={14} />

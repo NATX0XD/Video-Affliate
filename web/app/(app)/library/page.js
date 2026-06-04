@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useApp } from '../layout'
 import { api }    from '@/lib/api'
+import { Select } from '@/components/ui/Select'
 import {
   Film, RefreshCw, Play, X, Clock, CheckCircle2, AlertCircle,
   Download, Send, Square, Smartphone
@@ -71,10 +72,9 @@ export default function LibraryPage() {
 
         <div className="ml-auto flex items-center gap-2">
           {connected.length > 1 && (
-            <select value={selSerial} onChange={e => setSelSerial(e.target.value)}
-              className="bg-elevated border border-line text-ink text-xs px-2.5 py-2 rounded-lg outline-none focus:border-accent">
-              {connected.map(d => <option key={d.serial} value={d.serial}>{d.model}</option>)}
-            </select>
+            <Select value={selSerial || connected[0]?.serial} onChange={setSelSerial}
+              className="w-40"
+              options={connected.map(d => ({ value: d.serial, label: d.model }))} />
           )}
           {posting ? (
             <button onClick={stopPost}
