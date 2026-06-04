@@ -2,7 +2,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api }        from '@/lib/api'
 import { PageHeader, JOB_STATUS } from '@/components/layout/PageHeader'
-import { Send, Trash2, ListChecks, Loader2 } from 'lucide-react'
+import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check } from 'lucide-react'
+
+const shortLink = (u) => (u || '').replace(/^https?:\/\//, '')
 
 // ลำดับขั้นใน pipeline สำหรับแถบความคืบหน้า
 const STAGES = ['queued', 'generating', 'generated', 'posting', 'posted']
@@ -21,6 +23,8 @@ export default function JobsPage() {
   const [mode, setMode]   = useState('auto')
   const [filter, setFilter] = useState('all')
   const [busy, setBusy]   = useState(null)
+  const [copied, setCopied] = useState(null)
+  const copy = (text, id) => { try { navigator.clipboard?.writeText(text) } catch {}; setCopied(id); setTimeout(() => setCopied(null), 1500) }
 
   const load = useCallback(async () => {
     try { const d = await api.jobs(); setJobs(d.jobs || []); setMode(d.review_mode || 'auto') } catch {}
@@ -84,11 +88,29 @@ export default function JobsPage() {
                 <div className="flex items-center gap-4">
                   <div className="flex-1 min-w-0">
                     <p className="text-ink text-sm font-medium truncate">{j.name || 'ไม่มีชื่อ'}</p>
-                    <p className="text-ink-mute text-xs nums">
+                    <p className="text-ink-mute text-xs nums mt-0.5">
                       {j.price ? `฿${Number(j.price).toLocaleString()}` : '—'}
+                      {j.commission ? ` · ค่าคอม ${j.commission}%` : ''}
                       {j.attempts > 0 ? ` · ลองแล้ว ${j.attempts} ครั้ง` : ''}
                       {isErr && j.error ? ` · ${j.error}` : ''}
                     </p>
+                    {/* ตะกร้า (affiliate link) */}
+                    {j.link ? (
+                      <button onClick={() => copy(j.link, j.id)}
+                        title={j.link}
+                        className="mt-1.5 inline-flex items-center gap-1.5 max-w-full text-[11px] bg-elevated hover:bg-line border border-line rounded-lg px-2 py-1 transition-all">
+                        <Link2 size={11} className="text-accent shrink-0" />
+                        <span className="text-ink-mute shrink-0">ตะกร้า</span>
+                        <span className="text-ink-dim truncate">{shortLink(j.link)}</span>
+                        {copied === j.id
+                          ? <Check size={11} className="text-success shrink-0" />
+                          : <Copy size={11} className="text-ink-mute shrink-0" />}
+                      </button>
+                    ) : (
+                      <span className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-danger">
+                        <Link2 size={11} /> ไม่มีลิงก์ตะกร้า
+                      </span>
+                    )}
                   </div>
                   <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold shrink-0 ${s.cls}`}>
                     {s.spin && <Loader2 size={11} className="animate-spin" />}{s.label}
