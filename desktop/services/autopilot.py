@@ -28,6 +28,7 @@ class AutoPilot:
         self._enabled = False
         self._thread: Optional[threading.Thread] = None
         self._stop = False
+        self._workers = {}      # serial → thread (โพสต์ขนานต่อเครื่อง)
         self.done_count = 0
         self.err_count  = 0
 
@@ -77,35 +78,47 @@ class AutoPilot:
     # ── loop ──────────────────────────────────────────────────
 
     def _loop(self):
+        """Manager: ดูแลให้ทุกเครื่องที่ต่ออยู่มี worker โพสต์ของตัวเอง (ขนาน)."""
         while not self._stop:
             try:
-                if self._enabled and self._tick():
-                    continue          # โพสต์ไป 1 ตัว → วนทันที (มีงานต่อ)
+                if self._enabled and self.adb:
+                    for d in list(self.adb.devices.values()):
+                        if d.status != "device":
+                            continue
+                        w = self._workers.get(d.serial)
+                        if not w or not w.is_alive():
+                            t = threading.Thread(target=self._device_worker, args=(d.serial,),
+                                                  daemon=True, name=f"AP-{d.serial}")
+                            self._workers[d.serial] = t
+                            t.start()
             except Exception as e:
-                self.log(f"[AUTO] ข้อผิดพลาดในลูป: {e}")
-            time.sleep(4)             # ว่าง/ปิดอยู่ → รอแล้วเช็กใหม่
+                self.log(f"[AUTO] ข้อผิดพลาด manager: {e}")
+            time.sleep(3)
 
-    def _tick(self) -> bool:
-        """ลองโพสต์ 1 คลิป — คืน True ถ้าโพสต์ไป (มีงาน), False ถ้าไม่มี/ติดเงื่อนไข."""
-        s = cfg.load()                # อ่านค่าตั้งสดทุกครั้ง (ปรับแล้วมีผลทันที)
-        if s.get("review_mode") == "hold":
-            return False              # โหมดถือไว้ → ไม่โพสต์เอง
-        if not self._can_post_now(s):
+    def _device_worker(self, serial: str):
+        """โพสต์คลิปทีละตัวบนเครื่องนี้ ขนานกับเครื่องอื่น."""
+        while not self._stop and self._enabled and self._device_online(serial):
+            s = cfg.load()
+            if s.get("review_mode") == "hold" or not self._can_post_now(s):
+                time.sleep(4); continue
+            job = self.db.claim(GENERATED, POSTING)   # atomic → ไม่ชนกับเครื่องอื่น
+            if not job:
+                time.sleep(4); continue
+            self._post_one(job, serial, s)
+            self._sleep_delay(s)
+
+    def _device_online(self, serial: str) -> bool:
+        if not self.adb:
             return False
-        serial = self._pick_device()
-        if not serial:
-            return False
-        job = self.db.claim(GENERATED, POSTING)
-        if not job:
-            return False
-        self._post_one(job, serial, s)
-        # เว้นจังหวะให้ดูเป็นธรรมชาติ
+        d = self.adb.devices.get(serial)
+        return bool(d and d.status == "device")
+
+    def _sleep_delay(self, s):
         delay = random.randint(int(s.get("post_delay_min", 30)), int(s.get("post_delay_max", 120)))
         for _ in range(delay):
             if self._stop or not self._enabled:
                 break
             time.sleep(1)
-        return True
 
     def _post_one(self, job, serial, s):
         jid = job["id"]; product = job["product"]

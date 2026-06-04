@@ -1,14 +1,17 @@
 'use client'
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState, useEffect } from 'react'
 import {
   ArrowLeft, Volume2, VolumeX, Home, RotateCcw,
-  Grid2x2, ExternalLink
+  Grid2x2, ExternalLink, Tag
 } from 'lucide-react'
 import { api } from '@/lib/api'
 
 export function MirrorFullscreen({ device, onBack }) {
   const imgRef  = useRef(null)
   const dragRef = useRef(null)
+  const [label, setLabel] = useState(device?.label || '')
+  useEffect(() => { setLabel(device?.label || '') }, [device?.serial])
+  const saveLabel = () => { if (device) api.setDeviceLabel(device.serial, label).catch(() => {}) }
 
   const toPhone = useCallback((cx, cy) => {
     const rect = imgRef.current?.getBoundingClientRect()
@@ -95,6 +98,17 @@ export function MirrorFullscreen({ device, onBack }) {
 
         {/* Controls panel */}
         <div className="w-52 shrink-0 border-l border-line flex flex-col gap-5 p-4 overflow-y-auto bg-surface">
+
+          <div>
+            <p className="text-ink-mute text-[10px] font-bold uppercase tracking-widest mb-2.5">ชื่อ / บัญชี</p>
+            <div className="relative">
+              <Tag size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-mute" />
+              <input value={label} onChange={e => setLabel(e.target.value)} onBlur={saveLabel}
+                onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()}
+                placeholder="เช่น บัญชี A"
+                className="w-full bg-elevated border border-line text-ink text-xs pl-7 pr-2 py-2 rounded-lg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20" />
+            </div>
+          </div>
 
           <div>
             <p className="text-ink-mute text-[10px] font-bold uppercase tracking-widest mb-2.5">นำทาง</p>

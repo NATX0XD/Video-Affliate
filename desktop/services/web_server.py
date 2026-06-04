@@ -127,6 +127,7 @@ class WebServer:
                         "android": d.android,
                         "battery": d.battery,
                         "status":  d.status,
+                        "label":   (self.db.get_config(f"dev_label:{d.serial}", "") if self.db else ""),
                         "streaming": d.serial in self.mirrors and
                                      self.mirrors[d.serial].is_running,
                     })
@@ -162,6 +163,12 @@ class WebServer:
                        "status": d.status} for d in devs]
             self.ws.broadcast_sync({"type": "devices", "devices": result})
             return {"devices": result}
+
+        @app.post("/api/devices/{serial}/label")
+        async def set_device_label(serial: str, body: dict):
+            if self.db:
+                self.db.set_config(f"dev_label:{serial}", (body.get("label") or "").strip())
+            return {"ok": True}
 
         @app.post("/api/mirror/start/{serial}")
         def mirror_start(serial: str):

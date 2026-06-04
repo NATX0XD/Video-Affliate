@@ -78,7 +78,7 @@ export function MirrorCell({ idx, device, onFullscreen }) {
       {/* Info bar */}
       <div className="flex items-center justify-between gap-2 px-3 py-2.5">
         <span className={`text-xs truncate font-medium ${connected ? 'text-ink' : 'text-ink-mute'}`}>
-          {device?.model || `ช่อง ${String(idx + 1).padStart(2, '0')}`}
+          {device?.label || device?.model || `ช่อง ${String(idx + 1).padStart(2, '0')}`}
         </span>
         {connected && (
           <button onClick={toggle}
