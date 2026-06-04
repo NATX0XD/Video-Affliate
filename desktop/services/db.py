@@ -337,6 +337,34 @@ class JobStore:
         """Record cost incurred for a job (timestamped) — for budget tracking."""
         self.update(job_id, cost=amount, cost_at=_now())
 
+    def posts_by_day(self, days: int = 14) -> list:
+        """จำนวนโพสต์ + ต้นทุน รายวัน (ย้อนหลัง N วัน) สำหรับกราฟ."""
+        from datetime import datetime, timedelta
+        start_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
+        start = int(start_dt.timestamp())
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT strftime('%Y-%m-%d', posted_at, 'unixepoch', 'localtime') d,
+                          COUNT(*) c, COALESCE(SUM(cost),0) cost
+                   FROM jobs WHERE status=? AND posted_at>=? GROUP BY d""",
+                (POSTED, start),
+            ).fetchall()
+        bucket = {r["d"]: {"count": r["c"], "cost": r["cost"]} for r in rows}
+        out = []
+        for i in range(days):
+            dt = start_dt + timedelta(days=i)
+            b = bucket.get(dt.strftime("%Y-%m-%d"), {"count": 0, "cost": 0})
+            out.append({"date": dt.strftime("%d/%m"), "count": b["count"], "cost": round(b["cost"], 2)})
+        return out
+
+    def error_list(self, limit: int = 20) -> list:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT name, error, attempts, updated_at FROM jobs WHERE status=? ORDER BY updated_at DESC LIMIT ?",
+                (ERROR, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def count_posted_today(self) -> int:
         from datetime import datetime
         n = datetime.now()

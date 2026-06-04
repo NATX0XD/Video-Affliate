@@ -16,6 +16,7 @@ export const api = {
   getSettings:     ()         => req('GET',  '/api/settings'),
   saveSettings:    (data)     => req('POST', '/api/settings', data),
   platforms:       ()         => req('GET',  '/api/platforms'),
+  reports:         ()         => req('GET',  '/api/reports'),
   getSetup:        ()         => req('GET',  '/api/setup'),
   saveSetup:       (data)     => req('POST', '/api/setup', data),
   logs:            (q = '')   => req('GET',  `/api/logs${q}`),

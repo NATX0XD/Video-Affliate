@@ -485,6 +485,32 @@ class WebServer:
             self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")
             return {"ok": True, "shop_name": shop}
 
+        @app.get("/api/reports")
+        def reports():
+            if not self.db:
+                return {}
+            st = self.db.stats(); by = st["by_status"]
+            posted = by.get(POSTED, 0); err = by.get(ERROR, 0)
+            done_total = posted + err
+            return {
+                "totals": {
+                    "all":       st["total"],
+                    "posted":    posted,
+                    "error":     err,
+                    "generated": by.get(GENERATED, 0),
+                    "queued":    by.get(QUEUED, 0) + by.get(GENERATING, 0) + by.get(POSTING, 0),
+                },
+                "success_rate": round(posted / done_total * 100, 1) if done_total else 0,
+                "cost": {
+                    "total":      round(st["total_cost"], 2),
+                    "this_month": round(self.budget.spend_month(), 2) if self.budget else 0,
+                    "avg":        round(st["total_cost"] / posted, 2) if posted else 0,
+                },
+                "daily":  self.db.posts_by_day(14),
+                "errors": self.db.error_list(15),
+                "budget": self.budget.snapshot() if self.budget else None,
+            }
+
         @app.get("/api/platforms")
         def list_platforms():
             from services.platforms import PLATFORMS

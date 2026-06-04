@@ -2,13 +2,14 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, Smartphone, Monitor,
+  LayoutDashboard, Smartphone, Monitor, BarChart3,
   ListOrdered, Rocket, Settings, Zap, Package, Film, X
 } from 'lucide-react'
 
 const NAV = [
   { group: 'ภาพรวม', items: [
     { href: '/dashboard', label: 'ค็อกพิต', icon: LayoutDashboard },
+    { href: '/reports',   label: 'รายงาน',  icon: BarChart3 },
   ]},
   { group: 'การทำงาน', items: [
     { href: '/library',   label: 'คลังคลิป', icon: Film    },
