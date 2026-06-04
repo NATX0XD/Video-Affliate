@@ -25,11 +25,8 @@ export default function DashboardPage() {
   const budget  = state.budget
 
   const toggle = () => {
-    if (running) { api.postAllStop().catch(() => {}) }
-    else {
-      const dev = state.devices.find(d => d.status === 'device')
-      api.postAllStart(dev?.serial || '').catch(() => {})
-    }
+    if (running) api.pilotStop().catch(() => {})
+    else api.pilotStart().catch(() => {})
   }
 
   const stats = [
@@ -77,7 +74,7 @@ export default function DashboardPage() {
               className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-white transition-all active:scale-[.97]
                 ${running ? 'bg-danger hover:opacity-90' : 'bg-accent hover:bg-accent-soft glow-accent'}`}>
               {running ? <Square size={16} className="fill-current" /> : <Play size={16} className="fill-current" />}
-              {running ? 'หยุดโพสต์' : 'เริ่มโพสต์'}
+              {running ? 'ปิดอัตโนมัติ' : 'เปิดอัตโนมัติ'}
             </button>
           </div>
         </div>

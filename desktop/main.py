@@ -12,6 +12,7 @@ from services.gen_worker   import GenWorker
 from services.post_worker  import PostWorker
 from services.db           import JobStore, migrate_folders
 from services.budget       import BudgetGuard
+from services.autopilot    import AutoPilot
 
 
 def main():
@@ -62,11 +63,20 @@ def main():
     poster.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
     poster.on_finished      = lambda: server.emit_log("[Post] โพสต์ครบทุกคลิปแล้ว ✓")
 
+    # Auto-post loop (near-zero-touch) — วนโพสต์เองตลอด
+    autopilot = AutoPilot(store, adb)
+    autopilot.log             = server.emit_log
+    autopilot.on_status_change = server.emit_worker_status
+    autopilot.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
+    server.autopilot = autopilot
+
     adb.log = server.emit_log
 
     # Start services
     server.start()
     adb.start_watch(interval=5)
+    autopilot.restore()        # คืนสถานะเปิด/ปิดจากครั้งก่อน
+    autopilot.start()          # เริ่มลูป (ทำงานเมื่อ enabled)
 
     print("\n" + "─" * 50)
     print("  Shopee VDO Gen — Web UI Mode")

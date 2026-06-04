@@ -86,6 +86,7 @@ class WebServer:
         self.poster = None        # PostWorker (publish-only)
         self.db     = None        # JobStore (A1.2) — persistent flow queue
         self.budget = None        # BudgetGuard (A1.4)
+        self.autopilot = None     # AutoPilot loop (auto-post)
         self._budget_blocked = False   # throttle log เตือนงบเต็ม
         self.flow_queue: list = []  # legacy fallback เมื่อ db ไม่พร้อม
         self.mirrors: dict = {}   # serial → ScreenMirror
@@ -129,11 +130,7 @@ class WebServer:
                         "streaming": d.serial in self.mirrors and
                                      self.mirrors[d.serial].is_running,
                     })
-            running = bool(
-                (self.worker and self.worker.is_running) or
-                (self.gen    and self.gen.is_running) or
-                (self.poster and self.poster.is_running)
-            )
+            running = bool(self.autopilot and self.autopilot.enabled)
             if self.db:
                 by = self.db.stats()["by_status"]
                 queue = (by.get(QUEUED, 0) + by.get(GENERATING, 0) +
@@ -266,16 +263,16 @@ class WebServer:
 
         @app.post("/api/pilot/start")
         async def pilot_start(body: dict):
-            serial = body.get("serial", "")
-            if self.worker:
-                self.worker.start(serial)
-            return {"ok": True}
+            # เปิดโหมดโพสต์อัตโนมัติ (auto-post loop)
+            if self.autopilot:
+                self.autopilot.set_enabled(True)
+            return {"ok": True, "enabled": True}
 
         @app.post("/api/pilot/stop")
         async def pilot_stop():
-            if self.worker:
-                self.worker.stop()
-            return {"ok": True}
+            if self.autopilot:
+                self.autopilot.set_enabled(False)
+            return {"ok": True, "enabled": False}
 
         @app.post("/api/test/post")
         async def test_post(body: dict):
