@@ -126,11 +126,14 @@ class AutoPoster:
         comm  = product.get("commission", {}).get("rate", "")
         link  = (product.get("links", {}).get("affiliate_link", "") or
                  product.get("links", {}).get("product_url", ""))
-        caption = f"{name} ราคา {price} บาท"
-        if comm:
-            caption += f" commission {comm}%"
-        if link:
-            caption += f" {link}"
+        # แคปชันจากเทมเพลตที่ผู้ใช้ตั้งเอง (ยืดหยุ่น)
+        tmpl = self.settings.get("caption_template") or "{name} ราคา {price} บาท {link}"
+        repl = {"{name}": name, "{price}": str(price), "{commission}": str(comm),
+                "{link}": link, "{shop}": self.settings.get("shop_name", "")}
+        caption = tmpl
+        for k, v in repl.items():
+            caption = caption.replace(k, v)
+        caption = " ".join(caption.split()).strip()   # เก็บช่องว่างส่วนเกิน (กรณีตัวแปรว่าง)
 
         self._w, self._h = self._get_resolution(serial)
         self.log(f"[POST] Resolution: {self._w}x{self._h}")

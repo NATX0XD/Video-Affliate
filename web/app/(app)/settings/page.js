@@ -1,7 +1,30 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { api }    from '@/lib/api'
-import { Eye, EyeOff, Save, Key, SlidersHorizontal, ShieldCheck, Wallet, Check } from 'lucide-react'
+import { Select } from '@/components/ui/Select'
+import { Eye, EyeOff, Save, Key, SlidersHorizontal, ShieldCheck, Wallet, Check, MessageSquare, Clock } from 'lucide-react'
+
+function Textarea({ label, value, onChange, placeholder, rows = 3, hint }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-ink-dim text-xs font-medium">{label}</label>
+      <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
+        className="w-full bg-elevated border border-line text-ink text-sm px-3.5 py-2.5 rounded-lg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 placeholder:text-ink-mute transition-all resize-y leading-relaxed" />
+      {hint && <p className="text-ink-mute text-[11px] leading-relaxed">{hint}</p>}
+    </div>
+  )
+}
+
+function SelectField({ label, value, onChange, options }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-ink-dim text-xs font-medium">{label}</label>
+      <Select value={value} onChange={onChange} options={options} />
+    </div>
+  )
+}
+
+const HOURS = Array.from({ length: 25 }, (_, i) => ({ value: i, label: `${String(i).padStart(2, '0')}:00` }))
 
 function Field({ label, value, onChange, type = 'text', placeholder = '', suffix }) {
   const [show, setShow] = useState(false)
@@ -112,6 +135,28 @@ export default function SettingsPage() {
               <Field label="งบรายเดือน (0 = ไม่จำกัด)" value={cfg.monthly_budget ?? ''} onChange={set('monthly_budget')} placeholder="0" suffix="บาท" />
               <Field label="ต้นทุนต่อคลิป (ประเมิน)" value={cfg.cost_per_clip ?? ''} onChange={set('cost_per_clip')} placeholder="0" suffix="บาท" />
             </div>
+          </Row>
+
+          <Row icon={MessageSquare} delay={200}
+               title="แคปชันโพสต์"
+               desc="ข้อความที่ระบบพิมพ์ตอนโพสต์ — ปรับเองได้ ใช้ตัวแปร {name} {price} {commission} {link} {shop}">
+            <Textarea label="เทมเพลตแคปชัน" rows={3}
+              value={cfg.caption_template || ''} onChange={set('caption_template')}
+              placeholder="{name} ราคา {price} บาท {link}"
+              hint="ตัวแปร: {name} ชื่อสินค้า · {price} ราคา · {commission} ค่าคอม · {link} ลิงก์ · {shop} ชื่อร้าน" />
+          </Row>
+
+          <Row icon={Clock} delay={240}
+               title="ตารางเวลา & การอนุมัติ"
+               desc="คุมช่วงเวลาที่โพสต์ จำนวนต่อวัน และจะให้โพสต์เองหรือถือไว้ก่อน">
+            <SelectField label="โหมดการโพสต์"
+              value={cfg.review_mode || 'auto'} onChange={set('review_mode')}
+              options={[{ value: 'auto', label: 'โพสต์อัตโนมัติทันที' }, { value: 'hold', label: 'ถือไว้ให้กดอนุมัติเอง' }]} />
+            <div className="grid grid-cols-2 gap-4">
+              <SelectField label="เริ่มโพสต์ได้ตั้งแต่" value={cfg.post_active_from ?? 0} onChange={set('post_active_from')} options={HOURS} />
+              <SelectField label="โพสต์ได้ถึง" value={cfg.post_active_to ?? 24} onChange={set('post_active_to')} options={HOURS} />
+            </div>
+            <Field label="โพสต์สูงสุดต่อวัน (0 = ไม่จำกัด)" value={cfg.post_max_per_day ?? ''} onChange={set('post_max_per_day')} placeholder="0" suffix="คลิป" />
           </Row>
         </div>
       </div>

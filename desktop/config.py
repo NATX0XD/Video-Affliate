@@ -49,6 +49,12 @@ DEFAULT = {
     "post_delay_min": 30,
     "post_delay_max": 120,
     "verify_post": True,         # ยืนยันโพสต์สำเร็จด้วย Gemini Vision (A1.3b)
+    # ความยืดหยุ่นการโพสต์ (ผู้ใช้คุมเองได้)
+    "caption_template": "{name} ราคา {price} บาท {link}",  # แคปชันตอนโพสต์
+    "post_active_from": 0,       # ชั่วโมงเริ่มโพสต์ได้ (0-23)
+    "post_active_to":   24,      # ชั่วโมงสิ้นสุด (1-24); 0-24 = ทั้งวัน
+    "post_max_per_day": 0,       # โพสต์สูงสุด/วัน (0 = ไม่จำกัด)
+    "review_mode": "auto",       # auto = โพสต์เลย | hold = ถือไว้ให้กดอนุมัติ
     "monthly_budget": 0,         # งบรายเดือน (บาท), 0 = ไม่จำกัด (A1.4)
     "cost_per_clip": 0,          # ต้นทุนประเมินต่อคลิป (บาท) Flow+Gemini
     "hot_folder": str(PENDING_DIR),

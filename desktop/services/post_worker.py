@@ -90,6 +90,8 @@ class PostWorker:
         else:
             self.log(f"[POST-ALL] เริ่มโพสต์ (คลังพร้อม {self.db.count(GENERATED)}) → {self._serial}")
             while self._running:
+                if not self._can_post_now():              # ตารางเวลา/โควต้า (ยืดหยุ่น)
+                    break
                 job = self.db.claim(GENERATED, POSTING)   # atomic
                 if not job:
                     break
@@ -137,6 +139,22 @@ class PostWorker:
         self.log(f"[POST-ALL] จบ ✅ สำเร็จ {self.done_count} ผิดพลาด {self.err_count}")
         if self.on_finished:
             self.on_finished()
+
+    def _can_post_now(self) -> bool:
+        """เช็กตารางเวลาโพสต์ + โควต้าต่อวัน (ความยืดหยุ่น)."""
+        from datetime import datetime
+        s = self.settings
+        hr = datetime.now().hour
+        fr = int(s.get("post_active_from", 0) or 0)
+        to = int(s.get("post_active_to", 24) or 24)
+        if not (fr <= hr < to):
+            self.log(f"[POST-ALL] นอกช่วงเวลาโพสต์ ({fr:02d}:00–{to:02d}:00) — หยุดไว้ก่อน")
+            return False
+        cap = int(s.get("post_max_per_day", 0) or 0)
+        if cap and self.db and self.db.count_posted_today() >= cap:
+            self.log(f"[POST-ALL] ครบโควต้าวันนี้แล้ว ({cap} คลิป) — หยุด")
+            return False
+        return True
 
     def _move(self, video: Path, dest_dir: Path) -> Path:
         """ย้ายคลิป + sidecar ไปโฟลเดอร์ปลายทาง คืน path ใหม่ (หรือ path เดิมถ้าย้ายไม่ได้)."""

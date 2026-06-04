@@ -337,6 +337,16 @@ class JobStore:
         """Record cost incurred for a job (timestamped) — for budget tracking."""
         self.update(job_id, cost=amount, cost_at=_now())
 
+    def count_posted_today(self) -> int:
+        from datetime import datetime
+        n = datetime.now()
+        start = int(datetime(n.year, n.month, n.day).timestamp())
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT COUNT(*) c FROM jobs WHERE status=? AND posted_at>=?", (POSTED, start)
+            ).fetchone()
+        return r["c"]
+
     def spend_since(self, ts: int) -> float:
         """Total cost incurred since timestamp `ts` (by cost_at)."""
         with self._lock:
