@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api }        from '@/lib/api'
 import { PageHeader, JOB_STATUS } from '@/components/layout/PageHeader'
-import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check } from 'lucide-react'
+import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check, Film } from 'lucide-react'
 
 const shortLink = (u) => (u || '').replace(/^https?:\/\//, '')
 
@@ -77,16 +77,24 @@ export default function JobsPage() {
           <p className="text-ink-dim text-sm">คลิปที่ extension สร้างเสร็จจะมาแสดงที่นี่</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-2.5 animate-fade-up" style={{ animationDelay: '60ms' }}>
-          {shown.map((j) => {
+        <div className="flex flex-col gap-2.5">
+          {shown.map((j, idx) => {
             const s = JOB_STATUS[j.status] ?? JOB_STATUS.pending
             const pct = PCT[j.status] ?? 10
             const active = ['generating', 'posting', 'retry'].includes(j.status)
             const done = ['posted', 'done'].includes(j.status)
             const isErr = j.status === 'error'
             return (
-              <div key={j.id} className="rounded-xl bg-surface border border-line shadow-card p-4">
+              <div key={j.id}
+                   className="group rounded-xl bg-surface border border-line shadow-card p-4 lift animate-fade-up"
+                   style={{ animationDelay: `${Math.min(idx, 12) * 45}ms` }}>
                 <div className="flex items-center gap-4">
+                  {/* รูปย่อคลิป */}
+                  <div className="w-12 h-[68px] rounded-lg overflow-hidden bg-black shrink-0 border border-line group-hover:border-accent/40 transition-colors">
+                    {j.file
+                      ? <video src={api.videoFileUrl(j.folder, j.file)} muted preload="metadata" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                      : <div className="w-full h-full flex items-center justify-center"><Film size={18} className="text-ink-mute" /></div>}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-ink text-sm font-medium truncate">{j.name || 'ไม่มีชื่อ'}</p>
                     <p className="text-ink-mute text-xs nums mt-0.5">

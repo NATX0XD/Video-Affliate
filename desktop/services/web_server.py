@@ -492,16 +492,21 @@ class WebServer:
             import config as cfg
             if not self.db:
                 return {"jobs": []}
+            from pathlib import Path as _P
+            FOLDER = {"generated": "pending", "posted": "done", "error": "error"}
             out = []
             for j in self.db.list(limit=500):
                 prod  = j.get("product", {}) or {}
                 bi    = prod.get("basic_info", {}) or {}
                 links = prod.get("links", {}) or {}
                 link  = links.get("affiliate_link") or links.get("product_url") or ""
+                vp    = j["video_path"] or ""
                 out.append({
                     "id": j["id"], "name": j["name"] or bi.get("name", ""),
                     "status": j["status"], "attempts": j["attempts"],
-                    "error": j["error"], "video_path": j["video_path"],
+                    "error": j["error"],
+                    "folder": FOLDER.get(j["status"], "pending"),  # โฟลเดอร์ของไฟล์ (สำหรับรูปย่อ)
+                    "file": _P(vp).name if vp else "",
                     "price": bi.get("price", ""),
                     "commission": (prod.get("commission", {}) or {}).get("rate", ""),
                     "link": link,                      # ตะกร้า (affiliate short link)

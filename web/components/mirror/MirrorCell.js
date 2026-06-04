@@ -31,10 +31,13 @@ export function MirrorCell({ idx, device, onFullscreen }) {
   return (
     <div
       onClick={() => connected && onFullscreen(device?.serial)}
-      className={`group lift relative flex flex-col rounded-2xl overflow-hidden border bg-surface shadow-card
+      className={`group lift animate-fade-up relative flex flex-col rounded-2xl overflow-hidden border bg-surface shadow-card
         ${connected ? 'cursor-pointer' : ''}
         ${streaming ? 'border-success/50' : connected ? 'border-accent/40' : 'border-line'}`}
-      style={streaming ? { boxShadow: '0 0 0 1px rgba(34,197,94,0.35), 0 8px 22px -8px rgba(34,197,94,0.4)' } : undefined}
+      style={{
+        animationDelay: `${Math.min(idx, 16) * 30}ms`,
+        ...(streaming ? { boxShadow: '0 0 0 1px rgba(34,197,94,0.35), 0 8px 22px -8px rgba(34,197,94,0.4)' } : {}),
+      }}
     >
       {/* Thumbnail */}
       <div className="aspect-[9/16] relative bg-black flex items-center justify-center overflow-hidden">

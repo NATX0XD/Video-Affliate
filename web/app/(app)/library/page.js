@@ -111,11 +111,12 @@ export default function LibraryPage() {
           </div>
         ) : (
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
-            {videos.map(v => {
+            {videos.map((v, i) => {
               const f = FOLDER[v.folder] ?? FOLDER.pending
               return (
                 <div key={`${v.folder}/${v.name}`}
-                     className="group lift rounded-2xl overflow-hidden border border-line bg-surface shadow-card">
+                     className="group lift animate-fade-up rounded-2xl overflow-hidden border border-line bg-surface shadow-card"
+                     style={{ animationDelay: `${Math.min(i, 16) * 35}ms` }}>
                   <div className="relative aspect-[9/16] bg-black cursor-pointer" onClick={() => setPreview(v)}>
                     <video src={api.videoFileUrl(v.folder, v.name)} className="w-full h-full object-cover" muted preload="metadata" />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-all">
