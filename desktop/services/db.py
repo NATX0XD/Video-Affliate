@@ -294,6 +294,14 @@ class JobStore:
         """Send a job back to be retried now (clears error + backoff)."""
         self.update(job_id, status=status, error="", next_retry_at=0)
 
+    def delete(self, job_id: int) -> Optional[dict]:
+        """ลบงาน (คืน row เดิมเพื่อให้ caller ลบไฟล์)."""
+        j = self.get(job_id)
+        with self._lock:
+            self._conn.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+            self._conn.commit()
+        return j
+
     # ── read ──────────────────────────────────────────────────
 
     def get(self, job_id: int) -> Optional[dict]:

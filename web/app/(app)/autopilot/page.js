@@ -38,7 +38,7 @@ export default function AutoPilotPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8 max-w-[1000px]">
+    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         title="ออโต้ไพลอต"
         subtitle="สั่งระบบสร้างวิดีโอและเผยแพร่ขึ้น Shopee อัตโนมัติ"

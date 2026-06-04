@@ -29,7 +29,7 @@ export default function DevicesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8 max-w-[1000px]">
+    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         title="จัดการเครื่อง"
         subtitle="เชื่อมต่อและตรวจสอบมือถือที่ใช้โพสต์"

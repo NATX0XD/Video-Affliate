@@ -17,7 +17,7 @@ export default function QueuePage() {
   const done    = items.filter(i => ['done', 'posted'].includes(i.status)).length
 
   return (
-    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8 max-w-[1000px]">
+    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         title="คิวงาน"
         subtitle={`${items.length} รายการ · รอ ${waiting} · สำเร็จ ${done}`}

@@ -59,6 +59,21 @@ class AutoPilot:
     def stop(self):
         self._stop = True
 
+    def post_job_now(self, job_id: int) -> bool:
+        """โพสต์คลิปนี้ทันที (จากหน้ารีวิว — ไม่สนตารางเวลา/โหมด)."""
+        job = self.db.get(job_id)
+        if not job or job["status"] != GENERATED:
+            return False
+        serial = self._pick_device()
+        if not serial:
+            self.log("[AUTO] โพสต์ไม่ได้ — ไม่มีมือถือเชื่อมต่อ")
+            return False
+        self.db.set_status(job_id, POSTING)
+        job = self.db.get(job_id)
+        threading.Thread(target=lambda: self._post_one(job, serial, cfg.load()),
+                         daemon=True).start()
+        return True
+
     # ── loop ──────────────────────────────────────────────────
 
     def _loop(self):

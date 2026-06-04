@@ -485,6 +485,44 @@ class WebServer:
             self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")
             return {"ok": True, "shop_name": shop}
 
+        # ── งาน/คิว (job tracker + รีวิว) ──
+
+        @app.get("/api/jobs")
+        def list_jobs():
+            import config as cfg
+            if not self.db:
+                return {"jobs": []}
+            out = []
+            for j in self.db.list(limit=500):
+                bi = (j.get("product", {}) or {}).get("basic_info", {}) or {}
+                out.append({
+                    "id": j["id"], "name": j["name"] or bi.get("name", ""),
+                    "status": j["status"], "attempts": j["attempts"],
+                    "error": j["error"], "video_path": j["video_path"],
+                    "price": bi.get("price", ""), "created_at": j["created_at"],
+                    "updated_at": j["updated_at"],
+                })
+            return {"jobs": out, "review_mode": cfg.load().get("review_mode", "auto")}
+
+        @app.delete("/api/jobs/{jid}")
+        def delete_job(jid: int):
+            if self.db:
+                j = self.db.delete(jid)
+                if j and j.get("video_path"):
+                    from pathlib import Path as _P
+                    try:
+                        p = _P(j["video_path"]); p.unlink(missing_ok=True)
+                        p.with_suffix(".json").unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            return {"ok": True}
+
+        @app.post("/api/jobs/{jid}/post")
+        def post_job(jid: int):
+            if self.autopilot:
+                return {"ok": self.autopilot.post_job_now(jid)}
+            return {"ok": False}
+
         @app.get("/api/reports")
         def reports():
             if not self.db:

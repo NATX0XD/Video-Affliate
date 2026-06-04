@@ -27,7 +27,7 @@ export default function ReportsPage() {
   const maxC = Math.max(1, ...daily.map(d => d.count))
 
   return (
-    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8 max-w-[1280px]">
+    <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         title="รายงาน"
         subtitle="สรุปผลการเผยแพร่ ต้นทุน และอัตราสำเร็จ"

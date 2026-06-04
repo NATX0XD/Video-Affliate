@@ -12,6 +12,7 @@ const NAV = [
     { href: '/reports',   label: 'รายงาน',  icon: BarChart3 },
   ]},
   { group: 'การทำงาน', items: [
+    { href: '/jobs',      label: 'งาน',      icon: ListOrdered },
     { href: '/library',   label: 'คลังคลิป', icon: Film    },
     { href: '/mirror',    label: 'มือถือ',   icon: Smartphone },
   ]},

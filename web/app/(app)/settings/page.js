@@ -107,7 +107,7 @@ export default function SettingsPage() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 lg:px-10 pt-6 lg:pt-8 pb-4">
+        <div className="px-4 sm:px-6 lg:px-10 pt-6 lg:pt-8 pb-4">
 
           <div className="mb-2 animate-fade-up">
             <h2 className="text-ink text-[26px] lg:text-[30px] font-extrabold tracking-tight leading-none">ตั้งค่าระบบ</h2>
@@ -194,7 +194,7 @@ export default function SettingsPage() {
 
       {/* Save bar */}
       <div className="shrink-0 border-t border-line bg-surface/80 backdrop-blur-xl">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 lg:px-10 py-3.5 flex items-center gap-3">
+        <div className="px-4 sm:px-6 lg:px-10 py-3.5 flex items-center gap-3">
           <button onClick={save}
             className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold text-white transition-all active:scale-[.98]
               ${saved ? 'bg-success' : 'bg-accent hover:bg-accent-soft'}`}>
