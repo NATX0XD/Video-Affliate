@@ -81,3 +81,11 @@ body {
 
 .lift { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
 .lift:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
+
+/* แสงวิ่งบนหลอด progress (ตอนกำลังทำ) */
+@keyframes shimmer { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+.shimmer::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+  animation: shimmer 1.5s ease-in-out infinite;
+}

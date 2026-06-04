@@ -6,9 +6,8 @@ import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check } from 'lucide-re
 
 const shortLink = (u) => (u || '').replace(/^https?:\/\//, '')
 
-// ลำดับขั้นใน pipeline สำหรับแถบความคืบหน้า
-const STAGES = ['queued', 'generating', 'generated', 'posting', 'posted']
-const STAGE_IDX = { queued: 0, pending: 0, generating: 1, generated: 2, posting: 3, retry: 3, posted: 4, done: 4 }
+// % ความคืบหน้าตามสถานะ (สำหรับหลอด)
+const PCT = { queued: 15, pending: 15, generating: 45, generated: 65, posting: 88, retry: 88, posted: 100, done: 100, error: 50 }
 
 const FILTERS = [
   { key: 'all',        label: 'ทั้งหมด' },
@@ -81,7 +80,9 @@ export default function JobsPage() {
         <div className="flex flex-col gap-2.5 animate-fade-up" style={{ animationDelay: '60ms' }}>
           {shown.map((j) => {
             const s = JOB_STATUS[j.status] ?? JOB_STATUS.pending
-            const step = STAGE_IDX[j.status] ?? 0
+            const pct = PCT[j.status] ?? 10
+            const active = ['generating', 'posting', 'retry'].includes(j.status)
+            const done = ['posted', 'done'].includes(j.status)
             const isErr = j.status === 'error'
             return (
               <div key={j.id} className="rounded-xl bg-surface border border-line shadow-card p-4">
@@ -127,13 +128,18 @@ export default function JobsPage() {
                   </button>
                 </div>
 
-                {/* Progress stepper */}
-                <div className="flex items-center gap-1 mt-3">
-                  {STAGES.map((st, i) => (
-                    <div key={st} className={`h-1 flex-1 rounded-full transition-colors
-                      ${isErr ? (i <= step ? 'bg-danger/50' : 'bg-line')
-                              : (i <= step ? 'bg-accent' : 'bg-line')}`} />
-                  ))}
+                {/* Progress bar % (อนิเมชัน) */}
+                <div className="flex items-center gap-3 mt-3">
+                  <div className="relative flex-1 h-2.5 rounded-full bg-line overflow-hidden">
+                    <div className={`relative h-full rounded-full transition-[width] duration-700 ease-out ${active ? 'shimmer' : ''}`}
+                         style={{
+                           width: `${pct}%`,
+                           background: isErr ? 'var(--c-danger,#f43f5e)'
+                                     : done  ? 'var(--c-success,#22c55e)'
+                                     : 'linear-gradient(90deg,#b975f9,#a855f7)',
+                         }} />
+                  </div>
+                  <span className={`text-xs font-bold nums w-10 text-right ${isErr ? 'text-danger' : done ? 'text-success' : 'text-accent'}`}>{pct}%</span>
                 </div>
               </div>
             )
