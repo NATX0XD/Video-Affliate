@@ -55,6 +55,7 @@ DEFAULT = {
     "post_active_to":   24,      # ชั่วโมงสิ้นสุด (1-24); 0-24 = ทั้งวัน
     "post_max_per_day": 0,       # โพสต์สูงสุด/วัน (0 = ไม่จำกัด)
     "review_mode": "auto",       # auto = โพสต์เลย | hold = ถือไว้ให้กดอนุมัติ
+    "platforms": ["shopee"],     # แพลตฟอร์มที่จะโพสต์ (multi-platform)
     "monthly_budget": 0,         # งบรายเดือน (บาท), 0 = ไม่จำกัด (A1.4)
     "cost_per_clip": 0,          # ต้นทุนประเมินต่อคลิป (บาท) Flow+Gemini
     "hot_folder": str(PENDING_DIR),

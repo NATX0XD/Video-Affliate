@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { api }    from '@/lib/api'
 import { Select } from '@/components/ui/Select'
-import { Eye, EyeOff, Save, Key, SlidersHorizontal, ShieldCheck, Wallet, Check, MessageSquare, Clock } from 'lucide-react'
+import { Eye, EyeOff, Save, Key, SlidersHorizontal, ShieldCheck, Wallet, Check, MessageSquare, Clock, Share2 } from 'lucide-react'
 
 function Textarea({ label, value, onChange, placeholder, rows = 3, hint }) {
   return (
@@ -88,9 +88,17 @@ function Row({ icon: Icon, title, desc, children, delay = 0 }) {
 export default function SettingsPage() {
   const [cfg, setCfg]     = useState({})
   const [saved, setSaved] = useState(false)
+  const [platforms, setPlatforms] = useState([])
 
   useEffect(() => { api.getSettings().then(setCfg).catch(() => {}) }, [])
+  useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
   const set = key => val => setCfg(prev => ({ ...prev, [key]: val }))
+
+  const selPlatforms = cfg.platforms || ['shopee']
+  const togglePlatform = (key) => {
+    const has = selPlatforms.includes(key)
+    set('platforms')(has ? selPlatforms.filter(k => k !== key) : [...selPlatforms, key])
+  }
   const save = async () => {
     await api.saveSettings(cfg)
     setSaved(true); setTimeout(() => setSaved(false), 2000)
@@ -119,6 +127,29 @@ export default function SettingsPage() {
             <div className="grid grid-cols-2 gap-4">
               <Field label="เว้นระยะต่ำสุด" value={cfg.post_delay_min || ''} onChange={set('post_delay_min')} placeholder="30" suffix="วินาที" />
               <Field label="เว้นระยะสูงสุด" value={cfg.post_delay_max || ''} onChange={set('post_delay_max')} placeholder="120" suffix="วินาที" />
+            </div>
+          </Row>
+
+          <Row icon={Share2} delay={100}
+               title="แพลตฟอร์มที่โพสต์"
+               desc="เลือกแพลตฟอร์มปลายทาง — คลิป 1 อันโพสต์ได้หลายที่พร้อมกัน">
+            <div className="flex flex-col gap-1">
+              {platforms.map(p => {
+                const on = selPlatforms.includes(p.key) && p.ready
+                return (
+                  <div key={p.key} className="flex items-center justify-between gap-3 py-2 border-b border-line-soft last:border-0">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`text-sm font-medium ${p.ready ? 'text-ink' : 'text-ink-mute'}`}>{p.label}</span>
+                      {!p.ready && <span className="text-[10px] text-ink-mute bg-elevated px-2 py-0.5 rounded-full">เร็ว ๆ นี้</span>}
+                    </div>
+                    <button onClick={() => p.ready && togglePlatform(p.key)} disabled={!p.ready}
+                      className={`relative w-11 h-6 rounded-full shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed
+                        ${on ? 'bg-accent' : 'bg-elevated border border-line'}`}>
+                      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           </Row>
 

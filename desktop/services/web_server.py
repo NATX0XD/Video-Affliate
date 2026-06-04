@@ -488,6 +488,14 @@ class WebServer:
             self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")
             return {"ok": True, "shop_name": shop}
 
+        @app.get("/api/platforms")
+        def list_platforms():
+            from services.platforms import PLATFORMS
+            return {"platforms": [
+                {"key": k, "label": v["label"], "ready": v["ready"]}
+                for k, v in PLATFORMS.items()
+            ]}
+
         @app.get("/api/settings")
         def get_settings():
             import config as cfg

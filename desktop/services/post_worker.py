@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional, Callable
 import config as cfg
 from services.adb.autoposter import AutoPoster
+from services.platforms import make_poster, ready_enabled
 from services.db import GENERATED, POSTING
 
 
@@ -109,8 +110,17 @@ class PostWorker:
                     self._stats(self.db.count(GENERATED))
                     continue
 
-                self.log(f"[POST-ALL] {name}")
-                ok = poster.process(self._serial, video, product)
+                # โพสต์ทุกแพลตฟอร์มที่เปิดอยู่ (multi-platform)
+                plats = ready_enabled(self.settings)
+                self.log(f"[POST-ALL] {name} → {', '.join(plats)}")
+                results = []
+                for pk in plats:
+                    p = make_poster(pk, self.adb, self.log, self.settings)
+                    r = p.process(self._serial, video, product)
+                    if r is None:           # ข้าม (ยังไม่พร้อม)
+                        continue
+                    results.append(bool(r))
+                ok = bool(results) and all(results)
 
                 if ok:
                     new_path = self._move(video, cfg.DONE_DIR)
