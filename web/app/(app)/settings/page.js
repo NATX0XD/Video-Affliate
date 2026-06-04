@@ -40,6 +40,17 @@ function Select({ label, value, onChange, options }) {
   )
 }
 
+function Textarea({ label, value, onChange, placeholder, rows = 4, hint }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-ink-dim text-xs font-medium">{label}</label>
+      <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
+        className="w-full bg-elevated border border-line text-ink text-sm px-3.5 py-2.5 rounded-lg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 placeholder:text-ink-mute transition-all resize-y leading-relaxed" />
+      {hint && <p className="text-ink-mute text-[11px] leading-relaxed">{hint}</p>}
+    </div>
+  )
+}
+
 function Toggle({ label, value, onChange, hint }) {
   return (
     <div className="flex items-center justify-between gap-4">
@@ -113,6 +124,7 @@ export default function SettingsPage() {
 
   const veoOptions = veoModels.length ? veoModels : [cfg.vdo_model || 'veo-2.0-generate-001']
   const gemOptions = gemModels.length ? gemModels : [cfg.prompt_model || 'gemini-2.0-flash']
+  const pmode = cfg.prompt_mode || 'ai'
 
   return (
     <div className="flex flex-col h-full">
@@ -171,7 +183,35 @@ export default function SettingsPage() {
             <Field label="รูปอวตาร (URL)" value={cfg.avatar_url || ''} onChange={set('avatar_url')} placeholder="ลิงก์รูปหน้าคน (ค่าเริ่มต้น = presenter ของ D-ID)" />
           </Row>
 
-          <Row icon={Video} delay={200}
+          <Row icon={Sparkles} delay={190}
+               title="พรอมต์วิดีโอ"
+               desc="คุมสคริปต์ที่ส่งเข้า Google Flow — ให้ AI เขียนให้ หรือเขียนเทมเพลตเอง">
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => set('prompt_mode')('ai')}
+                className={`px-4 py-2.5 rounded-lg border text-sm font-medium transition-all
+                  ${pmode === 'ai' ? 'border-accent/40 bg-accent-wash text-accent' : 'border-line bg-elevated text-ink-dim hover:text-ink'}`}>
+                ให้ AI เขียนให้
+              </button>
+              <button onClick={() => set('prompt_mode')('template')}
+                className={`px-4 py-2.5 rounded-lg border text-sm font-medium transition-all
+                  ${pmode === 'template' ? 'border-accent/40 bg-accent-wash text-accent' : 'border-line bg-elevated text-ink-dim hover:text-ink'}`}>
+                เทมเพลตของฉัน
+              </button>
+            </div>
+            {pmode === 'template' ? (
+              <Textarea label="เทมเพลตพรอมต์" rows={5}
+                value={cfg.prompt_template || ''} onChange={set('prompt_template')}
+                placeholder="สร้างวิดีโอโฆษณาแนวตั้ง 9:16 ความยาว {duration} วินาที ของ {name}…"
+                hint="ใช้ตัวแปรได้: {name} {price} {commission} {duration} {shop}" />
+            ) : (
+              <Textarea label="สไตล์เพิ่มเติม (ต่อท้ายให้ AI)" rows={3}
+                value={cfg.prompt_style_note || ''} onChange={set('prompt_style_note')}
+                placeholder="เช่น โทนสนุกวัยรุ่น มีข้อความโปรโมชันตัวใหญ่ จังหวะเร็ว"
+                hint="เว้นว่างได้ — ใช้บอกสไตล์/ข้อกำหนดเพิ่มให้ AI" />
+            )}
+          </Row>
+
+          <Row icon={Video} delay={220}
                title="สไตล์วิดีโอ"
                desc="กำหนดโทน กลุ่มเป้าหมาย และความยาวของคลิปที่สร้าง">
             <div className="grid grid-cols-2 gap-4">

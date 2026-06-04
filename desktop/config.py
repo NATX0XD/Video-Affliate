@@ -59,6 +59,11 @@ DEFAULT = {
     "style": "ไลฟ์สไตล์",
     "background": "สตูดิโอ",
     "duration": 8,
+    # Prompt control (ความยืดหยุ่น: ผู้ใช้แก้สคริปต์ที่ส่งเข้า Flow เองได้)
+    "prompt_mode": "ai",         # "ai" = ให้ Gemini เขียน | "template" = ใช้เทมเพลตของผู้ใช้
+    "prompt_template": "สร้างวิดีโอโฆษณาแนวตั้ง 9:16 ความยาว {duration} วินาที ของ {name} "
+                       "ราคา {price} บาท สไตล์ไลฟ์สไตล์น่าซื้อ กล้องเคลื่อนไหวนุ่มนวล แสงสวย โทนสดใส",
+    "prompt_style_note": "",     # ข้อความสไตล์เพิ่มเติม (ต่อท้ายตอนโหมด AI)
     "engine": "template",        # "template" (free) | "veo" (AI paid) | "avatar" (D-ID review)
     "vdo_model": "veo-2.0-generate-001",
     "prompt_model": "gemini-2.0-flash",

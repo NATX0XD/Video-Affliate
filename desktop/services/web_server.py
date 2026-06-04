@@ -564,28 +564,53 @@ class WebServer:
         # ── Google Flow pipeline (extension เป็นคนสร้างวิดีโอในเบราว์เซอร์) ──
 
         def _flow_prompt(product: dict) -> str:
-            """ขอ Gemini เขียน prompt ภาษาไทยจากรูปสินค้า (ถ้าไม่มี key/รูป → fallback)."""
+            """สร้าง prompt ที่จะส่งเข้า Flow — ยืดหยุ่นตามค่าตั้งของผู้ใช้:
+              prompt_mode=template → ใช้เทมเพลตของผู้ใช้ตรง ๆ (เติมตัวแปร)
+              prompt_mode=ai       → ให้ Gemini เขียน + ต่อท้ายสไตล์ที่ผู้ใช้กำหนด
+            """
             import config as cfg, base64
             settings = cfg.load()
-            key = settings.get("google_api_key", "")
-            name = product.get("basic_info", {}).get("name", "สินค้า")
+            bi   = product.get("basic_info", {}) or {}
+            name = bi.get("name", "สินค้า")
+            price = bi.get("price", "")
+            comm = (product.get("commission", {}) or {}).get("rate", "")
             dur  = settings.get("duration", 8)
-            fallback = (f"สร้างวิดีโอโฆษณาแนวตั้ง 9:16 ความยาว {dur} วินาที ของ {name} "
-                        f"กล้องค่อยๆ ซูมเข้า แสงสตูดิโอ สไตล์โฆษณาสินค้า")
+            shop = settings.get("shop_name", "")
+
+            def fill(t: str) -> str:
+                repl = {"{name}": name, "{price}": str(price), "{commission}": str(comm),
+                        "{duration}": str(dur), "{shop}": shop}
+                for k, v in repl.items():
+                    t = (t or "").replace(k, v)
+                return t
+
+            tmpl = (settings.get("prompt_template") or "").strip()
+            default = (f"สร้างวิดีโอโฆษณาแนวตั้ง 9:16 ความยาว {dur} วินาที ของ {name} "
+                       f"กล้องค่อยๆ ซูมเข้า แสงสตูดิโอ สไตล์โฆษณาสินค้า")
+
+            # โหมดเทมเพลต — ผู้ใช้คุมเองเต็มที่
+            if settings.get("prompt_mode") == "template" and tmpl:
+                return fill(tmpl)
+
+            # โหมด AI
+            fallback = fill(tmpl) if tmpl else default
+            key = settings.get("google_api_key", "")
             if not key:
                 return fallback
             try:
                 img_bytes, mime = None, None
                 b64s = product.get("images_b64") or []
                 if b64s:
-                    raw = b64s[0].split(",", 1)[-1]
-                    img_bytes = base64.b64decode(raw)
+                    img_bytes = base64.b64decode(b64s[0].split(",", 1)[-1])
                     mime = "image/jpeg"
                 from services.video_generator import VideoGenerator
                 gen = VideoGenerator(google_key=key, settings=settings)
                 gen.log = self.emit_log
-                # prompt เดียวคุณภาพสูง ระบุ 20 วิ → agent แบ่งเอง ~2 คลิป → ต่อที่ desktop
-                return gen.generate_prompt(product, img_bytes, mime, target="flow") or fallback
+                p = gen.generate_prompt(product, img_bytes, mime, target="flow") or fallback
+                note = (settings.get("prompt_style_note") or "").strip()
+                if note:
+                    p = f"{p}\n{fill(note)}"
+                return p
             except Exception as e:
                 self.emit_log(f"[FLOW] เขียน prompt ไม่สำเร็จ: {e}")
                 return fallback
