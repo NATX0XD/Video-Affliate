@@ -25,10 +25,10 @@ export default function DashboardPage() {
   const budget  = state.budget
 
   const toggle = () => {
-    if (running) { api.pilotStop().catch(() => {}) }
+    if (running) { api.postAllStop().catch(() => {}) }
     else {
       const dev = state.devices.find(d => d.status === 'device')
-      api.pilotStart(dev?.serial || '').catch(() => {})
+      api.postAllStart(dev?.serial || '').catch(() => {})
     }
   }
 
@@ -45,7 +45,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex flex-col gap-1 animate-fade-up">
         <h2 className="text-ink text-[26px] lg:text-[30px] font-extrabold tracking-tight leading-none">ภาพรวมระบบ</h2>
-        <p className="text-ink-dim text-sm">ระบบสร้างและเผยแพร่วิดีโอ Shopee อัตโนมัติ</p>
+        <p className="text-ink-dim text-sm">ระบบเผยแพร่วิดีโอ Shopee ขึ้นมือถืออัตโนมัติ</p>
       </div>
 
       {/* ── Auto-Pilot Control Center (hero) ── */}
@@ -60,14 +60,14 @@ export default function DashboardPage() {
               {running && <span className="absolute inset-0 rounded-2xl border-2 border-accent/40 animate-ping" />}
             </div>
             <div className="min-w-0">
-              <p className="text-accent text-[11px] font-bold uppercase tracking-[0.15em]">ออโต้ไพลอต</p>
+              <p className="text-accent text-[11px] font-bold uppercase tracking-[0.15em]">โพสต์อัตโนมัติ</p>
               <p className="text-ink text-2xl font-extrabold tracking-tight leading-tight">
-                {running ? 'กำลังทำงาน' : 'พร้อมเริ่มงาน'}
+                {running ? 'กำลังโพสต์' : 'พร้อมโพสต์'}
               </p>
               <p className="text-ink-dim text-sm truncate">
                 {running
-                  ? (state.currentItem?.name ? `กำลังประมวลผล: ${state.currentItem.name}` : 'ค้นหา · สร้าง · เผยแพร่ ตามลำดับ')
-                  : 'ตั้งค่าแล้วกดเริ่ม ระบบจะทำงานเองทั้งหมด'}
+                  ? (state.currentItem?.name ? `กำลังโพสต์: ${state.currentItem.name}` : 'กำลังเผยแพร่คลิปขึ้นมือถือทีละตัว')
+                  : 'มีคลิปในคลังแล้วกดเริ่ม ระบบจะทยอยโพสต์เอง'}
               </p>
             </div>
           </div>
@@ -77,7 +77,7 @@ export default function DashboardPage() {
               className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-white transition-all active:scale-[.97]
                 ${running ? 'bg-danger hover:opacity-90' : 'bg-accent hover:bg-accent-soft glow-accent'}`}>
               {running ? <Square size={16} className="fill-current" /> : <Play size={16} className="fill-current" />}
-              {running ? 'หยุดทำงาน' : 'เริ่มทำงาน'}
+              {running ? 'หยุดโพสต์' : 'เริ่มโพสต์'}
             </button>
           </div>
         </div>

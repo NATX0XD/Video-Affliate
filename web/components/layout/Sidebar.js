@@ -11,7 +11,6 @@ const NAV = [
     { href: '/dashboard', label: 'ค็อกพิต', icon: LayoutDashboard },
   ]},
   { group: 'การทำงาน', items: [
-    { href: '/products',  label: 'สินค้า',   icon: Package },
     { href: '/library',   label: 'คลังคลิป', icon: Film    },
     { href: '/mirror',    label: 'มือถือ',   icon: Smartphone },
   ]},
