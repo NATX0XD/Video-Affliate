@@ -101,11 +101,64 @@ class AutoPilot:
             s = cfg.load()
             if s.get("review_mode") == "hold" or not self._can_post_now(s):
                 time.sleep(4); continue
+            if not self._health_ok(serial, s):    # ร้อนเกิน/แบตต่ำ → พักเครื่อง (E)
+                time.sleep(8); continue
             job = self.db.claim(GENERATED, POSTING)   # atomic → ไม่ชนกับเครื่องอื่น
             if not job:
                 time.sleep(4); continue
             self._post_one(job, serial, s, self._device_platforms(serial))
             self._sleep_delay(s)
+
+    # ── ดูแลเครื่องอัตโนมัติ: ร้อนเกิน/แบตต่ำ → พักเครื่อง (E) ──
+    def _health_ok(self, serial: str, s) -> bool:
+        """ด่านสุขภาพก่อนรับงาน. คืน True ถ้าเครื่องพร้อมโพสต์, False = กำลังพัก."""
+        d = self.adb.devices.get(serial) if self.adb else None
+        if not d:
+            return True
+        if not bool(s.get("cooldown_enabled", True)):
+            if d.cooldown_reason:                     # เพิ่งปิดระบบ → ล้างสถานะพักค้าง
+                d.cooldown_reason = ""; d.cooldown_until = 0.0
+            return True
+        now = time.time()
+        temp_max = float(s.get("temp_max", 0) or 0)
+        temp_res = float(s.get("temp_resume", 0) or 0)
+        bat_min  = int(s.get("battery_min", 0) or 0)
+        bat_res  = int(s.get("battery_resume", 0) or 0)
+        cd_secs  = int(s.get("cooldown_minutes", 10) or 10) * 60
+
+        # กำลังพักอยู่ → เช็คเงื่อนไขฟื้น (hysteresis)
+        if d.cooldown_reason == "hot":
+            if now < d.cooldown_until:
+                return False                          # ยังไม่ครบเวลาพักขั้นต่ำ
+            if temp_max and d.temp >= temp_res:       # ครบเวลาแล้วแต่ยังร้อน → พักต่อ
+                d.cooldown_until = now + cd_secs
+                return False
+            self._resume(d, f"เย็นลงแล้ว {d.temp}°C")
+        elif d.cooldown_reason == "battery":
+            if bat_min and d.battery < bat_res:       # ยังชาร์จไม่ถึงเกณฑ์ฟื้น
+                return False
+            self._resume(d, f"ชาร์จถึง {d.battery}% แล้ว")
+
+        # ตรวจ trigger ใหม่
+        if temp_max and d.temp >= temp_max:
+            d.cooldown_reason = "hot"; d.cooldown_until = now + cd_secs
+            self.log(f"[ดูแล] {self._dname(d)} ร้อน {d.temp}°C ≥ {temp_max:g}°C → "
+                     f"พักเครื่อง {cd_secs // 60} นาที")
+            return False
+        if bat_min and d.battery <= bat_min:
+            d.cooldown_reason = "battery"; d.cooldown_until = now + cd_secs
+            tail = f"พักจนชาร์จถึง {bat_res}%" if d.charging else "พัก — เสียบชาร์จด่วน"
+            self.log(f"[ดูแล] {self._dname(d)} แบตต่ำ {d.battery}% ≤ {bat_min}% → {tail}")
+            return False
+        return True
+
+    def _resume(self, d, why: str):
+        d.cooldown_reason = ""; d.cooldown_until = 0.0
+        self.log(f"[ดูแล] {self._dname(d)} กลับมาโพสต์ต่อ ({why})")
+
+    def _dname(self, d) -> str:
+        label = self.db.get_config(f"dev_label:{d.serial}", "") if self.db else ""
+        return label or d.model or d.serial
 
     def _record_usage(self, service: str, kind: str, qty: int, tokens: int):
         """บันทึกการใช้ AI ลง usage ledger (J) — Gemini verify ตอนโพสต์."""
@@ -141,8 +194,12 @@ class AutoPilot:
         video = Path(job["video_path"]) if job.get("video_path") else None
 
         self._status(pid, "posting")
+        dev = self.adb.devices.get(serial) if self.adb else None
+        if dev:
+            dev.posting = True                    # เครื่องนี้กำลังทำงาน (E)
         if not video or not video.exists():
             self.db.mark_error(jid, "ไฟล์วิดีโอหาย")
+            if dev: dev.posting = False
             self.err_count += 1; self._status(pid, "error"); self._stats(); return
 
         all_ready = ready_enabled(s)
@@ -150,14 +207,18 @@ class AutoPilot:
         plats = [p for p in (dev_plats or []) if p in all_ready] or all_ready
         self.log(f"[AUTO] โพสต์: {name} → {', '.join(plats)}")
         results = []
-        for pk in plats:
-            p = make_poster(pk, self.adb, self.log, s)
-            if hasattr(p, "usage_cb"):
-                p.usage_cb = self._record_usage   # บันทึกการใช้ Gemini ตอน verify (J)
-            r = p.process(serial, video, product)
-            if r is None:
-                continue
-            results.append(bool(r))
+        try:
+            for pk in plats:
+                p = make_poster(pk, self.adb, self.log, s)
+                if hasattr(p, "usage_cb"):
+                    p.usage_cb = self._record_usage   # บันทึกการใช้ Gemini ตอน verify (J)
+                r = p.process(serial, video, product)
+                if r is None:
+                    continue
+                results.append(bool(r))
+        finally:
+            if dev:
+                dev.posting = False
         ok = bool(results) and all(results)
 
         if ok:

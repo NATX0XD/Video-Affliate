@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { api }    from '@/lib/api'
 import { Select } from '@/components/ui/Select'
-import { Eye, EyeOff, Save, Key, SlidersHorizontal, ShieldCheck, Wallet, Check, MessageSquare, Clock, Share2 } from 'lucide-react'
+import { Eye, EyeOff, Save, Key, SlidersHorizontal, ShieldCheck, Wallet, Check, MessageSquare, Clock, Share2, Thermometer } from 'lucide-react'
 
 function Textarea({ label, value, onChange, placeholder, rows = 3, hint }) {
   return (
@@ -166,6 +166,20 @@ export default function SettingsPage() {
               <Field label="งบรายเดือน (0 = ไม่จำกัด)" value={cfg.monthly_budget ?? ''} onChange={set('monthly_budget')} placeholder="0" suffix="บาท" />
               <Field label="ราคา Flow ต่อคลิป" value={cfg.cost_per_clip ?? ''} onChange={set('cost_per_clip')} placeholder="0" suffix="บาท" />
               <Field label="ราคา Gemini ต่อ 1,000 token" value={cfg.gemini_cost_per_1k ?? ''} onChange={set('gemini_cost_per_1k')} placeholder="0" suffix="บาท" />
+            </div>
+          </Row>
+
+          <Row icon={Thermometer} delay={180}
+               title="ดูแลเครื่องอัตโนมัติ"
+               desc="พักเครื่อง (cooldown) เมื่อร้อนเกินหรือแบตต่ำ กันเครื่องพัง — เครื่องที่พักจะหยุดรับงานชั่วคราวแล้วกลับมาเองเมื่อพร้อม">
+            <Toggle label="เปิดระบบพักเครื่อง (แนะนำ)" hint="ปิดแล้วระบบจะโพสต์ต่อแม้เครื่องร้อน/แบตต่ำ"
+                    value={cfg.cooldown_enabled !== false} onChange={set('cooldown_enabled')} />
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="ร้อนเกิน → พัก (0 = ปิด)" value={cfg.temp_max ?? ''} onChange={set('temp_max')} placeholder="45" suffix="°C" />
+              <Field label="เย็นต่ำกว่า → โพสต์ต่อ" value={cfg.temp_resume ?? ''} onChange={set('temp_resume')} placeholder="41" suffix="°C" />
+              <Field label="แบตต่ำ → พัก (0 = ปิด)" value={cfg.battery_min ?? ''} onChange={set('battery_min')} placeholder="20" suffix="%" />
+              <Field label="ชาร์จถึง → โพสต์ต่อ" value={cfg.battery_resume ?? ''} onChange={set('battery_resume')} placeholder="50" suffix="%" />
+              <Field label="พักขั้นต่ำเมื่อร้อน" value={cfg.cooldown_minutes ?? ''} onChange={set('cooldown_minutes')} placeholder="10" suffix="นาที" />
             </div>
           </Row>
 

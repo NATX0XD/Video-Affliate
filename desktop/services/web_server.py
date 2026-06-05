@@ -116,13 +116,26 @@ class WebServer:
         def status():
             devices = []
             if self.adb:
+                import time as _t
+                now = _t.time()
                 for d in self.adb.devices.values():
+                    cooling = bool(d.cooldown_reason)
+                    activity = ("offline"  if d.status != "device" else
+                                "cooldown" if cooling else
+                                "posting"  if d.posting else "idle")
                     devices.append({
                         "serial":  d.serial,
                         "model":   d.model,
                         "android": d.android,
                         "battery": d.battery,
+                        "temp":    d.temp,            # °C อุณหภูมิแบต (E)
+                        "charging": d.charging,       # กำลังชาร์จ (E)
                         "status":  d.status,
+                        "activity": activity,         # idle|posting|cooldown|offline (E)
+                        "cooldown": cooling,
+                        "cooldown_reason": d.cooldown_reason,   # hot|battery
+                        "cooldown_remaining": (max(0, int(d.cooldown_until - now))
+                                               if d.cooldown_reason == "hot" else 0),
                         "label":   (self.db.get_config(f"dev_label:{d.serial}", "") if self.db else ""),
                         "platforms": ([p for p in (self.db.get_config(f"dev_platforms:{d.serial}", "") or "").split(",") if p]
                                       if self.db else []),
@@ -158,6 +171,7 @@ class WebServer:
             devs = self.adb.scan()
             result = [{"serial": d.serial, "model": d.model,
                        "android": d.android, "battery": d.battery,
+                       "temp": d.temp, "charging": d.charging,
                        "status": d.status} for d in devs]
             self.ws.broadcast_sync({"type": "devices", "devices": result})
             return {"devices": result}

@@ -11,7 +11,11 @@ class Device:
     model: str = ""
     android: str = ""
     battery: int = 0
-    posting: bool = False
+    temp: float = 0.0         # °C — อุณหภูมิแบต (จาก dumpsys battery) (E)
+    charging: bool = False    # กำลังชาร์จอยู่ไหม (E)
+    posting: bool = False     # กำลังโพสต์อยู่ (จาก autopilot)
+    cooldown_until: float = 0.0   # ts — พักเครื่องถึงเมื่อไร (0 = ไม่พัก) (E)
+    cooldown_reason: str = ""     # "hot" | "battery" — สาเหตุพัก
 
 class ADBManager:
     def __init__(self, log_cb: Optional[Callable] = None):
@@ -66,12 +70,8 @@ class ADBManager:
                 # ดึง Android version
                 _, ver = self._adb("shell", "getprop", "ro.build.version.release", serial=serial)
                 dev.android = ver.strip()
-                # ดึง battery
-                _, bat = self._adb("shell", "cat", "/sys/class/power_supply/battery/capacity", serial=serial)
-                try:
-                    dev.battery = int(bat.strip())
-                except Exception:
-                    dev.battery = 0
+                # ดึง battery + อุณหภูมิ + สถานะชาร์จ (ครั้งเดียว) (E)
+                self._read_power(dev)
             elif status == "unauthorized":
                 dev.model = "⚠ ต้องอนุญาต USB Debugging"
             else:
@@ -81,6 +81,32 @@ class ADBManager:
 
         self.devices = found
         return list(self.devices.values())
+
+    # ── Power: battery % + อุณหภูมิ + ชาร์จ (1 call) (E) ─────────
+    def _read_power(self, dev: Device):
+        """อ่าน `dumpsys battery` ครั้งเดียว → level, temperature(°C), charging."""
+        ok, out = self._adb("shell", "dumpsys", "battery", serial=dev.serial)
+        if not ok:
+            return
+        info = {}
+        for line in out.splitlines():
+            if ":" in line:
+                k, _, v = line.strip().partition(":")
+                info[k.strip().lower()] = v.strip()
+        try:
+            dev.battery = int(info.get("level", dev.battery))
+        except Exception:
+            pass
+        try:
+            # temperature เป็นหน่วยสิบเท่าของ °C เช่น 350 = 35.0°C
+            dev.temp = round(int(info["temperature"]) / 10.0, 1)
+        except Exception:
+            dev.temp = 0.0
+        # status: 2=charging, 5=full ; หรือเสียบไฟอยู่ (ac/usb/wireless powered)
+        st = info.get("status", "")
+        powered = any(info.get(k, "").lower() == "true"
+                      for k in ("ac powered", "usb powered", "wireless powered"))
+        dev.charging = st in ("2", "5") or powered
 
     # ── Auto scan loop ────────────────────────────────────────
     def start_watch(self, interval: int = 5):
