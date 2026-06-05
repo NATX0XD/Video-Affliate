@@ -95,8 +95,10 @@
 ## P. ความสะอาดของโค้ด (พื้นฐานก่อนต่อยอด)
 - [x] ผ่าซากโค้ดสร้างคลิปออกจาก desktop (ลบ 7 ไฟล์: video/template/avatar_generator, gen_worker, worker, post_worker, api_server)
 - [x] ตัด endpoint generation (/api/generate, /api/gen/*, /api/post/*, /api/video/*) + เลิก wire ใน main.py
-- [x] บริดจ์ prompt → services/prompt_builder.py (flow/next ยังทำงาน ไม่พังไปป์ไลน์)
-- [ ] **ย้ายการเขียน prompt + คิวสินค้า ไปฝั่ง extension แล้วลบ flow/next, flow/enqueue, flow/prompt, prompt_builder.py** (งานถัดไป)
+- [x] ย้ายการเขียน prompt + คิวสินค้า ไปฝั่ง extension (เพิ่ม /api/flow/config; ลบ flow/next, flow/enqueue, flow/prompt, prompt_builder.py)
+- [x] extension: คิวอยู่ใน chrome.storage.local.flow_jobs; background เขียน prompt เอง (template JS / AI เรียก Gemini ตรง); manifest +generativelanguage host
+
+> P เสร็จสมบูรณ์ — desktop = post-only ล้วน, extension = สร้างคลิป+เขียน prompt เอง
 
 ---
 

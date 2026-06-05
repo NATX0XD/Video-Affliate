@@ -502,9 +502,28 @@ if (window._flowAutomatorLoaded) {
     return url.replace(/@resize_[^/?#]*/i, "").replace(/_tn(?=$|[?#.])/i, "");
   }
 
-  async function runForProduct(job, log, dry) {
-    const p = job.product || {};
-    log(`สินค้า: ${(p.name || p.product_id || "?").slice(0, 40)}`);
+  // ขอ prompt จาก background (extension เขียนเอง: template ด้วย JS / AI เรียก Gemini)
+  function buildPrompt(product) {
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage({ action: "build_prompt", product }, (res) => {
+          if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+          if (!res || !res.ok) {
+            if (res && res.budgetExceeded) return reject(new Error("__BUDGET__"));
+            return reject(new Error((res && res.error) || "สร้าง prompt ไม่ได้"));
+          }
+          resolve(res.prompt);
+        });
+      } catch (e) { reject(e); }
+    });
+  }
+
+  // product = รูปแบบดิบจาก scraper (basic_info/commission/links/images)
+  async function runForProduct(product, prompt, log, dry) {
+    const p = product || {};
+    const bi = p.basic_info || {};
+    const name = bi.name || p.product_id || "?";
+    log(`สินค้า: ${String(name).slice(0, 40)}`);
     // เตรียมรูป hi-res
     let imageDataUrl = null;
     const url = hiResImage((p.images && p.images[0]) || "");
@@ -512,31 +531,49 @@ if (window._flowAutomatorLoaded) {
     if (!imageDataUrl && p.images_b64 && p.images_b64[0]) imageDataUrl = p.images_b64[0];
 
     // สั่ง prompt เดียว ระบุ 20 วิ → agent แบ่งเอง ~2 คลิป → เก็บทุกคลิปมาต่อ
-    const res = await runGenerate({ prompt: job.prompt, imageDataUrl, productId: p.product_id || "flow", _log: log, dry });
+    const res = await runGenerate({ prompt, imageDataUrl, productId: p.product_id || "flow", _log: log, dry });
     if (!res.ok) return res;
     if (res.dryRun) return { ok: true, dryRun: true };   // โหมดทดสอบ: ไม่แจ้ง desktop
 
     // แจ้ง desktop — ส่งทุกคลิปตามลำดับที่เกิด → desktop ต่อด้วย ffmpeg เป็นวิดีโอเดียว
+    const link = (p.links || {}).affiliate_link || (p.links || {}).product_url || "";
     const note = await desktop("POST", "/api/flow/video", {
-      product_id: p.product_id, name: p.name, price: p.price, sold: p.sold,
-      commission: p.commission, link: p.link, files: res.files,
+      product_id: p.product_id, name, price: bi.price, sold: bi.sold_count,
+      commission: (p.commission || {}).rate, link, files: res.files,
     });
-    log(note && note.ok ? `→ desktop ต่อ ${res.files.length} คลิป เข้าคิวโพสต์ ✓ (ตะกร้า: ${p.link ? "มี" : "ไม่มี!"})` : `แจ้ง desktop ไม่สำเร็จ: ${note && note.error}`);
+    log(note && note.ok ? `→ desktop ต่อ ${res.files.length} คลิป เข้าคิวโพสต์ ✓ (ตะกร้า: ${link ? "มี" : "ไม่มี!"})` : `แจ้ง desktop ไม่สำเร็จ: ${note && note.error}`);
     return { ok: true, files: res.files };
   }
 
+  // คิวสินค้าอยู่ใน chrome.storage.local.flow_jobs (extension คุมเอง — desktop ไม่ยุ่ง)
   async function runQueue(log, max = 100, dry = false) {
     if (dry) log("🧪 โหมดทดสอบเปิดอยู่ — จะพิมพ์ prompt แต่ไม่กดส่ง (ไม่เปลืองเครดิต)");
-    let done = 0;
-    for (let i = 0; i < max; i++) {
-      const job = await desktop("GET", "/api/flow/next");
-      if (!job || !job.ok) { log(`คุย desktop ไม่ได้: ${job && job.error} (desktop เปิด :3001 อยู่ไหม?)`); break; }
-      if (job.empty) { log(`คิวหมด — ${dry ? "ทดสอบ" : "สร้าง"}ไป ${done} ชิ้น`); break; }
-      log(`── งานที่ ${done + 1} (เหลือ ${job.remaining}) ──`);
-      try { const r = await runForProduct(job, log, dry); if (r && r.ok) done++; else log(`ข้ามตัวนี้: ${r && r.error}`); }
-      catch (e) { log("ERROR: " + e.message); }
+    let jobs = ((await chrome.storage.local.get("flow_jobs")).flow_jobs || []).slice();
+    const total = jobs.length;
+    if (!total) { log("ไม่มีงานในคิว — เลือกสินค้าใน Dashboard แล้วกดสร้างก่อน"); return 0; }
+    log(`คิว ${total} ชิ้น (extension คุมคิวเอง)`);
+    let done = 0, n = 0;
+    while (jobs.length && n < max) {
+      n++;
+      const product = jobs[0];
+      log(`── งานที่ ${n}/${total} ──`);
+      let prompt;
+      try { prompt = await buildPrompt(product); }
+      catch (e) {
+        if (e.message === "__BUDGET__") { log("งบเดือนนี้เต็ม — หยุดสร้างชั่วคราว"); break; }
+        log("สร้าง prompt ไม่ได้ ข้ามตัวนี้: " + e.message);
+        jobs.shift(); if (!dry) await chrome.storage.local.set({ flow_jobs: jobs });
+        continue;
+      }
+      try {
+        const r = await runForProduct(product, prompt, log, dry);
+        if (r && r.ok) done++; else log(`ข้ามตัวนี้: ${r && r.error}`);
+      } catch (e) { log("ERROR: " + e.message); }
+      jobs.shift();                                          // เอาออกจากคิว (resume ได้ถ้า reload)
+      if (!dry) await chrome.storage.local.set({ flow_jobs: jobs });
       await sleep(2000);
     }
+    log(`เสร็จ — ${dry ? "ทดสอบ" : "สร้าง"} ${done} ชิ้น`);
     return done;
   }
 

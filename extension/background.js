@@ -51,7 +51,99 @@ async function openFlowAndRun(dry = false) {
   });
 }
 
+// ── สร้าง prompt ฝั่ง extension (desktop = post-only ไม่ยุ่งกับการสร้างคลิป) ──
+// ดึง key + ค่าตั้งจาก desktop (localhost เท่านั้น) → key อยู่ใน service worker ไม่หลุดเข้าหน้าเว็บ
+let _flowCfg = null, _flowCfgAt = 0;
+async function getFlowConfig(force = false) {
+  if (!force && _flowCfg && Date.now() - _flowCfgAt < 30000) return _flowCfg;
+  const r = await fetch('http://localhost:3001/api/flow/config').then((x) => x.json()).catch(() => null);
+  if (r && r.ok) { _flowCfg = r; _flowCfgAt = Date.now(); }
+  return _flowCfg;
+}
+function fillVars(t, v) {
+  return Object.keys(v).reduce((s, k) => s.split(k).join(v[k] == null ? '' : v[k]), t || '');
+}
+async function productImageB64(product) {
+  const b = (product.images_b64 || [])[0];
+  if (b && b.startsWith('data:')) return b.split(',')[1];
+  let url = (product.images || [])[0] || '';
+  url = url.replace(/@resize_[^/?#]*/i, '').replace(/_tn(?=$|[?#.])/i, '');   // → hi-res
+  if (!url.startsWith('http')) return null;
+  try {
+    const blob = await fetch(url, { headers: { Referer: 'https://shopee.co.th/' } }).then((r) => r.blob());
+    return await new Promise((res) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result).split(',')[1]);
+      fr.onerror = () => res(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch { return null; }
+}
+async function geminiFlowPrompt(product, cfg) {
+  const bi = product.basic_info || {};
+  const name = bi.name || 'สินค้า Shopee', price = bi.price ?? '', sold = bi.sold_count ?? '';
+  const bg = cfg.background || 'สตูดิโอ', pers = cfg.personality || 'สนุกสนาน';
+  const instruction = `คุณเป็นครีเอเตอร์คอนเทนต์สั้นไวรัล Shopee มือโปร เขียน prompt ภาษาไทย 1 ย่อหน้า
+สั่งให้ Veo สร้างวิดีโอโฆษณา/รีวิว "ช็อตเดียวต่อเนื่อง 8 วินาที" ที่ "หยุดนิ้วคนเลื่อนฟีดได้ทันที" จากสินค้าในรูปที่แนบมา
+
+สินค้า: ${name}
+ราคา: ฿${price}   ขายแล้ว: ${sold}
+
+หัวใจคือ "ว้าวภายใน 8 วินาที" — เขียน prompt ที่มี:
+- ขึ้นต้น: "วิดีโอแนวตั้ง 9:16 ช็อตเดียวต่อเนื่อง 8 วินาที ไม่มีการตัดสลับฉาก คุณภาพระดับโฆษณา"
+- HOOK ใน 1 วินาทีแรกที่สะดุดตา (เช่น คนโชว์สินค้าเข้ากล้องแบบมีพลัง / สีหน้าตื่นเต้น / แอ็กชันเด่นของสินค้า) ให้คนอยากดูต่อ
+- คนไทย 1 คน หน้าตาดีมีเสน่ห์ บุคลิกสดใสมีพลัง เข้ากับกลุ่มเป้าหมายสินค้า ถือ/ใช้สินค้าตัวในรูปจริง (บรรยายรูปร่าง/สีที่เห็น ห้ามเปลี่ยนเป็นของอื่น) โชว์จุดเด่น/การใช้งานที่เห็นผลชัด
+- พูดไทย "ประโยคเดียวสั้น ปังๆ" ที่กระตุ้นให้อยากซื้อ (เน้นจุดขายเด็ด/ความคุ้ม/ราคา ${price} บาท) สั้นพอพูดจบใน 8 วิ เสียงชัดมีพลัง
+- ภาพ: แสงสวยคมชัด สีจัดจ้านน่าดึงดูด กล้องเคลื่อนมีไดนามิก (ซูม/แพน/orbit นุ่มแต่มีพลัง) ฉาก${bg} อารมณ์${pers} สไตล์คอนเทนต์ไวรัลทันสมัย
+
+ตอบเฉพาะข้อความ prompt เท่านั้น ไม่ต้องมีคำอธิบายอื่น`;
+  const parts = [{ text: instruction }];
+  const img = await productImageB64(product);
+  if (img) parts.push({ inline_data: { mime_type: 'image/jpeg', data: img } });
+  const model = cfg.prompt_model || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cfg.google_api_key)}`;
+  const res = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts }] }),
+  }).then((r) => r.json());
+  const text = res && res.candidates && res.candidates[0]?.content?.parts?.[0]?.text;
+  return (text || '').trim();
+}
+async function buildFlowPrompt(product) {
+  const cfg = await getFlowConfig();
+  if (!cfg) throw new Error('desktop ไม่ตอบ (/api/flow/config) — เปิดโปรแกรมก่อน');
+  const bi = product.basic_info || {};
+  const name = bi.name || 'สินค้า', price = bi.price ?? '', comm = (product.commission || {}).rate ?? '';
+  const dur = cfg.duration || 8, shop = cfg.shop_name || '';
+  const vars = { '{name}': name, '{price}': String(price), '{commission}': String(comm), '{duration}': String(dur), '{shop}': shop };
+  const tmpl = (cfg.prompt_template || '').trim();
+  const dflt = `สร้างวิดีโอโฆษณาแนวตั้ง 9:16 ความยาว ${dur} วินาที ของ ${name} กล้องค่อยๆ ซูมเข้า แสงสตูดิโอ สไตล์โฆษณาสินค้า`;
+  if (cfg.prompt_mode === 'template' && tmpl) return fillVars(tmpl, vars);   // โหมด template: JS ล้วน
+  // โหมด AI: เรียก Gemini เอง (ถ้าพลาด → fallback)
+  const fallback = tmpl ? fillVars(tmpl, vars) : dflt;
+  if (!cfg.google_api_key) return fallback;
+  try {
+    let p = (await geminiFlowPrompt(product, cfg)) || fallback;
+    const note = (cfg.prompt_style_note || '').trim();
+    if (note) p = `${p}\n${fillVars(note, vars)}`;
+    return p;
+  } catch { return fallback; }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // extension เขียน prompt เอง (template/AI) — flow.js เรียกก่อนป้อน Flow
+  if (msg.action === 'build_prompt') {
+    (async () => {
+      try {
+        const cfg = await getFlowConfig();
+        if (cfg && cfg.budget && cfg.budget.exceeded) { sendResponse({ ok: false, budgetExceeded: true }); return; }
+        const prompt = await buildFlowPrompt(msg.product || {});
+        sendResponse({ ok: true, prompt });
+      } catch (e) { sendResponse({ ok: false, error: String((e && e.message) || e) }); }
+    })();
+    return true;
+  }
+
   // รับสินค้าจาก floating scraper panel (content script) — เก็บ storage + แจ้ง Side Panel
   if (msg.action === 'add_products') {
     chrome.storage.local.get('products', (d) => {
@@ -253,18 +345,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // จาก Side Panel: ส่งสินค้าเข้าคิว Flow ที่ desktop → เปิดแท็บ Flow → รันสร้างคลิป
+  // จาก Side Panel/Dashboard: คิวสินค้าอยู่ที่ extension เอง → เก็บลง storage → เปิดแท็บ Flow → รันสร้างคลิป
   if (msg.action === 'flow_start') {
     (async () => {
-      const port = msg.port || '3001';
       if (msg.products && msg.products.length) {
-        try {
-          await fetch(`http://localhost:${port}/api/flow/enqueue`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ products: msg.products }),
-          });
-        } catch (e) { sendResponse({ ok: false, error: 'desktop ไม่ตอบ (เปิดโปรแกรมก่อน)' }); return; }
+        await chrome.storage.local.set({ flow_jobs: msg.products });   // work-list ของ extension
       }
+      _flowCfg = null;   // โหลด config สดสำหรับรอบนี้ (เผื่อผู้ใช้เพิ่งแก้ settings)
       const r = await openFlowAndRun(!!msg.dry);
       sendResponse(r);
     })();

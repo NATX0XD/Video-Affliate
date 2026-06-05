@@ -499,68 +499,27 @@ class WebServer:
             # AutoPoster/AutoPilot อ่าน cfg.load() สดทุกครั้ง — ไม่ต้อง push เข้า worker
             return {"ok": True}
 
-        # ── Google Flow pipeline (extension เป็นคนสร้างวิดีโอในเบราว์เซอร์) ──
+        # ── Google Flow pipeline (extension สร้างคลิป + เขียน prompt เองในเบราว์เซอร์) ──
 
-        def _flow_prompt(product: dict) -> str:
-            """บริดจ์ชั่วคราว → services/prompt_builder (ดู P-cleanup).
-            จะถูกย้ายไปฝั่ง extension เป็นงานถัดไป แล้วลบ flow/next ออก."""
+        @app.get("/api/flow/config")
+        def flow_config():
+            """ส่งค่าที่ extension ใช้เขียน prompt เอง — local-only (key ออกเฉพาะ localhost).
+            extension คุมคิวสินค้า + เขียน prompt (template/AI) เอง desktop แค่รับคลิปที่ /api/flow/video."""
             import config as cfg
-            from services.prompt_builder import build_flow_prompt
-            return build_flow_prompt(product, cfg.load(), self.emit_log)
-
-        @app.post("/api/flow/enqueue")
-        async def flow_enqueue(body: dict):
-            products = body.get("products") or ([body["product"]] if body.get("product") else [])
-            products = [p for p in products if p]
-            added = self.db.add_many(products)              # deduped, persistent
-            q = self.db.count(QUEUED)
-            self.emit_log(f"[FLOW] เข้าคิว {added} ชิ้น (รอสร้าง: {q})")
-            return {"ok": True, "queued": q, "added": added}
-
-        def _flow_payload(product: dict, remaining: int, job_id=None) -> dict:
-            prompt = _flow_prompt(product)        # prompt เดียว ระบุ 20 วิ → agent แบ่งเอง
+            s = cfg.load()
             return {
                 "ok": True,
-                "empty": False,
-                "remaining": remaining,
-                "job_id": job_id,
-                "product": {
-                    "product_id": product.get("product_id", ""),
-                    "name":       product.get("basic_info", {}).get("name", ""),
-                    "price":      product.get("basic_info", {}).get("price", ""),
-                    "sold":       product.get("basic_info", {}).get("sold_count", ""),
-                    "commission": product.get("commission", {}).get("rate", ""),
-                    # ตะกร้า: affiliate_link ก่อน ถ้าไม่มีใช้ product_url
-                    "link": (product.get("links", {}).get("affiliate_link")
-                             or product.get("links", {}).get("product_url") or ""),
-                    "images":     product.get("images", []),
-                    "images_b64": product.get("images_b64", []),
-                },
-                "prompt": prompt,
+                "google_api_key":    s.get("google_api_key", ""),   # real key (extension เรียก Gemini เอง)
+                "prompt_mode":       s.get("prompt_mode", "ai"),
+                "prompt_template":   s.get("prompt_template", ""),
+                "prompt_style_note": s.get("prompt_style_note", ""),
+                "prompt_model":      s.get("prompt_model", "gemini-2.0-flash"),
+                "duration":          s.get("duration", 8),
+                "shop_name":         s.get("shop_name", ""),
+                "background":        s.get("background", "สตูดิโอ"),
+                "personality":       s.get("personality", "สนุกสนาน"),
+                "budget":            self.budget.snapshot() if self.budget else None,
             }
-
-        @app.get("/api/flow/next")
-        def flow_next():
-            """extension ดึงงานถัดไป — ได้สินค้า + prompt ภาษาไทยพร้อมป้อน Flow."""
-            # คุมงบ (A1.4): งบเดือนนี้เต็ม → ไม่แจกงานสร้าง (หยุดเอง)
-            if self.budget and not self.budget.can_generate():
-                if not self._budget_blocked:
-                    self._budget_blocked = True
-                    snap = self.budget.snapshot()
-                    self.emit_log(f"[BUDGET] งบเดือนนี้เต็ม (ใช้ {snap['spent']}/{snap['budget']} บาท) "
-                                  f"— หยุดสร้างชั่วคราว")
-                    self.ws.broadcast_sync({"type": "budget_exceeded", **snap})
-                return {"ok": True, "empty": True, "budget_exceeded": True}
-            self._budget_blocked = False
-            job = self.db.claim(QUEUED, GENERATING)   # atomic: queued → generating
-            if not job:
-                return {"ok": True, "empty": True}
-            return _flow_payload(job["product"], self.db.count(QUEUED), job["id"])
-
-        @app.post("/api/flow/prompt")
-        async def flow_prompt_ep(body: dict):
-            product = body.get("product") or body
-            return {"ok": True, "prompt": _flow_prompt(product)}
 
         @app.post("/api/flow/video")
         async def flow_video(body: dict):
@@ -633,7 +592,7 @@ class WebServer:
                     self.db.update(jid, status=GENERATED,
                                    video_path=str(out_mp4), caption=sidecar["name"])
                 else:
-                    # คลิปที่ไม่ได้ผ่าน /flow/next (เช่นส่งมาตรง) → สร้าง record ใหม่
+                    # extension คุมคิวเอง → คลิปมาตรง สร้าง record ใหม่เป็น generated
                     jid = self.db.import_clip({
                         "product_id": pid,
                         "basic_info": {"name": sidecar["name"], "price": sidecar["price"],
