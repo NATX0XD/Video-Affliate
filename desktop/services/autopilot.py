@@ -104,8 +104,12 @@ class AutoPilot:
             job = self.db.claim(GENERATED, POSTING)   # atomic → ไม่ชนกับเครื่องอื่น
             if not job:
                 time.sleep(4); continue
-            self._post_one(job, serial, s)
+            self._post_one(job, serial, s, self._device_platforms(serial))
             self._sleep_delay(s)
+
+    def _device_platforms(self, serial: str) -> list:
+        raw = self.db.get_config(f"dev_platforms:{serial}", "") or ""
+        return [p for p in raw.split(",") if p]
 
     def _device_online(self, serial: str) -> bool:
         if not self.adb:
@@ -120,7 +124,7 @@ class AutoPilot:
                 break
             time.sleep(1)
 
-    def _post_one(self, job, serial, s):
+    def _post_one(self, job, serial, s, dev_plats=None):
         jid = job["id"]; product = job["product"]
         pid = product.get("product_id") or str(jid)
         name = (product.get("basic_info", {}) or {}).get("name", "")[:35]
@@ -131,7 +135,9 @@ class AutoPilot:
             self.db.mark_error(jid, "ไฟล์วิดีโอหาย")
             self.err_count += 1; self._status(pid, "error"); self._stats(); return
 
-        plats = ready_enabled(s)
+        all_ready = ready_enabled(s)
+        # เครื่องนี้รับเฉพาะแพลตฟอร์มที่กำหนด (ถ้าไม่ตั้ง → ทั้งหมด)
+        plats = [p for p in (dev_plats or []) if p in all_ready] or all_ready
         self.log(f"[AUTO] โพสต์: {name} → {', '.join(plats)}")
         results = []
         for pk in plats:

@@ -128,6 +128,8 @@ class WebServer:
                         "battery": d.battery,
                         "status":  d.status,
                         "label":   (self.db.get_config(f"dev_label:{d.serial}", "") if self.db else ""),
+                        "platforms": ([p for p in (self.db.get_config(f"dev_platforms:{d.serial}", "") or "").split(",") if p]
+                                      if self.db else []),
                         "streaming": d.serial in self.mirrors and
                                      self.mirrors[d.serial].is_running,
                     })
@@ -168,6 +170,13 @@ class WebServer:
         async def set_device_label(serial: str, body: dict):
             if self.db:
                 self.db.set_config(f"dev_label:{serial}", (body.get("label") or "").strip())
+            return {"ok": True}
+
+        @app.post("/api/devices/{serial}/platforms")
+        async def set_device_platforms(serial: str, body: dict):
+            if self.db:
+                plats = [p for p in (body.get("platforms") or []) if p]
+                self.db.set_config(f"dev_platforms:{serial}", ",".join(plats))
             return {"ok": True}
 
         @app.post("/api/mirror/start/{serial}")

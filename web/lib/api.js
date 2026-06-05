@@ -30,6 +30,7 @@ export const api = {
   mirrorStopAll:   ()         => req('POST', '/api/mirror/stop_all'),
   wifiConnect:     (ip)       => req('POST', '/api/wifi_connect', { ip }),
   setDeviceLabel:  (s, label) => req('POST', `/api/devices/${s}/label`, { label }),
+  setDevicePlatforms: (s, platforms) => req('POST', `/api/devices/${s}/platforms`, { platforms }),
   openShopee:      (serial)   => req('POST', `/api/adb/open_shopee/${serial}`),
   adbTap:          (s, x, y)  => req('POST', `/api/adb/tap/${s}`, { x, y }),
   adbSwipe:        (s, x1,y1,x2,y2,ms) =>
