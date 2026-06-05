@@ -477,6 +477,7 @@ class WebServer:
                 "daily":  self.db.posts_by_day(14),
                 "errors": self.db.error_list(15),
                 "budget": self.budget.snapshot() if self.budget else None,
+                "usage_daily": self.db.usage_by_day(14),   # ค่าใช้จ่าย AI รายวัน (J)
             }
 
         @app.get("/api/platforms")
@@ -520,6 +521,16 @@ class WebServer:
                 "personality":       s.get("personality", "สนุกสนาน"),
                 "budget":            self.budget.snapshot() if self.budget else None,
             }
+
+        @app.post("/api/flow/usage")
+        async def flow_usage(body: dict):
+            """extension รายงานการใช้ Gemini ตอนเขียน prompt (J) → ลง usage ledger."""
+            tokens = int(body.get("tokens", 0) or 0)
+            qty    = int(body.get("qty", 1) or 1)
+            kind   = body.get("kind", "prompt")
+            cost   = self.budget.gemini_cost(tokens) if self.budget else 0
+            self.db.add_usage("gemini", kind, qty=qty, tokens=tokens, cost=cost)
+            return {"ok": True}
 
         @app.post("/api/flow/video")
         async def flow_video(body: dict):
@@ -600,10 +611,13 @@ class WebServer:
                         "commission": {"rate": sidecar["commission"]},
                         "links": {"affiliate_link": sidecar["link"]},
                     }, GENERATED, str(out_mp4))
-                # บันทึกต้นทุนต่อคลิป (A1.4) — สะสมยอดใช้จ่ายเดือนนี้
-                cost = self.budget.cost_per_clip() if self.budget else 0
-                if jid and cost:
-                    self.db.add_cost(jid, cost)
+                # บันทึกการใช้ Flow (J): 1 คลิป Flow = qty คลิปย่อยที่ต่อกัน
+                qty = max(1, len(files) if files else 1)
+                cost = (self.budget.cost_per_clip() * qty) if self.budget else 0
+                if jid:
+                    self.db.add_usage("flow", "clip", qty=qty, cost=cost, job_id=jid)
+                    if cost:
+                        self.db.add_cost(jid, cost)   # ต้นทุนต่อ job (โชว์ในรายการงาน)
 
             self.emit_log(f"[FLOW] รับวิดีโอ {pid} → pending (link={'มี' if sidecar['link'] else 'ไม่มี!'})")
             self.ws.broadcast_sync({"type": "flow_video", "pid": pid, "name": sidecar["name"]})

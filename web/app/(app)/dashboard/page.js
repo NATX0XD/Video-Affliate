@@ -5,8 +5,12 @@ import { SystemLog } from '@/components/dashboard/SystemLog'
 import { api }       from '@/lib/api'
 import {
   Smartphone, ListOrdered, CheckCircle2, XCircle, Wallet,
-  Rocket, Play, Square, Search, Clapperboard, Send, ChevronRight
+  Rocket, Play, Square, Search, Clapperboard, Send, ChevronRight,
+  Sparkles, AlertTriangle
 } from 'lucide-react'
+
+const fmtK = (n) => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n || 0))
+const baht  = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })
 
 // ขั้นตอนของไปป์ไลน์ (ตรงกับสถานะใน DB)
 const PIPELINE = [
@@ -128,7 +132,15 @@ function BudgetCard({ budget, cost }) {
   const unlimited = !budget || budget.unlimited
   const spent = budget?.spent ?? cost ?? 0
   const total = budget?.budget ?? 0
-  const pct = unlimited || !total ? 0 : Math.min(100, (spent / total) * 100)
+  const pct   = budget?.percent ?? (unlimited || !total ? 0 : Math.min(100, (spent / total) * 100))
+  const alert = budget?.alert || 'ok'
+  const month = budget?.month  || {}
+  const today = budget?.today  || {}
+  const flow  = month.flow   || { qty: 0, cost: 0 }
+  const gem   = month.gemini || { qty: 0, tokens: 0, cost: 0 }
+
+  const barCls   = alert === 'over' ? 'bg-danger' : alert === 'warn' ? 'bg-amber-400' : 'bg-accent'
+  const todayCost = today.total_cost ?? 0
 
   return (
     <div className="h-full rounded-xl bg-surface border border-line shadow-card p-5 flex flex-col">
@@ -136,28 +148,55 @@ function BudgetCard({ budget, cost }) {
         <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-accent-wash">
           <Wallet size={17} className="text-accent" />
         </div>
-        <span className="text-ink text-sm font-semibold">งบประมาณเดือนนี้</span>
+        <span className="text-ink text-sm font-semibold">งบ AI เดือนนี้</span>
+        {alert !== 'ok' && (
+          <span className={`ml-auto flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full
+            ${alert === 'over' ? 'bg-danger/15 text-danger' : 'bg-amber-400/15 text-amber-500'}`}>
+            <AlertTriangle size={11} />{alert === 'over' ? 'เกินงบ' : 'ใกล้เต็ม'}
+          </span>
+        )}
       </div>
 
-      <p className="text-ink text-[28px] font-extrabold nums leading-none">
-        ฿{spent.toLocaleString('th-TH')}
-      </p>
+      <p className="text-ink text-[28px] font-extrabold nums leading-none">{baht(spent)}</p>
       <p className="text-ink-mute text-xs mt-1.5">
-        {unlimited ? 'ไม่จำกัดงบ' : `จาก ฿${total.toLocaleString('th-TH')}`}
+        {unlimited ? 'ไม่จำกัดงบ' : `จาก ${baht(total)}`}
+        {todayCost > 0 && <span className="text-ink-dim"> · วันนี้ {baht(todayCost)}</span>}
       </p>
 
       {!unlimited && (
         <div className="mt-4">
           <div className="h-2 rounded-full bg-elevated overflow-hidden">
-            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${pct}%` }} />
+            <div className={`h-full rounded-full transition-all ${barCls}`} style={{ width: `${Math.min(100, pct)}%` }} />
           </div>
-          <p className="text-ink-mute text-[11px] mt-2">ใช้ไป {pct.toFixed(0)}%</p>
+          <p className="text-ink-mute text-[11px] mt-2">ใช้ไป {Number(pct).toFixed(0)}%</p>
         </div>
       )}
 
-      <div className="mt-auto pt-4 text-[11px] text-ink-mute leading-relaxed">
-        ต้นทุนรวมจาก Flow + Gemini ของงานทั้งหมด
+      {/* แยกบริการ Flow / Gemini */}
+      <div className="mt-5 pt-4 border-t border-line flex flex-col gap-3">
+        <UsageRow icon={Clapperboard} label="Flow" sub={`${flow.qty || 0} คลิป`} cost={flow.cost} />
+        <UsageRow icon={Sparkles} label="Gemini"
+                  sub={`${gem.qty || 0} ครั้ง · ${fmtK(gem.tokens || 0)} token`} cost={gem.cost} />
       </div>
+
+      <div className="mt-auto pt-4 text-[11px] text-ink-mute leading-relaxed">
+        นับจริง + ประมาณบาท (ตั้งราคาต่อหน่วยในหน้าตั้งค่า)
+      </div>
+    </div>
+  )
+}
+
+function UsageRow({ icon: Icon, label, sub, cost }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="w-8 h-8 rounded-lg bg-elevated flex items-center justify-center shrink-0">
+        <Icon size={15} className="text-ink-dim" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-ink text-[13px] font-semibold leading-tight">{label}</p>
+        <p className="text-ink-mute text-[11px] leading-tight">{sub}</p>
+      </div>
+      <span className="ml-auto text-ink text-sm font-bold nums">{baht(cost)}</span>
     </div>
   )
 }

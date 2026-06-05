@@ -160,11 +160,12 @@ export default function SettingsPage() {
           </Row>
 
           <Row icon={Wallet} delay={160}
-               title="งบประมาณ"
-               desc="คุมค่าใช้จ่าย — ถึงเพดานแล้วระบบจะหยุดเองและแจ้งเตือน">
+               title="งบ AI"
+               desc="คุมค่าใช้จ่าย AI — ถึงเพดานแล้วระบบหยุดเองและแจ้งเตือน. ราคาต่อหน่วยใช้ประเมินยอดเงิน Flow/Gemini">
             <div className="grid grid-cols-2 gap-4">
               <Field label="งบรายเดือน (0 = ไม่จำกัด)" value={cfg.monthly_budget ?? ''} onChange={set('monthly_budget')} placeholder="0" suffix="บาท" />
-              <Field label="ต้นทุนต่อคลิป (ประเมิน)" value={cfg.cost_per_clip ?? ''} onChange={set('cost_per_clip')} placeholder="0" suffix="บาท" />
+              <Field label="ราคา Flow ต่อคลิป" value={cfg.cost_per_clip ?? ''} onChange={set('cost_per_clip')} placeholder="0" suffix="บาท" />
+              <Field label="ราคา Gemini ต่อ 1,000 token" value={cfg.gemini_cost_per_1k ?? ''} onChange={set('gemini_cost_per_1k')} placeholder="0" suffix="บาท" />
             </div>
           </Row>
 

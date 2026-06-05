@@ -135,7 +135,10 @@
       "Bash(chmod 600 keys/.control_id.txt keys/.control_pubkey.txt)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(grep -E \"\\\\.env$|\\\\.env\\\\.local$\")"
+      "Bash(grep -E \"\\\\.env$|\\\\.env\\\\.local$\")",
+      "Bash(git commit -q -m 'docs: break A1 into sub-steps, mark A1.1 done *)",
+      "Bash(git commit -q -m 'docs: mark A1.2 \\(a/b/c\\) complete *)",
+      "Bash(git commit -q -m ' *)"
     ]
   }
 }

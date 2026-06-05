@@ -26,6 +26,12 @@ export default function ReportsPage() {
   const daily = r?.daily || []
   const maxC = Math.max(1, ...daily.map(d => d.count))
 
+  const usage  = r?.usage_daily || []
+  const maxU   = Math.max(1, ...usage.map(d => d.cost))
+  const bud    = r?.budget || {}
+  const mFlow  = bud.month?.flow   || {}
+  const mGem   = bud.month?.gemini || {}
+
   return (
     <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
@@ -68,6 +74,40 @@ export default function ReportsPage() {
               <span className="text-[9px] text-ink-mute nums">{d.date}</span>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* AI usage chart (J) */}
+      <div className="rounded-xl bg-surface border border-line shadow-card p-5 lg:p-6 animate-fade-up" style={{ animationDelay: '150ms' }}>
+        <div className="flex items-center gap-2.5 mb-1">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-accent-wash"><Wallet size={16} className="text-accent" /></div>
+          <span className="text-ink font-semibold text-sm">ค่าใช้จ่าย AI ย้อนหลัง 14 วัน</span>
+          <div className="ml-auto flex items-center gap-3 text-[11px]">
+            <span className="flex items-center gap-1.5 text-ink-mute"><span className="w-2.5 h-2.5 rounded-sm bg-accent" />Flow</span>
+            <span className="flex items-center gap-1.5 text-ink-mute"><span className="w-2.5 h-2.5 rounded-sm bg-sky-400" />Gemini</span>
+          </div>
+        </div>
+        <p className="text-ink-mute text-[11px] mb-5 nums">
+          เดือนนี้ — Flow {mFlow.qty || 0} คลิป {baht(mFlow.cost)} · Gemini {mGem.qty || 0} ครั้ง {baht(mGem.cost)}
+        </p>
+        <div className="flex items-end gap-2 h-44">
+          {usage.map((d, i) => {
+            const fh = (d.flow / maxU) * 100, gh = (d.gemini / maxU) * 100
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1.5 group">
+                <div className="w-full flex flex-col justify-end items-center h-full">
+                  <div className="w-full max-w-[28px] flex flex-col justify-end" style={{ height: '100%' }}>
+                    {d.cost > 0 && (
+                      <span className="text-center text-[9px] font-bold text-ink nums opacity-0 group-hover:opacity-100 transition-opacity mb-0.5">{baht(d.cost)}</span>
+                    )}
+                    <div className="w-full rounded-t-sm bg-sky-400/80 group-hover:bg-sky-400 transition-all" style={{ height: `${gh}%`, minHeight: d.gemini ? '3px' : '0' }} />
+                    <div className="w-full bg-accent/70 group-hover:bg-accent transition-all" style={{ height: `${fh}%`, minHeight: d.flow ? '3px' : '0', borderRadius: d.gemini ? '0' : '3px 3px 0 0' }} />
+                  </div>
+                </div>
+                <span className="text-[9px] text-ink-mute nums">{d.date}</span>
+              </div>
+            )
+          })}
         </div>
       </div>
 

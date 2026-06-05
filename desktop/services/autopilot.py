@@ -107,6 +107,16 @@ class AutoPilot:
             self._post_one(job, serial, s, self._device_platforms(serial))
             self._sleep_delay(s)
 
+    def _record_usage(self, service: str, kind: str, qty: int, tokens: int):
+        """บันทึกการใช้ AI ลง usage ledger (J) — Gemini verify ตอนโพสต์."""
+        try:
+            s = cfg.load()
+            cost = ((tokens / 1000.0) * float(s.get("gemini_cost_per_1k", 0) or 0)
+                    if service == "gemini" else 0)
+            self.db.add_usage(service, kind, qty=qty, tokens=tokens, cost=round(cost, 4))
+        except Exception:
+            pass
+
     def _device_platforms(self, serial: str) -> list:
         raw = self.db.get_config(f"dev_platforms:{serial}", "") or ""
         return [p for p in raw.split(",") if p]
@@ -142,6 +152,8 @@ class AutoPilot:
         results = []
         for pk in plats:
             p = make_poster(pk, self.adb, self.log, s)
+            if hasattr(p, "usage_cb"):
+                p.usage_cb = self._record_usage   # บันทึกการใช้ Gemini ตอน verify (J)
             r = p.process(serial, video, product)
             if r is None:
                 continue

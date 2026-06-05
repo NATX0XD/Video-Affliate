@@ -57,7 +57,8 @@ DEFAULT = {
     "review_mode": "auto",       # auto = โพสต์เลย | hold = ถือไว้ให้กดอนุมัติ
     "platforms": ["shopee"],     # แพลตฟอร์มที่จะโพสต์ (multi-platform)
     "monthly_budget": 0,         # งบรายเดือน (บาท), 0 = ไม่จำกัด (A1.4)
-    "cost_per_clip": 0,          # ต้นทุนประเมินต่อคลิป (บาท) Flow+Gemini
+    "cost_per_clip": 0,          # ต้นทุน Flow ต่อคลิป (บาท) — ใช้ประเมินค่า Flow (J)
+    "gemini_cost_per_1k": 0,     # ต้นทุน Gemini ต่อ 1,000 token (บาท) — ประเมินค่า Gemini (J)
     "hot_folder": str(PENDING_DIR),
     "shop_name": "",
     # Video generation settings

@@ -106,6 +106,14 @@ async function geminiFlowPrompt(product, cfg) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts }] }),
   }).then((r) => r.json());
+  // รายงานการใช้ token กลับ desktop → usage ledger (J)
+  const tokens = (res && res.usageMetadata && res.usageMetadata.totalTokenCount) || 0;
+  if (tokens) {
+    fetch('http://localhost:3001/api/flow/usage', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'prompt', qty: 1, tokens }),
+    }).catch(() => {});
+  }
   const text = res && res.candidates && res.candidates[0]?.content?.parts?.[0]?.text;
   return (text || '').trim();
 }

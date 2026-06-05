@@ -48,11 +48,16 @@ def verify_post(adb, serial: str, google_key: str,
         status = (data.get("status") or "unknown").lower()
         reason = data.get("reason", "")
         verified = status != "failed"          # conservative
+        tokens = 0
+        try:
+            tokens = int(getattr(resp.usage_metadata, "total_token_count", 0) or 0)
+        except Exception:
+            pass
         log(f"[VERIFY] ผล: {status} — {reason}")
-        return {"verified": verified, "status": status, "reason": reason}
+        return {"verified": verified, "status": status, "reason": reason, "tokens": tokens}
     except Exception as e:
         log(f"[VERIFY] ยืนยันไม่สำเร็จ ({e}) — ถือว่าสำเร็จไว้ก่อน")
-        return {"verified": True, "status": "unknown", "reason": str(e)}
+        return {"verified": True, "status": "unknown", "reason": str(e), "tokens": 0}
 
 
 def _parse_json(raw: str) -> dict:

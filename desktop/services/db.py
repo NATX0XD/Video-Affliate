@@ -102,6 +102,20 @@ class JobStore:
                     value      TEXT,
                     updated_at INTEGER
                 );
+
+                -- usage ledger (J): บันทึกการใช้ AI ทุกครั้ง แยก service/kind
+                CREATE TABLE IF NOT EXISTS usage (
+                    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts      INTEGER,
+                    service TEXT,            -- flow | gemini
+                    kind    TEXT,            -- clip | prompt | verify
+                    qty     INTEGER DEFAULT 0,   -- คลิป/จำนวน call
+                    tokens  INTEGER DEFAULT 0,   -- token (Gemini)
+                    cost    REAL DEFAULT 0,      -- บาทประเมิน
+                    job_id  INTEGER,
+                    meta    TEXT DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage(ts);
                 """
             )
             self._conn.commit()
@@ -344,6 +358,71 @@ class JobStore:
     def add_cost(self, job_id: int, amount: float):
         """Record cost incurred for a job (timestamped) — for budget tracking."""
         self.update(job_id, cost=amount, cost_at=_now())
+
+    # ── usage ledger (J): การใช้ AI แยก service/kind ──────────────
+
+    def add_usage(self, service: str, kind: str, qty: int = 1,
+                  tokens: int = 0, cost: float = 0.0,
+                  job_id: int = None, meta: str = ""):
+        """บันทึก 1 เหตุการณ์การใช้ AI (flow clip / gemini prompt|verify)."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO usage (ts, service, kind, qty, tokens, cost, job_id, meta) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (_now(), service, kind, int(qty or 0), int(tokens or 0),
+                 float(cost or 0), job_id, meta),
+            )
+            self._conn.commit()
+
+    def usage_summary(self, since: int = 0) -> dict:
+        """สรุปการใช้ตั้งแต่ ts `since` — แยกตาม service (qty/tokens/cost)."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT service, COALESCE(SUM(qty),0) qty,
+                          COALESCE(SUM(tokens),0) tokens, COALESCE(SUM(cost),0) cost
+                   FROM usage WHERE ts>=? GROUP BY service""",
+                (since,),
+            ).fetchall()
+        by = {r["service"]: {"qty": r["qty"], "tokens": r["tokens"],
+                             "cost": round(r["cost"], 2)} for r in rows}
+        return {
+            "flow":   by.get("flow",   {"qty": 0, "tokens": 0, "cost": 0}),
+            "gemini": by.get("gemini", {"qty": 0, "tokens": 0, "cost": 0}),
+            "total_cost":   round(sum(v["cost"] for v in by.values()), 2),
+            "total_tokens": sum(v["tokens"] for v in by.values()),
+        }
+
+    def usage_spend_since(self, ts: int) -> float:
+        """รวมค่าใช้จ่าย AI (บาท) ตั้งแต่ ts — ใช้คุมงบเดือน (J)."""
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT COALESCE(SUM(cost),0) s FROM usage WHERE ts>=?", (ts,)
+            ).fetchone()
+        return float(r["s"] or 0)
+
+    def usage_by_day(self, days: int = 14) -> list:
+        """ค่าใช้จ่าย AI รายวัน แยก flow/gemini (ย้อนหลัง N วัน) สำหรับกราฟ."""
+        from datetime import datetime, timedelta
+        start_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
+        start = int(start_dt.timestamp())
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') d, service,
+                          COALESCE(SUM(cost),0) cost
+                   FROM usage WHERE ts>=? GROUP BY d, service""",
+                (start,),
+            ).fetchall()
+        bucket = {}
+        for r in rows:
+            bucket.setdefault(r["d"], {})[r["service"]] = r["cost"]
+        out = []
+        for i in range(days):
+            dt = start_dt + timedelta(days=i)
+            b = bucket.get(dt.strftime("%Y-%m-%d"), {})
+            flow_c, gem_c = round(b.get("flow", 0), 2), round(b.get("gemini", 0), 2)
+            out.append({"date": dt.strftime("%d/%m"), "flow": flow_c,
+                        "gemini": gem_c, "cost": round(flow_c + gem_c, 2)})
+        return out
 
     def posts_by_day(self, days: int = 14) -> list:
         """จำนวนโพสต์ + ต้นทุน รายวัน (ย้อนหลัง N วัน) สำหรับกราฟ."""

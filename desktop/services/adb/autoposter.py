@@ -34,6 +34,7 @@ class AutoPoster:
         self.adb = adb_manager
         self.log = log_cb or print
         self.settings = settings or {}      # ใช้สำหรับ verify_post (A1.3b)
+        self.usage_cb = None  # (service, kind, qty, tokens) → บันทึก usage ledger (J)
         self._w = 1080
         self._h = 2340
         self._scrcpy = None   # ScrcpyControl session (set during posting)
@@ -236,6 +237,9 @@ class AutoPoster:
             model = self.settings.get("prompt_model", "gemini-2.0-flash")
             res = verify_post(self.adb, serial, self.settings["google_api_key"],
                               model=model, log=self.log)
+            if self.usage_cb:
+                try: self.usage_cb("gemini", "verify", 1, res.get("tokens", 0))
+                except Exception: pass
             if not res["verified"]:
                 self.log(f"[POST] ✗ ยืนยันแล้วว่าโพสต์ไม่สำเร็จ: {res['reason']}")
                 return False

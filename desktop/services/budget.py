@@ -25,16 +25,27 @@ class BudgetGuard:
         return self._f("monthly_budget")        # 0 = ไม่จำกัด
 
     def cost_per_clip(self) -> float:
-        return self._f("cost_per_clip")
+        return self._f("cost_per_clip")         # ราคา Flow ต่อคลิป (บาท)
 
-    # ── spend ──
+    def gemini_cost_per_1k(self) -> float:
+        return self._f("gemini_cost_per_1k")    # ราคา Gemini ต่อ 1k token (บาท)
+
+    def gemini_cost(self, tokens: int) -> float:
+        return round((tokens / 1000.0) * self.gemini_cost_per_1k(), 4)
+
+    # ── spend (อ่านจาก usage ledger — J) ──
     @staticmethod
     def _month_start_ts() -> int:
         n = datetime.now()
         return int(datetime(n.year, n.month, 1).timestamp())
 
+    @staticmethod
+    def _day_start_ts() -> int:
+        n = datetime.now()
+        return int(datetime(n.year, n.month, n.day).timestamp())
+
     def spend_month(self) -> float:
-        return self.store.spend_since(self._month_start_ts()) if self.store else 0.0
+        return self.store.usage_spend_since(self._month_start_ts()) if self.store else 0.0
 
     def remaining(self):
         b = self.monthly_budget()
@@ -55,14 +66,23 @@ class BudgetGuard:
         return round(n * self.cost_per_clip(), 2)
 
     def snapshot(self) -> dict:
-        """สรุปงบสำหรับค็อกพิต."""
+        """สรุปงบ AI สำหรับค็อกพิต — แยก Flow/Gemini + วันนี้/เดือนนี้ + แจ้งเตือน (J)."""
         b = self.monthly_budget()
         sp = self.spend_month()
+        pct = (sp / b * 100) if b > 0 else 0
+        month = self.store.usage_summary(self._month_start_ts()) if self.store else {}
+        today = self.store.usage_summary(self._day_start_ts()) if self.store else {}
         return {
             "budget":        round(b, 2),
             "spent":         round(sp, 2),
             "remaining":     (None if b <= 0 else round(max(0.0, b - sp), 2)),
+            "percent":       round(pct, 1),
             "cost_per_clip": round(self.cost_per_clip(), 2),
+            "gemini_per_1k": round(self.gemini_cost_per_1k(), 4),
             "unlimited":     b <= 0,
             "exceeded":      (b > 0 and sp >= b),
+            "alert":         ("over" if (b > 0 and pct >= 100) else
+                              "warn" if (b > 0 and pct >= 80) else "ok"),
+            "month":         month,   # {flow:{qty,tokens,cost}, gemini:{...}, total_cost, total_tokens}
+            "today":         today,
         }
