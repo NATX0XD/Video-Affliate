@@ -81,14 +81,10 @@ class WebServer:
 
         # Injected by main.py after creation
         self.adb    = None
-        self.worker = None
-        self.gen    = None        # GenWorker (generate-only)
-        self.poster = None        # PostWorker (publish-only)
         self.db     = None        # JobStore (A1.2) — persistent flow queue
         self.budget = None        # BudgetGuard (A1.4)
         self.autopilot = None     # AutoPilot loop (auto-post)
         self._budget_blocked = False   # throttle log เตือนงบเต็ม
-        self.flow_queue: list = []  # legacy fallback เมื่อ db ไม่พร้อม
         self.mirrors: dict = {}   # serial → ScreenMirror
 
         # Pre-capture cache: background thread continuously screenshots each device
@@ -149,9 +145,9 @@ class WebServer:
                 }
             return {
                 "devices":    devices,
-                "queue":      len(self.worker.queue) if self.worker else 0,
-                "done":       getattr(self.worker, "done_count", 0) if self.worker else 0,
-                "errors":     getattr(self.worker, "err_count",  0) if self.worker else 0,
+                "queue":      0,
+                "done":       0,
+                "errors":     0,
                 "pilot_running": running,
             }
 
@@ -251,32 +247,6 @@ class WebServer:
                 ).start()
             return {"ok": True}
 
-        @app.post("/api/generate")
-        async def generate(body: dict):
-            # Accept both {products:[...]} (web/popup) and {product:{...}} (extension)
-            products = body.get("products")
-            if products is None:
-                one = body.get("product")
-                products = [one] if one else []
-            products = [p for p in products if p]
-            if self.worker:
-                self.worker.add_products(products)
-            q = len(self.worker.queue) if self.worker else 0
-            # Emit individual item details so frontend can show queue
-            items = [{
-                "pid":        p.get("product_id", ""),
-                "name":       p.get("basic_info", {}).get("name", "")[:60],
-                "price":      p.get("basic_info", {}).get("price", ""),
-                "commission": p.get("commission", {}).get("rate", ""),
-                "status":     "pending",
-            } for p in products]
-            self.ws.broadcast_sync({"type": "queue_items", "items": items})
-            self.ws.broadcast_sync({"type": "queue", "count": q})
-            self.emit_log(f"[API] Received {len(products)} products → queue {q}")
-            if self.worker:
-                self.emit_stats(self.worker.done_count, self.worker.err_count, q)
-            return {"ok": True, "received": len(products), "queue": q}
-
         @app.post("/api/pilot/start")
         async def pilot_start(body: dict):
             # เปิดโหมดโพสต์อัตโนมัติ (auto-post loop)
@@ -333,69 +303,6 @@ class WebServer:
 
             threading.Thread(target=_run, daemon=True).start()
             return {"ok": True, "dry_run": dry, "message": "test started — ดู System Log"}
-
-        # ── Generate-only (clips, no posting) ──
-
-        @app.post("/api/gen/start")
-        async def gen_start(body: dict):
-            products = body.get("products", [])
-            profile  = body.get("profile") or {}
-            if not self.gen:
-                return {"ok": False, "error": "gen worker not ready"}
-            # Emit queue items so the UI can track per-product status
-            items = [{
-                "pid":        p.get("product_id", ""),
-                "name":       p.get("basic_info", {}).get("name", "")[:60],
-                "price":      p.get("basic_info", {}).get("price", ""),
-                "commission": p.get("commission", {}).get("rate", ""),
-                "status":     "pending",
-            } for p in products]
-            if items:
-                self.ws.broadcast_sync({"type": "queue_items", "items": items})
-            ok = self.gen.start(products, profile=profile)
-            return {"ok": ok, "count": len(self.gen.queue)}
-
-        # ── Post-all (publish every ready clip) ──
-
-        @app.post("/api/post/start")
-        async def post_all_start(body: dict):
-            serial = body.get("serial", "")
-            if not self.poster:
-                return {"ok": False, "error": "post worker not ready"}
-            ok = self.poster.start(serial)
-            return {"ok": ok, "clips": len(self.poster.ready_clips())}
-
-        @app.post("/api/post/stop")
-        async def post_all_stop():
-            if self.poster:
-                self.poster.stop()
-            return {"ok": True}
-
-        @app.get("/api/post/status")
-        def post_all_status():
-            p = self.poster
-            return {
-                "running": p.is_running if p else False,
-                "ready":   len(p.ready_clips()) if p else 0,
-                "done":    p.done_count if p else 0,
-                "errors":  p.err_count if p else 0,
-            }
-
-        @app.post("/api/gen/stop")
-        async def gen_stop():
-            if self.gen:
-                self.gen.stop()
-            return {"ok": True}
-
-        @app.get("/api/gen/status")
-        def gen_status():
-            g = self.gen
-            return {
-                "running": g.is_running if g else False,
-                "queue":   len(g.queue) if g else 0,
-                "done":    g.done_count if g else 0,
-                "errors":  g.err_count if g else 0,
-            }
 
         # ── Generated video library ──
 
@@ -495,9 +402,6 @@ class WebServer:
             key = (body.get("google_api_key") or "").strip()
             if key:
                 cfg.set_secret("google_api_key", key)
-            fresh = cfg.load()
-            for w in (self.worker, self.gen, self.poster):
-                if w: w.settings = fresh
             self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")
             return {"ok": True, "shop_name": shop}
 
@@ -592,137 +496,26 @@ class WebServer:
         async def save_settings(body: dict):
             import config as cfg
             cfg.save(body)             # strips secrets; masked values are ignored
-            # Re-load with real secrets from .env so workers never get a masked key
-            settings = cfg.load()
-            if self.worker: self.worker.settings = settings
-            if self.gen:    self.gen.settings    = settings
-            if self.poster: self.poster.settings = settings
+            # AutoPoster/AutoPilot อ่าน cfg.load() สดทุกครั้ง — ไม่ต้อง push เข้า worker
             return {"ok": True}
-
-        # ── AI video: list models / test generation ──
-
-        @app.get("/api/video/models")
-        def video_models():
-            """List Veo + Gemini models the configured Google key can access."""
-            import config as cfg
-            key = cfg.load().get("google_api_key", "")
-            if not key:
-                return {"ok": False, "error": "ยังไม่ได้ใส่ Google API Key"}
-            try:
-                from google import genai
-                client = genai.Client(api_key=key)
-                veo, gem = [], []
-                for m in client.models.list():
-                    name = (m.name or "").replace("models/", "")
-                    if "veo" in name:
-                        veo.append(name)
-                    elif "gemini" in name and "embedding" not in name:
-                        gem.append(name)
-                return {"ok": True, "veo": sorted(set(veo)), "gemini": sorted(set(gem))}
-            except Exception as e:
-                return {"ok": False, "error": str(e)}
-
-        @app.post("/api/video/test")
-        async def video_test(body: dict):
-            """Generate ONE test video from a sample (or first queued) product."""
-            import config as cfg
-            settings = cfg.load()
-            if not settings.get("google_api_key"):
-                return {"ok": False, "error": "ยังไม่ได้ใส่ Google API Key"}
-
-            # Use first queued product if available, else a sample
-            product = None
-            if self.worker and self.worker.queue:
-                product = self.worker.queue[0]
-            if not product:
-                product = {
-                    "product_id": "test",
-                    "basic_info": {"name": "หูฟังบลูทูธ ไร้สาย กันน้ำ", "price": "299", "sold_count": "1.2k"},
-                    "commission": {"rate": "8"},
-                    "images": ["https://down-th.img.susercontent.com/file/sg-11134201-7rbk5-lmxxxxxx"],
-                    "images_b64": [],
-                }
-
-            def _run():
-                from services.video_generator import VideoGenerator
-                gen = VideoGenerator(google_key=settings["google_api_key"], settings=settings)
-                gen.log = self.emit_log
-                path = gen.process(product)
-                if path:
-                    self.emit_log(f"[VDO-TEST] สำเร็จ ✓ → {path.name}")
-                else:
-                    self.emit_log("[VDO-TEST] ไม่สำเร็จ ✗ — ดู error ด้านบน")
-
-            threading.Thread(target=_run, daemon=True).start()
-            return {"ok": True, "message": "เริ่มสร้างวิดีโอทดสอบ — ดู System Log"}
 
         # ── Google Flow pipeline (extension เป็นคนสร้างวิดีโอในเบราว์เซอร์) ──
 
         def _flow_prompt(product: dict) -> str:
-            """สร้าง prompt ที่จะส่งเข้า Flow — ยืดหยุ่นตามค่าตั้งของผู้ใช้:
-              prompt_mode=template → ใช้เทมเพลตของผู้ใช้ตรง ๆ (เติมตัวแปร)
-              prompt_mode=ai       → ให้ Gemini เขียน + ต่อท้ายสไตล์ที่ผู้ใช้กำหนด
-            """
-            import config as cfg, base64
-            settings = cfg.load()
-            bi   = product.get("basic_info", {}) or {}
-            name = bi.get("name", "สินค้า")
-            price = bi.get("price", "")
-            comm = (product.get("commission", {}) or {}).get("rate", "")
-            dur  = settings.get("duration", 8)
-            shop = settings.get("shop_name", "")
-
-            def fill(t: str) -> str:
-                repl = {"{name}": name, "{price}": str(price), "{commission}": str(comm),
-                        "{duration}": str(dur), "{shop}": shop}
-                for k, v in repl.items():
-                    t = (t or "").replace(k, v)
-                return t
-
-            tmpl = (settings.get("prompt_template") or "").strip()
-            default = (f"สร้างวิดีโอโฆษณาแนวตั้ง 9:16 ความยาว {dur} วินาที ของ {name} "
-                       f"กล้องค่อยๆ ซูมเข้า แสงสตูดิโอ สไตล์โฆษณาสินค้า")
-
-            # โหมดเทมเพลต — ผู้ใช้คุมเองเต็มที่
-            if settings.get("prompt_mode") == "template" and tmpl:
-                return fill(tmpl)
-
-            # โหมด AI
-            fallback = fill(tmpl) if tmpl else default
-            key = settings.get("google_api_key", "")
-            if not key:
-                return fallback
-            try:
-                img_bytes, mime = None, None
-                b64s = product.get("images_b64") or []
-                if b64s:
-                    img_bytes = base64.b64decode(b64s[0].split(",", 1)[-1])
-                    mime = "image/jpeg"
-                from services.video_generator import VideoGenerator
-                gen = VideoGenerator(google_key=key, settings=settings)
-                gen.log = self.emit_log
-                p = gen.generate_prompt(product, img_bytes, mime, target="flow") or fallback
-                note = (settings.get("prompt_style_note") or "").strip()
-                if note:
-                    p = f"{p}\n{fill(note)}"
-                return p
-            except Exception as e:
-                self.emit_log(f"[FLOW] เขียน prompt ไม่สำเร็จ: {e}")
-                return fallback
+            """บริดจ์ชั่วคราว → services/prompt_builder (ดู P-cleanup).
+            จะถูกย้ายไปฝั่ง extension เป็นงานถัดไป แล้วลบ flow/next ออก."""
+            import config as cfg
+            from services.prompt_builder import build_flow_prompt
+            return build_flow_prompt(product, cfg.load(), self.emit_log)
 
         @app.post("/api/flow/enqueue")
         async def flow_enqueue(body: dict):
             products = body.get("products") or ([body["product"]] if body.get("product") else [])
             products = [p for p in products if p]
-            if self.db:
-                added = self.db.add_many(products)          # deduped, persistent
-                q = self.db.count(QUEUED)
-                self.emit_log(f"[FLOW] เข้าคิว {added} ชิ้น (รอสร้าง: {q})")
-                return {"ok": True, "queued": q, "added": added}
-            # fallback (db ไม่พร้อม)
-            self.flow_queue.extend(products)
-            self.emit_log(f"[FLOW] เข้าคิว {len(products)} ชิ้น (รอสร้าง: {len(self.flow_queue)})")
-            return {"ok": True, "queued": len(self.flow_queue)}
+            added = self.db.add_many(products)              # deduped, persistent
+            q = self.db.count(QUEUED)
+            self.emit_log(f"[FLOW] เข้าคิว {added} ชิ้น (รอสร้าง: {q})")
+            return {"ok": True, "queued": q, "added": added}
 
         def _flow_payload(product: dict, remaining: int, job_id=None) -> dict:
             prompt = _flow_prompt(product)        # prompt เดียว ระบุ 20 วิ → agent แบ่งเอง
@@ -749,36 +542,20 @@ class WebServer:
         @app.get("/api/flow/next")
         def flow_next():
             """extension ดึงงานถัดไป — ได้สินค้า + prompt ภาษาไทยพร้อมป้อน Flow."""
-            if self.db:
-                # คุมงบ (A1.4): งบเดือนนี้เต็ม → ไม่แจกงานสร้าง (หยุดเอง)
-                if self.budget and not self.budget.can_generate():
-                    if not self._budget_blocked:
-                        self._budget_blocked = True
-                        snap = self.budget.snapshot()
-                        self.emit_log(f"[BUDGET] งบเดือนนี้เต็ม (ใช้ {snap['spent']}/{snap['budget']} บาท) "
-                                      f"— หยุดสร้างชั่วคราว")
-                        self.ws.broadcast_sync({"type": "budget_exceeded", **snap})
-                    return {"ok": True, "empty": True, "budget_exceeded": True}
-                self._budget_blocked = False
-                # คิว DB ว่าง → ดูดสินค้าที่ดูดมา (worker.queue) เข้า DB ก่อน (persistent)
-                if self.db.count(QUEUED) == 0 and self.worker and getattr(self.worker, "queue", None):
-                    moved = self.db.add_many(list(self.worker.queue))
-                    self.worker.queue.clear()
-                    if moved:
-                        self.emit_log(f"[FLOW] ดึงจากคิวสินค้าที่ดูดมา {moved} ชิ้น")
-                job = self.db.claim(QUEUED, GENERATING)   # atomic: queued → generating
-                if not job:
-                    return {"ok": True, "empty": True}
-                return _flow_payload(job["product"], self.db.count(QUEUED), job["id"])
-            # ── legacy fallback (db ไม่พร้อม) ──
-            if not self.flow_queue and self.worker and getattr(self.worker, "queue", None):
-                self.flow_queue.extend(list(self.worker.queue))
-                self.worker.queue.clear()
-                self.emit_log(f"[FLOW] ดึงจากคิวสินค้าที่ดูดมา {len(self.flow_queue)} ชิ้น")
-            if not self.flow_queue:
+            # คุมงบ (A1.4): งบเดือนนี้เต็ม → ไม่แจกงานสร้าง (หยุดเอง)
+            if self.budget and not self.budget.can_generate():
+                if not self._budget_blocked:
+                    self._budget_blocked = True
+                    snap = self.budget.snapshot()
+                    self.emit_log(f"[BUDGET] งบเดือนนี้เต็ม (ใช้ {snap['spent']}/{snap['budget']} บาท) "
+                                  f"— หยุดสร้างชั่วคราว")
+                    self.ws.broadcast_sync({"type": "budget_exceeded", **snap})
+                return {"ok": True, "empty": True, "budget_exceeded": True}
+            self._budget_blocked = False
+            job = self.db.claim(QUEUED, GENERATING)   # atomic: queued → generating
+            if not job:
                 return {"ok": True, "empty": True}
-            product = self.flow_queue.pop(0)
-            return _flow_payload(product, len(self.flow_queue))
+            return _flow_payload(job["product"], self.db.count(QUEUED), job["id"])
 
         @app.post("/api/flow/prompt")
         async def flow_prompt_ep(body: dict):
@@ -871,12 +648,12 @@ class WebServer:
 
             self.emit_log(f"[FLOW] รับวิดีโอ {pid} → pending (link={'มี' if sidecar['link'] else 'ไม่มี!'})")
             self.ws.broadcast_sync({"type": "flow_video", "pid": pid, "name": sidecar["name"]})
-            ready = len(self.poster.ready_clips()) if self.poster else 0
+            ready = self.db.count(GENERATED)   # คลิปพร้อมโพสต์
             return {"ok": True, "pid": pid, "ready": ready}
 
         @app.get("/api/flow/status")
         def flow_status():
-            q = self.db.count(QUEUED) if self.db else len(self.flow_queue)
+            q = self.db.count(QUEUED)
             out = {"ok": True, "queued": q}
             if self.budget:
                 out["budget"] = self.budget.snapshot()
@@ -911,9 +688,7 @@ class WebServer:
                 "uptime_sec": int(time.time() - self._started_at) if self._started_at else 0,
                 "devices":    devices,
                 "workers": {
-                    "pilot":  bool(self.worker and self.worker.is_running),
-                    "gen":    bool(self.gen and self.gen.is_running),
-                    "poster": bool(self.poster and self.poster.is_running),
+                    "autopilot": bool(self.autopilot and self.autopilot.enabled),
                 },
                 "jobs":       self.db.stats() if self.db else None,
                 "budget":     self.budget.snapshot() if self.budget else None,
@@ -1096,13 +871,6 @@ class WebServer:
 
     def emit_worker_status(self, pid: str, status: str):
         self.ws.broadcast_sync({"type": "worker_status", "pid": pid, "status": status})
-
-    def emit_video_ready(self, pid: str, filename: str):
-        self.ws.broadcast_sync({"type": "video_ready", "pid": pid, "file": filename})
-
-    def emit_gen_progress(self, pid: str, stage: str, detail: str):
-        self.ws.broadcast_sync({"type": "gen_progress", "pid": pid,
-                                "stage": stage, "detail": detail})
 
     # ── Start/Stop ────────────────────────────────────────────
 

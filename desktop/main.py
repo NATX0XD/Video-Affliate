@@ -7,9 +7,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 import config as cfg
 from services.adb.manager import ADBManager
 from services.web_server   import WebServer
-from services.worker       import Worker
-from services.gen_worker   import GenWorker
-from services.post_worker  import PostWorker
 from services.db           import JobStore, migrate_folders
 from services.budget       import BudgetGuard
 from services.autopilot    import AutoPilot
@@ -32,36 +29,11 @@ def main():
 
     adb    = ADBManager()
     server = WebServer(port=settings.get("server_port", 3001))
-    worker = Worker(settings, adb)
-    gen    = GenWorker(settings)
-    poster = PostWorker(settings, adb)
 
-    # Wire up cross-references
+    # Wire up cross-references (desktop = post-only: ไม่มี worker สร้างคลิปแล้ว)
     server.adb    = adb
-    server.worker = worker
-    server.gen    = gen
-    server.poster = poster
-    server.db = worker.db = gen.db = poster.db = store   # workers adopt it in A1.2
+    server.db     = store
     server.budget = BudgetGuard(store)                   # คุมงบ (A1.4)
-    worker.log    = server.emit_log
-    gen.log       = server.emit_log
-    poster.log    = server.emit_log
-
-    worker.on_status_change = server.emit_worker_status
-    worker.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
-    worker.on_finished      = lambda: server.emit_log("[Worker] Auto Pilot completed ✓")
-
-    # Generation-only worker → emit progress + announce ready clips
-    gen.on_status_change = server.emit_worker_status
-    gen.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
-    gen.on_video_ready   = server.emit_video_ready
-    gen.on_progress      = server.emit_gen_progress
-    gen.on_finished      = lambda: server.emit_log("[Gen] สร้างคลิปครบแล้ว ✓")
-
-    # Post-all worker
-    poster.on_status_change = server.emit_worker_status
-    poster.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
-    poster.on_finished      = lambda: server.emit_log("[Post] โพสต์ครบทุกคลิปแล้ว ✓")
 
     # Auto-post loop (near-zero-touch) — วนโพสต์เองตลอด
     autopilot = AutoPilot(store, adb)
