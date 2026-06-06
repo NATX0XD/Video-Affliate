@@ -1,6 +1,13 @@
 'use client'
-import { Smartphone, BatteryMedium, BatteryCharging, Cpu, Hash, ExternalLink, Thermometer, Snowflake, Send } from 'lucide-react'
+import { Smartphone, BatteryMedium, BatteryCharging, Cpu, Hash, ExternalLink, Thermometer, Snowflake, Send,
+         MemoryStick, HardDrive, Wifi, WifiOff, Signal } from 'lucide-react'
 import { api } from '@/lib/api'
+
+const NET = {
+  wifi:    { Icon: Wifi,    label: 'Wi-Fi',   cls: 'text-ink-mute' },
+  mobile:  { Icon: Signal,  label: 'เน็ตมือถือ', cls: 'text-ink-mute' },
+  offline: { Icon: WifiOff, label: 'ไม่มีเน็ต',  cls: 'text-danger'   },
+}
 
 const STATUS = {
   device:       { label: 'เชื่อมต่อแล้ว', dot: 'bg-success', text: 'text-success' },
@@ -15,7 +22,8 @@ const fmtMin = (sec) => (sec >= 60 ? `${Math.ceil(sec / 60)} นาที` : `${
 
 export function DeviceCard({ device }) {
   const { serial, model, android, battery, status, temp, charging,
-          activity, cooldown_reason, cooldown_remaining } = device
+          activity, cooldown_reason, cooldown_remaining,
+          ram_total, ram_used, storage_total, storage_free, net } = device
   const s = STATUS[status] ?? STATUS.offline
   const ok = status === 'device'
 
@@ -48,6 +56,21 @@ export function DeviceCard({ device }) {
                 <Thermometer size={11} /> {temp.toFixed(1)}°C
               </span>
             )}
+            {ram_total > 0 && (
+              <span className="flex items-center gap-1" title={`RAM ${ram_used}/${ram_total} MB`}>
+                <MemoryStick size={11} /> {Math.round((ram_used / ram_total) * 100)}%
+              </span>
+            )}
+            {storage_total > 0 && (
+              <span className={`flex items-center gap-1 ${storage_free < 2 ? 'text-amber-500' : ''}`}
+                    title={`พื้นที่เหลือ ${storage_free} / ${storage_total} GB`}>
+                <HardDrive size={11} /> {storage_free}GB
+              </span>
+            )}
+            {ok && net && (() => {
+              const n = NET[net] ?? NET.offline
+              return <span className={`flex items-center gap-1 ${n.cls}`}><n.Icon size={11} /> {n.label}</span>
+            })()}
           </div>
         </div>
 

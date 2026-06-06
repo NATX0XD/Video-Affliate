@@ -130,6 +130,11 @@ class WebServer:
                         "battery": d.battery,
                         "temp":    d.temp,            # °C อุณหภูมิแบต (E)
                         "charging": d.charging,       # กำลังชาร์จ (E)
+                        "ram_total": d.ram_total,     # MB (E)
+                        "ram_used":  d.ram_used,      # MB (E)
+                        "storage_total": d.storage_total,  # GB (E)
+                        "storage_free":  d.storage_free,   # GB (E)
+                        "net":     d.net,             # wifi|mobile|offline (E)
                         "status":  d.status,
                         "activity": activity,         # idle|posting|cooldown|offline (E)
                         "cooldown": cooling,

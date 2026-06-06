@@ -16,6 +16,13 @@ class Device:
     posting: bool = False     # กำลังโพสต์อยู่ (จาก autopilot)
     cooldown_until: float = 0.0   # ts — พักเครื่องถึงเมื่อไร (0 = ไม่พัก) (E)
     cooldown_reason: str = ""     # "hot" | "battery" — สาเหตุพัก
+    # ทรัพยากรเครื่อง (อ่าน throttle ทุก ~20 วิ) (E)
+    ram_total: int = 0        # MB — RAM ทั้งหมด
+    ram_used: int = 0         # MB — RAM ที่ใช้อยู่
+    storage_total: float = 0.0   # GB — พื้นที่ /data ทั้งหมด
+    storage_free: float = 0.0    # GB — พื้นที่ /data ที่เหลือ
+    net: str = ""             # "wifi" | "mobile" | "offline"
+    meta_at: float = 0.0      # ts ของการอ่าน meta ครั้งล่าสุด (throttle)
 
 class ADBManager:
     def __init__(self, log_cb: Optional[Callable] = None):
@@ -72,6 +79,8 @@ class ADBManager:
                 dev.android = ver.strip()
                 # ดึง battery + อุณหภูมิ + สถานะชาร์จ (ครั้งเดียว) (E)
                 self._read_power(dev)
+                # ดึง RAM/storage/net (throttle ทุก ~20 วิ — ไม่ critical เท่า temp) (E)
+                self._read_meta(dev)
             elif status == "unauthorized":
                 dev.model = "⚠ ต้องอนุญาต USB Debugging"
             else:
@@ -107,6 +116,61 @@ class ADBManager:
         powered = any(info.get(k, "").lower() == "true"
                       for k in ("ac powered", "usb powered", "wireless powered"))
         dev.charging = st in ("2", "5") or powered
+
+    # ── RAM / storage / network (1 call, throttle ~20 วิ) (E) ───
+    META_INTERVAL = 20   # วินาที — ไม่ต้องอ่านบ่อยเท่า temp
+
+    def _read_meta(self, dev: Device):
+        """อ่าน RAM(/proc/meminfo) + storage(df /data) + net(operstate) ใน call เดียว."""
+        if (time.time() - dev.meta_at) < self.META_INTERVAL and dev.ram_total:
+            return
+        cmd = ("cat /proc/meminfo; echo @@DF@@; df /data; echo @@NET@@; "
+               "for f in /sys/class/net/*/operstate; do "
+               'echo "$(basename $(dirname $f)):$(cat $f 2>/dev/null)"; done')
+        ok, out = self._adb("shell", cmd, serial=dev.serial, timeout=12)
+        if not ok or not out:
+            return
+        dev.meta_at = time.time()
+        mem, df, net = out, "", ""
+        if "@@DF@@" in out:
+            mem, _, rest = out.partition("@@DF@@")
+            df, _, net = rest.partition("@@NET@@")
+
+        # RAM (kB → MB): used = total - available
+        mt = ma = 0
+        for line in mem.splitlines():
+            if line.startswith("MemTotal:"):
+                mt = self._first_int(line)
+            elif line.startswith("MemAvailable:"):
+                ma = self._first_int(line)
+        if mt:
+            dev.ram_total = round(mt / 1024)
+            dev.ram_used  = round(max(0, mt - ma) / 1024)
+
+        # Storage (df /data → แถวข้อมูล: total used avail ในหน่วย 1K-block)
+        for line in df.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[1].isdigit() and parts[3].isdigit():
+                dev.storage_total = round(int(parts[1]) / 1048576, 1)   # KB → GB
+                dev.storage_free  = round(int(parts[3]) / 1048576, 1)
+                break
+
+        # Network: wlan* up → wifi ; rmnet/ccmni up → mobile ; ไม่งั้น offline
+        up = {ln.split(":", 1)[0] for ln in net.splitlines()
+              if ":" in ln and ln.rsplit(":", 1)[1].strip() == "up"}
+        if any(i.startswith("wlan") for i in up):
+            dev.net = "wifi"
+        elif any(i.startswith(("rmnet", "ccmni", "radio")) for i in up):
+            dev.net = "mobile"
+        else:
+            dev.net = "offline"
+
+    @staticmethod
+    def _first_int(line: str) -> int:
+        for tok in line.split():
+            if tok.isdigit():
+                return int(tok)
+        return 0
 
     # ── Auto scan loop ────────────────────────────────────────
     def start_watch(self, interval: int = 5):
