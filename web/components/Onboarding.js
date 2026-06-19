@@ -1,11 +1,10 @@
 'use client'
 import { useState } from 'react'
 import { api } from '@/lib/api'
-import { Zap, Store, Key, ArrowRight, Loader2 } from 'lucide-react'
+import { Zap, Store, ArrowRight, Loader2 } from 'lucide-react'
 
 export function Onboarding({ initialShop = '', onDone }) {
   const [shop, setShop] = useState(initialShop)
-  const [key, setKey]   = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr]   = useState('')
 
@@ -13,7 +12,7 @@ export function Onboarding({ initialShop = '', onDone }) {
     if (!shop.trim()) { setErr('กรุณาใส่ชื่อร้าน'); return }
     setBusy(true); setErr('')
     try {
-      const r = await api.saveSetup({ shop_name: shop.trim(), google_api_key: key.trim() })
+      const r = await api.saveSetup({ shop_name: shop.trim() })
       if (r.ok) onDone?.(r.shop_name)
       else setErr(r.error || 'บันทึกไม่สำเร็จ')
     } catch { setErr('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ') }
@@ -32,18 +31,14 @@ export function Onboarding({ initialShop = '', onDone }) {
                style={{ background: 'linear-gradient(135deg,#b975f9,#a855f7)' }}>
             <Zap size={30} className="text-white fill-white" />
           </div>
-          <h1 className="text-ink text-2xl font-extrabold tracking-tight">ยินดีต้อนรับสู่ Shopee VDO</h1>
-          <p className="text-ink-dim text-sm mt-2">ตั้งค่าร้านของคุณเพื่อเริ่มสร้างวิดีโออัตโนมัติ</p>
+          <h1 className="text-ink text-2xl font-extrabold tracking-tight">ยินดีต้อนรับสู่ VDO Gen Auto Pilot</h1>
+          <p className="text-ink-dim text-sm mt-2">ตั้งชื่อร้านหรือแบรนด์ของคุณเพื่อเริ่มโพสต์วิดีโออัตโนมัติ</p>
         </div>
 
         {/* Card */}
         <div className="rounded-2xl bg-surface border border-line shadow-card p-6 flex flex-col gap-5">
-          <Field icon={Store} label="ชื่อร้าน" required
+          <Field icon={Store} label="ชื่อร้าน / แบรนด์" required
             value={shop} onChange={setShop} placeholder="เช่น ร้านของฉัน" autoFocus
-            onEnter={submit} />
-
-          <Field icon={Key} label="Google AI Key" optional type="password"
-            value={key} onChange={setKey} placeholder="วางคีย์ที่นี่ (ตั้งภายหลังก็ได้)"
             onEnter={submit} />
 
           {err && <p className="text-danger text-xs -mt-1">{err}</p>}
@@ -62,13 +57,12 @@ export function Onboarding({ initialShop = '', onDone }) {
   )
 }
 
-function Field({ icon: Icon, label, required, optional, type = 'text', value, onChange, placeholder, autoFocus, onEnter }) {
+function Field({ icon: Icon, label, required, type = 'text', value, onChange, placeholder, autoFocus, onEnter }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-ink-dim text-xs font-medium flex items-center gap-1.5">
         <Icon size={13} className="text-ink-mute" /> {label}
         {required && <span className="text-accent">*</span>}
-        {optional && <span className="text-ink-mute font-normal">(ไม่บังคับ)</span>}
       </label>
       <input
         type={type}

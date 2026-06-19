@@ -1,72 +1,92 @@
 """
-Verify a Shopee post actually succeeded by looking at the phone screen with
-Gemini Vision — closes the silent-failure gap (A1.3b).
+Post verifier — logic-based via ADB uiautomator dump.
+ไม่ใช้ AI/API ใดทั้งสิ้น — parse UI tree แล้วหา keyword แทน
 
-Why this exists: autoposter taps "post" then returns; if the upload failed or a
-warning popped up, the system would wrongly mark the job posted. Unattended, no
-one would notice. This reads the screen and confirms.
-
-CONSERVATIVE BY DESIGN: returns verified=False only when the model is CONFIDENT
-the post FAILED. When uncertain, no key, or the check itself errors → verified=True.
-Reason: re-posting risks a DUPLICATE (spam → ban), which is worse than a missed
-retry. We'd rather miss a rare real failure than double-post.
+CONSERVATIVE BY DESIGN: verified=False เฉพาะตอนมั่นใจว่าล้มเหลว
+เหตุผล: โพสต์ซ้ำ (duplicate) เสี่ยงโดนแบน ร้ายกว่า retry พลาด
 """
-import json
+import os
+import subprocess
+import tempfile
+import xml.etree.ElementTree as ET
 
-VERIFY_PROMPT = (
-    "นี่คือภาพหน้าจอมือถือหลังกดปุ่ม 'โพสต์' วิดีโอในแอป Shopee "
-    "ช่วยดูว่าการโพสต์สำเร็จหรือไม่ แล้วตอบเป็น JSON อย่างเดียว ห้ามมีข้อความอื่น:\n"
-    '{"status":"success|failed|unknown","reason":"เหตุผลสั้นๆ"}\n'
-    "- success = โพสต์เสร็จแล้ว (กลับมาหน้าฟีด/โปรไฟล์ หรือมีข้อความว่าสำเร็จ)\n"
-    "- failed = ขึ้น error / ป๊อปอัปเตือน / ยังค้างหน้าโพสต์ / อัปโหลดไม่สำเร็จ\n"
-    "- unknown = ดูไม่ออกว่าผลเป็นอย่างไร"
-)
+# ── Keyword banks ────────────────────────────────────────────────────────────
 
+_FAIL_KW = [
+    # ไทย
+    "ล้มเหลว", "ไม่สำเร็จ", "เกิดข้อผิดพลาด", "ข้อผิดพลาด",
+    "ลองอีกครั้ง", "ลองใหม่", "อัปโหลดล้มเหลว",
+    # English
+    "upload failed", "network error", "connection error",
+    "something went wrong", "couldn't share", "couldn't post",
+    "please try again", "error occurred", "post failed",
+]
 
-def verify_post(adb, serial: str, google_key: str,
-                model: str = "gemini-2.0-flash", log=print) -> dict:
+_SUCCESS_KW = [
+    # ไทย
+    "โพสต์แล้ว", "เผยแพร่แล้ว", "อัปโหลดสำเร็จ", "โพสต์เสร็จสิ้น",
+    # English
+    "your video is live", "upload complete", "successfully posted",
+    "video posted", "reel shared", "short uploaded",
+]
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def verify_post(adb, serial: str, log=print, platform: str = "", **_) -> dict:
     """Return {'verified': bool, 'status': str, 'reason': str}.
-    verified=False ⇒ เรามั่นใจว่าโพสต์ 'ไม่สำเร็จ' (ให้ retry); อื่นๆ ถือว่าสำเร็จ."""
-    if not google_key:
-        log("[VERIFY] ไม่มี Gemini key — ข้ามการยืนยัน (ถือว่าสำเร็จ)")
-        return {"verified": True, "status": "unknown", "reason": "no key"}
-    try:
-        img = adb.fast_screenshot(serial)
-        if not img:
-            log("[VERIFY] ถ่ายจอไม่ได้ — ข้าม (ถือว่าสำเร็จ)")
-            return {"verified": True, "status": "unknown", "reason": "no screenshot"}
 
-        from google import genai
-        from google.genai import types
-        client = genai.Client(api_key=google_key)
-        resp = client.models.generate_content(
-            model=model,
-            contents=[types.Part.from_bytes(data=img, mime_type="image/jpeg"),
-                      VERIFY_PROMPT],
+    verified=False → มั่นใจว่าล้มเหลว (ให้ retry)
+    verified=True  → สำเร็จ หรือ ไม่แน่ใจ (conservative)
+    """
+    try:
+        ok, msg = adb._adb(
+            "shell", "uiautomator", "dump", "/sdcard/ui_verify.xml",
+            serial=serial, timeout=15,
         )
-        data = _parse_json(resp.text or "")
-        status = (data.get("status") or "unknown").lower()
-        reason = data.get("reason", "")
-        verified = status != "failed"          # conservative
-        tokens = 0
-        try:
-            tokens = int(getattr(resp.usage_metadata, "total_token_count", 0) or 0)
-        except Exception:
-            pass
-        log(f"[VERIFY] ผล: {status} — {reason}")
-        return {"verified": verified, "status": status, "reason": reason, "tokens": tokens}
+        if not ok:
+            log(f"[VERIFY] uiautomator dump ล้มเหลว ({msg}) — ข้าม (ถือว่าสำเร็จ)")
+            return {"verified": True, "status": "unknown", "reason": "dump failed"}
+
+        # host temp path — ข้ามแพลตฟอร์ม (Windows ไม่มี /tmp) + แยกตาม serial กัน race หลายเครื่อง
+        local_xml = os.path.join(tempfile.gettempdir(), f"vgap_ui_verify_{serial}.xml")
+        r = subprocess.run(
+            ["adb", "-s", serial, "pull", "/sdcard/ui_verify.xml", local_xml],
+            capture_output=True, timeout=12,
+        )
+        if r.returncode != 0:
+            log("[VERIFY] pull ล้มเหลว — ข้าม (ถือว่าสำเร็จ)")
+            return {"verified": True, "status": "unknown", "reason": "pull failed"}
+
+        ui_text = _extract_ui_text(local_xml)
+
+        for kw in _FAIL_KW:
+            if kw in ui_text:
+                log(f"[VERIFY] ✗ พบ failure indicator: '{kw}'")
+                return {"verified": False, "status": "failed", "reason": f"พบข้อความ: {kw}"}
+
+        for kw in _SUCCESS_KW:
+            if kw in ui_text:
+                log(f"[VERIFY] ✓ พบ success indicator: '{kw}'")
+                return {"verified": True, "status": "success", "reason": f"พบข้อความ: {kw}"}
+
+        log("[VERIFY] ไม่พบ indicator ชัดเจน — ถือว่าสำเร็จ")
+        return {"verified": True, "status": "unknown", "reason": "ไม่พบ indicator"}
+
     except Exception as e:
         log(f"[VERIFY] ยืนยันไม่สำเร็จ ({e}) — ถือว่าสำเร็จไว้ก่อน")
-        return {"verified": True, "status": "unknown", "reason": str(e), "tokens": 0}
+        return {"verified": True, "status": "unknown", "reason": str(e)}
 
 
-def _parse_json(raw: str) -> dict:
-    """Pull the first {...} object out of the model's reply (handles ```json fences)."""
-    raw = (raw or "").strip()
-    i, j = raw.find("{"), raw.rfind("}")
-    if i == -1 or j == -1 or j < i:
-        return {}
+def _extract_ui_text(path: str) -> str:
+    """ดึง text + content-desc ทุก node จาก uiautomator XML."""
     try:
-        return json.loads(raw[i:j + 1])
+        tree = ET.parse(path)
+        parts = []
+        for node in tree.iter():
+            for attr in ("text", "content-desc"):
+                val = node.get(attr, "")
+                if val:
+                    parts.append(val.lower())
+        return " ".join(parts)
     except Exception:
-        return {}
+        return ""

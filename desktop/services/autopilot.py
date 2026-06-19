@@ -39,10 +39,10 @@ class AutoPilot:
         return self._enabled
 
     def restore(self):
-        """อ่านสถานะที่เคยเปิดไว้จาก DB (always-on หลังรีสตาร์ท)."""
-        self._enabled = (self.db.get_config("autopilot_on") == "1") if self.db else False
-        if self._enabled:
-            self.log("[AUTO] เปิดโหมดอัตโนมัติต่อจากครั้งก่อน")
+        """โหมด manual-only: ปิดลูปออโต้โพสต์เสมอ (ยังเก็บปุ่ม โพสต์เลย/ทดสอบ ไว้ใช้)."""
+        self._enabled = False
+        if self.db:
+            self.db.set_config("autopilot_on", "0")
 
     def set_enabled(self, on: bool):
         self._enabled = bool(on)
@@ -65,6 +65,9 @@ class AutoPilot:
         job = self.db.get(job_id)
         if not job or job["status"] != GENERATED:
             return False
+        if not ready_enabled(cfg.load()):
+            self.log("[AUTO] โพสต์ไม่ได้ — ยังไม่ได้เลือกแพลตฟอร์มปลายทาง (ตั้งค่า)")
+            return False
         serial = self._pick_device()
         if not serial:
             self.log("[AUTO] โพสต์ไม่ได้ — ไม่มีมือถือเชื่อมต่อ")
@@ -74,6 +77,51 @@ class AutoPilot:
         threading.Thread(target=lambda: self._post_one(job, serial, cfg.load()),
                          daemon=True).start()
         return True
+
+    def dry_post_job(self, job_id: int) -> bool:
+        """ทดสอบโพสต์ (dry) — รัน ADB flow ถึง caption แล้วหยุดก่อนโพสต์จริง.
+        ไม่เปลี่ยนสถานะคลิป ไม่ย้ายไฟล์ ไม่นับสถิติ — ใช้จูน flow ปลอดภัย."""
+        job = self.db.get(job_id)
+        if not job or job["status"] != GENERATED:
+            self.log("[ทดสอบ] คลิปนี้ไม่พร้อม (ต้องเป็นสถานะ generated)")
+            return False
+        s = cfg.load()
+        if not ready_enabled(s):
+            self.log("[ทดสอบ] ยังไม่ได้เลือกแพลตฟอร์มปลายทาง (ตั้งค่า)")
+            return False
+        serial = self._pick_device()
+        if not serial:
+            self.log("[ทดสอบ] ไม่มีมือถือเชื่อมต่อ")
+            return False
+        threading.Thread(target=lambda: self._dry_post_one(job, serial, s),
+                         daemon=True).start()
+        return True
+
+    def _dry_post_one(self, job, serial, s):
+        product = job["product"]
+        name = (product.get("basic_info", {}) or {}).get("name", "")[:35]
+        video = Path(job["video_path"]) if job.get("video_path") else None
+        if not video or not video.exists():
+            self.log("[ทดสอบ] ไฟล์วิดีโอหาย — สร้างคลิปก่อน")
+            return
+        all_ready = ready_enabled(s)
+        plats = [p for p in (self._device_platforms(serial) or []) if p in all_ready] or all_ready
+        self.log(f"[ทดสอบ] โพสต์ (dry): {name} → {', '.join(plats)} — พิมพ์ caption แล้วหยุดก่อนโพสต์จริง")
+        dev = self.adb.devices.get(serial) if self.adb else None
+        if dev:
+            dev.posting = True
+        try:
+            for pk in plats:
+                p = make_poster(pk, self.adb, self.log, s)
+                if hasattr(p, "usage_cb"):
+                    p.usage_cb = self._record_usage
+                r = p.process(serial, video, product, dry_run=True)   # ★ dry: หยุดก่อนกดโพสต์
+                self.log(f"[ทดสอบ] {pk}: " + ("ผ่าน flow ✓ (caption ติด หยุดก่อนโพสต์)" if r
+                         else "ติดบางสเตป — ดู log ด้านบนว่าค้างปุ่มไหน"))
+        finally:
+            if dev:
+                dev.posting = False
+        self.log("[ทดสอบ] เสร็จ — ไม่ได้โพสต์จริง สถานะคลิปไม่เปลี่ยน")
 
     # ── loop ──────────────────────────────────────────────────
 
@@ -101,6 +149,8 @@ class AutoPilot:
             s = cfg.load()
             if s.get("review_mode") == "hold" or not self._can_post_now(s):
                 time.sleep(4); continue
+            if not ready_enabled(s):              # ยังไม่เลือกแพลตฟอร์มปลายทาง → ยังไม่โพสต์
+                time.sleep(5); continue
             if not self._health_ok(serial, s):    # ร้อนเกิน/แบตต่ำ → พักเครื่อง (E)
                 time.sleep(8); continue
             job = self.db.claim(GENERATED, POSTING)   # atomic → ไม่ชนกับเครื่องอื่น
@@ -181,7 +231,13 @@ class AutoPilot:
         return bool(d and d.status == "device")
 
     def _sleep_delay(self, s):
-        delay = random.randint(int(s.get("post_delay_min", 30)), int(s.get("post_delay_max", 120)))
+        max_per_day  = int(s.get("post_max_per_day", 0) or 0)
+        active_from  = int(s.get("post_active_from", 0) or 0)
+        active_to    = int(s.get("post_active_to", 24) or 24)
+        active_secs  = max(1, active_to - active_from) * 3600
+        base = int(active_secs / max_per_day) if max_per_day > 0 else 60
+        base = max(10, base)
+        delay = random.randint(max(5, int(base * 0.8)), int(base * 1.2))
         for _ in range(delay):
             if self._stop or not self._enabled:
                 break
@@ -215,6 +271,12 @@ class AutoPilot:
                 r = p.process(serial, video, product)
                 if r is None:
                     continue
+                try:
+                    _price = float((product.get("basic_info", {}) or {}).get("price", 0) or 0)
+                    _comm  = float((product.get("commission", {}) or {}).get("rate", 0) or 0)
+                    self.db.add_platform_post(pk, bool(r), jid, price=_price, commission=_comm)
+                except Exception:
+                    pass
                 results.append(bool(r))
         finally:
             if dev:

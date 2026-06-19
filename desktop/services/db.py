@@ -116,6 +116,17 @@ class JobStore:
                     meta    TEXT DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage(ts);
+
+                -- สถิติโพสต์รายแพลตฟอร์ม (F): บันทึกทุกครั้งที่โพสต์ไปแพลตฟอร์มหนึ่ง
+                CREATE TABLE IF NOT EXISTS platform_posts (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts       INTEGER,
+                    platform TEXT,            -- shopee | tiktok | reels | instagram | youtube
+                    ok       INTEGER DEFAULT 0,   -- 1 = สำเร็จ, 0 = ล้ม
+                    job_id   INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS idx_pp_ts ON platform_posts(ts);
+                CREATE INDEX IF NOT EXISTS idx_pp_plat ON platform_posts(platform);
                 """
             )
             self._conn.commit()
@@ -132,7 +143,17 @@ class JobStore:
                 adds.append("ALTER TABLE jobs ADD COLUMN cost_at INTEGER DEFAULT 0")
             for sql in adds:
                 self._conn.execute(sql)
-            if adds:
+
+            pp_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(platform_posts)")}
+            pp_adds = []
+            if "price" not in pp_cols:
+                pp_adds.append("ALTER TABLE platform_posts ADD COLUMN price REAL DEFAULT 0")
+            if "commission" not in pp_cols:
+                pp_adds.append("ALTER TABLE platform_posts ADD COLUMN commission REAL DEFAULT 0")
+            for sql in pp_adds:
+                self._conn.execute(sql)
+
+            if adds or pp_adds:
                 self._conn.commit()
 
     # ── helpers ───────────────────────────────────────────────
@@ -358,6 +379,102 @@ class JobStore:
     def add_cost(self, job_id: int, amount: float):
         """Record cost incurred for a job (timestamped) — for budget tracking."""
         self.update(job_id, cost=amount, cost_at=_now())
+
+    # ── สถิติโพสต์รายแพลตฟอร์ม (F) ─────────────────────────────
+
+    def add_platform_post(self, platform: str, ok: bool, job_id: int = None,
+                          price: float = 0, commission: float = 0):
+        """บันทึก 1 ครั้งที่โพสต์ไปแพลตฟอร์มหนึ่ง พร้อมราคา+ค่าคอม เพื่อคำนวณรายได้."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO platform_posts (ts, platform, ok, job_id, price, commission) VALUES (?,?,?,?,?,?)",
+                (_now(), platform, 1 if ok else 0, job_id, price or 0, commission or 0),
+            )
+            self._conn.commit()
+
+    def platform_summary(self) -> dict:
+        """สรุปต่อแพลตฟอร์ม: โพสต์วันนี้/เดือนนี้, อัตราสำเร็จ, รายได้."""
+        from datetime import datetime
+        n = datetime.now()
+        day0   = int(datetime(n.year, n.month, n.day).timestamp())
+        month0 = int(datetime(n.year, n.month, 1).timestamp())
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT platform,
+                          COALESCE(SUM(CASE WHEN ts>=? THEN 1 ELSE 0 END),0)                            AS today,
+                          COALESCE(SUM(CASE WHEN ts>=? THEN 1 ELSE 0 END),0)                            AS month,
+                          COALESCE(SUM(CASE WHEN ts>=? AND ok=1 THEN 1 ELSE 0 END),0)                   AS month_ok,
+                          COUNT(*)                                                                        AS total,
+                          COALESCE(SUM(ok),0)                                                            AS total_ok,
+                          MAX(ts)                                                                         AS last_ts,
+                          COALESCE(SUM(CASE WHEN ts>=? AND ok=1 THEN price*commission/100 ELSE 0 END),0) AS revenue_today,
+                          COALESCE(SUM(CASE WHEN ts>=? AND ok=1 THEN price*commission/100 ELSE 0 END),0) AS revenue_month,
+                          COALESCE(SUM(CASE WHEN ok=1 THEN price*commission/100 ELSE 0 END),0)           AS revenue_total
+                   FROM platform_posts GROUP BY platform""",
+                (day0, month0, month0, day0, month0),
+            ).fetchall()
+        out = {}
+        for r in rows:
+            total = r["total"] or 0
+            out[r["platform"]] = {
+                "today":          r["today"],
+                "month":          r["month"],
+                "success_rate":   round((r["total_ok"] / total) * 100) if total else None,
+                "last_ts":        r["last_ts"],
+                "revenue_today":  round(r["revenue_today"], 2),
+                "revenue_month":  round(r["revenue_month"], 2),
+                "revenue_total":  round(r["revenue_total"], 2),
+            }
+        return out
+
+    def platform_revenue_by_day(self, days: int = 14) -> list:
+        """รายได้รายวัน แยกตามแพลตฟอร์ม สำหรับกราฟ (14 วันล่าสุด)."""
+        import time as _time
+        from datetime import datetime, timedelta
+        cutoff = int(_time.time()) - days * 86400
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT date(ts, 'unixepoch', 'localtime')      AS day,
+                          platform,
+                          COALESCE(SUM(CASE WHEN ok=1 THEN price*commission/100 ELSE 0 END),0) AS revenue
+                   FROM platform_posts
+                   WHERE ts >= ? AND ok=1
+                   GROUP BY day, platform
+                   ORDER BY day""",
+                (cutoff,),
+            ).fetchall()
+
+        # pivot: [{date, platform1, platform2, ...}]
+        days_map: dict = {}
+        platforms: set = set()
+        for r in rows:
+            d = r["day"]; p = r["platform"]
+            platforms.add(p)
+            days_map.setdefault(d, {})[p] = round(r["revenue"], 2)
+
+        # เติมวันที่ขาดหาย
+        result = []
+        today = datetime.now().date()
+        for i in range(days - 1, -1, -1):
+            day = str(today - timedelta(days=i))
+            entry = {"date": day}
+            for p in platforms:
+                entry[p] = days_map.get(day, {}).get(p, 0)
+            result.append(entry)
+        return result
+
+    def recent_platform_posts(self, limit: int = 100) -> list:
+        """ดึง platform_posts ล่าสุด N รายการ พร้อมชื่องาน."""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT pp.ts, pp.platform, pp.ok, pp.job_id,
+                          COALESCE(j.name, '') AS job_name
+                   FROM platform_posts pp
+                   LEFT JOIN jobs j ON pp.job_id = j.id
+                   ORDER BY pp.ts DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     # ── usage ledger (J): การใช้ AI แยก service/kind ──────────────
 

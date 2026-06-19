@@ -1,6 +1,8 @@
-# Shopee VDO Gen — Auto Pilot
+# VDO Gen — Auto Pilot
 
-ระบบสร้างวิดีโอโฆษณา Shopee อัตโนมัติครบวงจร (ดูด → สร้างคลิป → โพสต์) แบบ **near-zero touch**
+ระบบสร้างและโพสต์คลิปวิดีโอ **หลายแพลตฟอร์ม** อัตโนมัติครบวงจร (ดูดสินค้า → สร้างคลิป → โพสต์) แบบ **near-zero touch**
+
+> แพลตฟอร์มปลายทางเป็น plugin (BasePoster) — โพสต์คลิปเดียวไปหลายแพลตฟอร์มพร้อมกัน · Shopee Video จูนแล้ว, TikTok/Reels/IG/YouTube มี flow ตั้งต้น (text-based) รอจูนกับเครื่องจริง · แหล่งสินค้า/affiliate ปัจจุบันดูดจาก Shopee Affiliate
 
 > 🗺 แผนพัฒนา/ทิศทางทั้งหมดดูที่ [`ROADMAP.md`](./ROADMAP.md)
 

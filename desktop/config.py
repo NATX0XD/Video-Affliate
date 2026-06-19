@@ -1,9 +1,24 @@
 import os
+import sys
 import json
 from pathlib import Path
 
-BASE_DIR  = Path(__file__).parent
-DATA_DIR  = BASE_DIR / "data"
+# โค้ด/รีซอร์สอ่านอย่างเดียว — frozen exe ชี้ไปที่ PyInstaller แตกไฟล์ (_MEIPASS)
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+
+# ข้อมูลที่ต้อง "เขียน + คงอยู่ข้ามการเปิด-ปิด/อัปเดต" (settings/.env/db/คลิป)
+# frozen one-file exe: __file__ อยู่ใน temp ที่ถูกลบทุกครั้งเปิด → ต้องใช้โฟลเดอร์ผู้ใช้ ไม่งั้นข้อมูลหายหมด
+# dev: ใช้โฟลเดอร์ desktop เดิม (พฤติกรรมไม่เปลี่ยน)
+if getattr(sys, "frozen", False):
+    DATA_ROOT = Path(os.environ.get("VGAP_DATA_DIR") or (Path.home() / ".vgap"))
+else:
+    DATA_ROOT = Path(__file__).parent
+try:
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+DATA_DIR  = DATA_ROOT / "data"
 PRODUCTS_DIR = DATA_DIR / "products"
 OUTPUT_DIR   = DATA_DIR / "output"
 PENDING_DIR  = OUTPUT_DIR / "pending"
@@ -12,8 +27,8 @@ ERROR_DIR    = OUTPUT_DIR / "error"
 
 DB_FILE      = DATA_DIR / "app.db"      # SQLite job store (A1.1)
 
-CONFIG_FILE = BASE_DIR / "settings.json"
-ENV_FILE    = BASE_DIR / ".env"
+CONFIG_FILE = DATA_ROOT / "settings.json"
+ENV_FILE    = DATA_ROOT / ".env"
 
 # settings field  ->  environment variable name
 # API keys/secrets live in .env (git-ignored), not settings.json
@@ -55,7 +70,7 @@ DEFAULT = {
     "post_active_to":   24,      # ชั่วโมงสิ้นสุด (1-24); 0-24 = ทั้งวัน
     "post_max_per_day": 0,       # โพสต์สูงสุด/วัน (0 = ไม่จำกัด)
     "review_mode": "auto",       # auto = โพสต์เลย | hold = ถือไว้ให้กดอนุมัติ
-    "platforms": ["shopee"],     # แพลตฟอร์มที่จะโพสต์ (multi-platform)
+    "platforms": [],             # แพลตฟอร์มปลายทางที่เลือกโพสต์ (ผู้ใช้เลือกเอง; ว่าง = ยังไม่เลือก)
     # ดูแลเครื่องอัตโนมัติ — พักเครื่อง (cooldown) กันเครื่องพัง (E + G)
     "cooldown_enabled": True,    # เปิดระบบพักเครื่องอัตโนมัติ
     "temp_max":      45,         # °C — ร้อนถึงนี้ → พักเครื่อง (0 = ไม่เช็คอุณหภูมิ)

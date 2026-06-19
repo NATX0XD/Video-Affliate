@@ -11,6 +11,7 @@ Requires:
   - scrcpy installed (server jar pushed to /data/local/tmp/scrcpy-server.jar)
   - matching server version string (SCRCPY_VERSION)
 """
+import os
 import socket
 import struct
 import subprocess
@@ -23,20 +24,53 @@ from typing import Optional
 SCRCPY_VERSION = "4.0"
 SERVER_REMOTE  = "/data/local/tmp/scrcpy-server.jar"
 
-# Common Homebrew / Linux locations for the scrcpy server jar
+# Homebrew / Linux locations for the scrcpy server jar (mac/linux)
 _SERVER_CANDIDATES = [
     "/opt/homebrew/share/scrcpy/scrcpy-server",
     "/opt/homebrew/Cellar/scrcpy/{v}/share/scrcpy/scrcpy-server".format(v=SCRCPY_VERSION),
     "/usr/local/share/scrcpy/scrcpy-server",
     "/usr/share/scrcpy/scrcpy-server",
 ]
+# ไฟล์ server ที่มากับ scrcpy — ชื่อ "scrcpy-server" (ส่วนใหญ่) หรือ "scrcpy-server.jar"
+_SERVER_NAMES = ["scrcpy-server", "scrcpy-server.jar"]
+
+
+def _candidates_near(dir_path) -> list:
+    d = Path(dir_path)
+    return [d / n for n in _SERVER_NAMES] + [d / "share" / "scrcpy" / n for n in _SERVER_NAMES]
 
 
 def _find_server_jar() -> Optional[str]:
+    # 1) env override — SCRCPY_SERVER_PATH เป็นตัวแปรที่ scrcpy เองก็อ่าน (ชี้ไฟล์ตรงสุด)
+    env = os.environ.get("SCRCPY_SERVER_PATH") or os.environ.get("VGAP_SCRCPY_SERVER")
+    if env and Path(env).exists():
+        return env
+    # 2) ข้างๆ ไฟล์ scrcpy บน PATH — ครอบ Windows (scoop/choco), Linux, และ portable zip
+    exe = shutil.which("scrcpy") or shutil.which("scrcpy.exe")
+    if exe:
+        for c in _candidates_near(Path(exe).parent):
+            if c.exists():
+                return str(c)
+    # 3) ตำแหน่งมาตรฐาน mac/linux
     for p in _SERVER_CANDIDATES:
         if Path(p).exists():
             return p
-    # Try `brew --prefix scrcpy`
+    # 4) ตำแหน่งติดตั้งทั่วไปบน Windows (scoop / chocolatey / Program Files)
+    if os.name == "nt":
+        win_dirs = []
+        up = os.environ.get("USERPROFILE", "")
+        if up:
+            win_dirs.append(Path(up) / "scoop" / "apps" / "scrcpy" / "current")
+        choco = os.environ.get("ChocolateyInstall", r"C:\ProgramData\chocolatey")
+        win_dirs.append(Path(choco) / "lib" / "scrcpy" / "tools")
+        for pf in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+            if pf:
+                win_dirs.append(Path(pf) / "scrcpy")
+        for d in win_dirs:
+            for c in _candidates_near(d):
+                if c.exists():
+                    return str(c)
+    # 5) Try `brew --prefix scrcpy` (mac)
     brew = shutil.which("brew")
     if brew:
         try:
@@ -72,7 +106,11 @@ class ScrcpyControl:
     def start(self) -> bool:
         jar = _find_server_jar()
         if not jar:
-            self.log("[scrcpy] ไม่พบ scrcpy-server jar — ติดตั้ง: brew install scrcpy")
+            hint = ("ติดตั้ง scrcpy แล้วใส่ใน PATH "
+                    "(Win: scoop install scrcpy / choco install scrcpy · "
+                    "Mac: brew install scrcpy) "
+                    "หรือชี้ไฟล์เองด้วย env SCRCPY_SERVER_PATH")
+            self.log(f"[scrcpy] ไม่พบ scrcpy-server jar — {hint}")
             return False
 
         # Push server (idempotent — fast if unchanged)

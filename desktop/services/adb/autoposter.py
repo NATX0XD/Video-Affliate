@@ -1,202 +1,124 @@
 import time
-import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Optional, Callable, Tuple
+
+from services.adb.base_poster import BasePoster
 
 
-class AutoPoster:
-    """Automates posting a video to Shopee Video (luckyvideo PublishVideoActivity).
+class AutoPoster(BasePoster):
+    """โพสต์วิดีโอขึ้น Shopee Video (luckyvideo PublishVideoActivity).
 
-    NOTE on this device class (Samsung / Android 16):
-    - Shopee Video screens do NOT expose UI Automator nodes (dumps return stale
-      data). So the flow uses RATIO-BASED fixed coordinates mapped from a real
-      1080x2340 run, scaled to the device resolution.
-    - Thai captions require ADBKeyboard (input text / clipboard fail). See manager.
+    หมายเหตุเครื่องคลาสนี้ (Samsung / Android 16):
+    - หน้า Shopee Video ไม่เปิด UI Automator nodes (dump คืนค่าเก่า) → flow ใช้
+      พิกัดอัตราส่วน (ratio) ที่จับจากเครื่องจริง 1080x2340 แล้วสเกลตามจอ
+    - caption ไทยต้องใช้ ADBKeyboard (input text / clipboard ไม่ติด) ดู manager
     """
+    PACKAGE = "com.shopee.th"
+    TAG = "POST"
+    USE_SCRCPY = True   # จำเป็นเพื่อโฟกัสช่อง caption ของ Shopee
 
-    # Ratio coordinates (x/W, y/H) discovered from a real 1080x2340 device.
-    # Keep these in sync with the actual Shopee Video UI.
+    # Ratio coordinates (x/W, y/H) จากเครื่องจริง 1080x2340 — sync กับ UI Shopee Video
     R = {
-        "live_video_tab": (0.500, 0.932),   # bottom nav "Live & Video"
-        "plus_button":    (0.940, 0.072),   # "+" top-right of video feed
-        "gallery":        (0.798, 0.790),   # "คลังภาพ" in camera screen
-        "video_filter":   (0.500, 0.135),   # "วิดีโอ" tab in gallery picker
-        "first_video":    (0.125, 0.205),   # first cell after filtering videos
-        "next_1":         (0.885, 0.906),   # "ถัดไป" after selecting video
-        "next_2":         (0.861, 0.881),   # "ถัดไป" after editor
-        "caption_field":  (0.444, 0.123),   # caption input (right of thumbnail, NOT the header)
-        "post_button":    (0.500, 0.955),   # "โพสต์" button
+        "live_video_tab": (0.500, 0.932),
+        "plus_button":    (0.940, 0.072),
+        "gallery":        (0.798, 0.790),
+        "video_filter":   (0.500, 0.135),
+        "first_video":    (0.125, 0.205),
+        "next_1":         (0.885, 0.906),
+        "next_2":         (0.861, 0.881),
+        "caption_field":  (0.444, 0.123),
+        # ── เพิ่มสินค้าผ่านลิงก์ (หน้า publish + picker + กรอกลิงก์) ──
+        # พิกัด toggle/ปุ่มหน้า publish วัดจากเครื่องจริง (เลย์เอาต์ 4 toggle:
+        # Duet/บันทึก/ป้าย AI/แชร์ FB) — ทำ "ป้าย AI" + "เพิ่มสินค้า" ตอน caption ยังว่าง
+        "add_product":    (0.756, 0.323),  # ปุ่มส้ม "แตะเพื่อเพิ่มสินค้า" (แถวบนสุด ไม่ขยับตาม toggle)
+        "link_icon":      (0.927, 0.066),  # ไอคอนลิงก์มุมขวาบน (หน้า picker เลือกสินค้า)
+        "link_field":     (0.500, 0.247),  # ช่อง EditText "ลิงก์สินค้า"
+        "import_btn":     (0.530, 0.406),  # ปุ่ม "นำเข้า" (เปลี่ยนจาก "วางลิงก์" เมื่อมีข้อความ)
+        "select_all":     (0.201, 0.869),  # "เลือกทั้งหมด" แถบล่าง
+        "add_confirm":    (0.646, 0.868),  # ปุ่ม "เพิ่ม" แถบล่าง (ยืนยันเพิ่มสินค้า)
+        # ── toggle หน้า publish (Duet=0.392/บันทึก=0.467 ห้ามแตะ ยกเว้น Duet ที่ต้องปิด) ──
+        "duet_toggle":    (0.878, 0.392),  # "อนุญาตให้ใช้ซ้ำ/Duet" — เปิด ON เองดีฟอลต์ ต้องแตะให้ปิด
+        "ai_label":       (0.878, 0.575),  # "ครีเอเตอร์เพิ่มป้ายกำกับ AI" — toggle ที่ต้องเปิด
+        "caption_ok":     (0.905, 0.063),  # ปุ่ม "ตกลง" มุมขวาบน (ยืนยันแคปชั่น)
+        "post_button":    (0.500, 0.900),  # ปุ่ม "โพสต์" ส้มแถบล่าง
     }
 
-    def __init__(self, adb_manager, log_cb: Optional[Callable] = None,
-                 settings: Optional[dict] = None):
-        self.adb = adb_manager
-        self.log = log_cb or print
-        self.settings = settings or {}      # ใช้สำหรับ verify_post (A1.3b)
-        self.usage_cb = None  # (service, kind, qty, tokens) → บันทึก usage ledger (J)
-        self._w = 1080
-        self._h = 2340
-        self._scrcpy = None   # ScrcpyControl session (set during posting)
-
-    # ── Device helpers ────────────────────────────────────────
-
-    def _get_resolution(self, serial: str) -> Tuple[int, int]:
-        _, out = self.adb._adb("shell", "wm", "size", serial=serial)
-        m = re.search(r"(\d+)x(\d+)", out)
-        if m:
-            return int(m.group(1)), int(m.group(2))
-        return 1080, 2340
-
-    def _tap_xy(self, serial: str, x: int, y: int):
-        """Tap via scrcpy if available (focuses EditTexts), else adb input tap."""
-        if self._scrcpy:
-            self._scrcpy.tap(x, y)
-        else:
-            self.adb.tap(serial, x, y)
-
     def _tap_r(self, serial: str, key: str, settle: float = 2.0):
-        """Tap a ratio-coordinate by name."""
         rx, ry = self.R[key]
-        x, y = int(self._w * rx), int(self._h * ry)
-        self.log(f"[POST] tap {key} → ({x},{y})")
-        self._tap_xy(serial, x, y)
-        time.sleep(settle)
+        self._tap_ratio(serial, rx, ry, name=key, settle=settle)
 
-    def _is_locked(self, serial: str) -> bool:
-        _, out = self.adb._adb("shell", "dumpsys", "window", serial=serial)
-        return "isKeyguardShowing=true" in out or "mDreamingLockscreen=true" in out
+    def _caption_without_link(self, caption: str) -> str:
+        """Shopee แนบลิงก์ผ่านการ์ดสินค้าแล้ว → ตัดลิงก์ออกจาก caption ไม่ให้ซ้ำ/รก."""
+        link = self._affiliate_link()
+        if not link:
+            return caption
+        c = caption.replace("#" + link, "").replace(link, "")
+        return " ".join(c.split()).strip()
 
-    def _wake(self, serial: str):
-        # ปลุกจอ + ปลดล็อก keyguard แบบปัด (เครื่องที่ไม่มี secure lock) + กันจอดับ (A1.5)
-        self.adb._adb("shell", "input", "keyevent", "KEYCODE_WAKEUP", serial=serial)
-        time.sleep(0.5)
-        self.adb._adb("shell", "wm", "dismiss-keyguard", serial=serial)
-        time.sleep(0.6)
-        self.adb._adb("shell", "svc", "power", "stayon", "true", serial=serial)  # เสียบชาร์จไว้ จอไม่ดับ
-        if self._is_locked(serial):
-            self.log("[POST] ⚠ มือถือยังล็อกอยู่ (secure lock) — โปรดปิด screen lock "
-                     "บนเครื่องโพสต์ (ตั้งเป็น 'ปัด' หรือ 'ไม่มี') ไม่งั้นโพสต์อัตโนมัติไม่ได้")
-        time.sleep(0.5)
+    def _affiliate_link(self) -> str:
+        """ลิงก์ตะกร้า/สินค้าสำหรับแนบในโพสต์ (จากข้อมูลสินค้า)."""
+        p = getattr(self, "_product", {}) or {}
+        links = p.get("links", {}) or {}
+        return (links.get("affiliate_link") or links.get("product_url")
+                or p.get("link") or p.get("cart_link") or "").strip()
 
-    def _current_activity(self, serial: str) -> str:
-        _, out = self.adb._adb("shell", "dumpsys", "window", serial=serial)
-        m = re.search(r"mCurrentFocus=Window\{[^}]*\s+(\S+/\S+)\}", out)
-        return m.group(1) if m else ""
-
-    # ── Push video ────────────────────────────────────────────
-
-    def push_video(self, serial: str, video_path: Path) -> bool:
-        remote = f"/sdcard/DCIM/Camera/{video_path.name}"
-        size_kb = video_path.stat().st_size // 1024
-        self.log(f"[POST] ส่งวิดีโอไปมือถือ ({size_kb}KB)...")
-
-        ok, msg = self.adb._adb("push", str(video_path), remote,
-                                 serial=serial, timeout=120)
-        if not ok:
-            self.log(f"[POST] ส่งวิดีโอไม่สำเร็จ: {msg}")
+    def _add_product_by_link(self, serial, has_adbkb) -> bool:
+        """เพิ่มสินค้าเข้าโพสต์ผ่านลิงก์ Shopee (โชว์ในวิดีโอ). คืน True ถ้าเพิ่มสำเร็จ."""
+        link = self._affiliate_link()
+        if not link:
+            self.log("[POST] ไม่มีลิงก์สินค้า — ข้ามการเพิ่มสินค้า")
             return False
 
-        # Media scan so it appears in gallery immediately
-        self.adb._adb("shell", "am", "broadcast",
-                       "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
-                       "-d", f"file://{remote}", serial=serial)
-        time.sleep(3)
-        self.log("[POST] ส่งวิดีโอสำเร็จ ✓")
-        return True
+        self.log(f"[POST] เพิ่มสินค้าผ่านลิงก์: {link}")
+        # หน้า publish → เปิด picker เลือกสินค้า
+        self._tap_r(serial, "add_product", settle=2.5)
+        # picker → ไอคอนลิงก์มุมขวาบน → หน้า "กรอกลิงก์สินค้า"
+        self._tap_r(serial, "link_icon", settle=2.0)
+        # แตะช่องกรอก → พิมพ์ลิงก์ (ADBKeyboard)
+        self._tap_r(serial, "link_field", settle=1.0)
+        self._type_caption(serial, link, has_adbkb)
+        time.sleep(1.5)
+        # "นำเข้า" → resolve สินค้าเข้า "รายการสินค้า"
+        self._tap_r(serial, "import_btn", settle=4.0)
+        # เลือกทั้งหมด → เพิ่ม
+        self._tap_r(serial, "select_all", settle=1.2)
+        self._tap_r(serial, "add_confirm", settle=3.5)
 
-    # ── Caption typing (ADBKeyboard for Thai) ─────────────────
+        # ยืนยันว่ากลับถึงหน้า publish
+        for _ in range(3):
+            act = self._current_activity(serial)
+            if act.endswith("PublishVideoActivity"):
+                self.log("[POST] เพิ่มสินค้าสำเร็จ — กลับหน้าโพสต์ ✓")
+                return True
+            time.sleep(1.5)
+        self.log("[POST] ⚠ หลังเพิ่มสินค้าไม่กลับหน้าโพสต์ (flow อาจคลาด)")
+        return False
 
-    def _type_caption(self, serial: str, text: str, has_adbkb: bool):
-        # ADBKeyboard must already be the active IME (set before focusing the field),
-        # so the focused caption keeps its input connection when we broadcast.
-        if has_adbkb:
-            self.adb.type_unicode(serial, text)
-        else:
-            ascii_only = "".join(c for c in text if ord(c) < 128).strip()
-            self.adb._adb("shell", "input", "text",
-                          ascii_only.replace(" ", "%s"), serial=serial)
-        time.sleep(1)
+    def _run_flow(self, serial, video_path, caption, has_adbkb, dry_run=False) -> bool:
+        # 1. เปิด Shopee สะอาด ๆ
+        self._open_app(serial, wait=6)
 
-    # ── Shopee Video posting flow ─────────────────────────────
-
-    def post_to_shopee(self, serial: str, video_path: Path, product: dict,
-                       dry_run: bool = False) -> bool:
-        name  = product.get("basic_info", {}).get("name", "")[:60]
-        price = product.get("basic_info", {}).get("price", "")
-        comm  = product.get("commission", {}).get("rate", "")
-        link  = (product.get("links", {}).get("affiliate_link", "") or
-                 product.get("links", {}).get("product_url", ""))
-        # แคปชันจากเทมเพลตที่ผู้ใช้ตั้งเอง (ยืดหยุ่น)
-        tmpl = self.settings.get("caption_template") or "{name} ราคา {price} บาท {link}"
-        repl = {"{name}": name, "{price}": str(price), "{commission}": str(comm),
-                "{link}": link, "{shop}": self.settings.get("shop_name", "")}
-        caption = tmpl
-        for k, v in repl.items():
-            caption = caption.replace(k, v)
-        caption = " ".join(caption.split()).strip()   # เก็บช่องว่างส่วนเกิน (กรณีตัวแปรว่าง)
-
-        self._w, self._h = self._get_resolution(serial)
-        self.log(f"[POST] Resolution: {self._w}x{self._h}")
-
-        original_ime = self.adb.get_default_ime(serial)
-        has_adbkb    = self.adb.has_adb_keyboard(serial)
-        if has_adbkb:
-            # Enable + activate ADBKeyboard up-front so the caption field already
-            # has it as the IME when we focus it (switching IME after focus drops it).
-            self.adb._adb("shell", "ime", "enable", self.adb.ADB_IME, serial=serial)
-            self.adb.set_ime(serial, self.adb.ADB_IME)
-            time.sleep(0.5)
-
-        # Start scrcpy control session — required to focus Shopee's caption field
-        from services.adb.scrcpy_control import ScrcpyControl
-        self._scrcpy = ScrcpyControl(serial, self._w, self._h, log=self.log)
-        if not self._scrcpy.start():
-            self.log("[POST] ⚠ scrcpy ใช้ไม่ได้ — caption อาจไม่ติด (ใช้ adb tap แทน)")
-            self._scrcpy = None
-
-        try:
-            return self._do_post(serial, video_path, caption, has_adbkb, dry_run)
-        finally:
-            if self._scrcpy:
-                self._scrcpy.stop()
-                self._scrcpy = None
-            if has_adbkb and original_ime and "adbkeyboard" not in original_ime.lower():
-                self.adb.set_ime(serial, original_ime)
-
-    def _do_post(self, serial, video_path, caption, has_adbkb, dry_run=False) -> bool:
-        # 1. Wake & open Shopee (force-stop first → clean launch, not resume a draft)
-        self._wake(serial)
-        self.log("[POST] เปิด Shopee...")
-        self.adb._adb("shell", "am", "force-stop", "com.shopee.th", serial=serial)
-        time.sleep(1)
-        self.adb._adb("shell", "monkey", "-p", "com.shopee.th",
-                       "-c", "android.intent.category.LAUNCHER", "1", serial=serial)
-        time.sleep(6)
-
-        # 2. Go to "Live & Video" tab
+        # 2. แท็บ Live & Video
         self.log("[POST] เปิดแท็บ Live & Video...")
         self._tap_r(serial, "live_video_tab", settle=4)
 
-        # 3. Tap "+" to create
+        # 3. กด + สร้าง
         self.log("[POST] กด + สร้างวิดีโอ...")
         self._tap_r(serial, "plus_button", settle=4)
 
-        # 4. Open gallery "คลังภาพ"
+        # 4. เปิดคลังภาพ
         self.log("[POST] เปิดคลังภาพ...")
         self._tap_r(serial, "gallery", settle=3)
 
-        # 5. Filter videos then pick the first (newest) one
+        # 5. กรองวิดีโอ + เลือกอันล่าสุด
         self.log("[POST] กรองเฉพาะวิดีโอ + เลือกอันล่าสุด...")
         self._tap_r(serial, "video_filter", settle=2)
         self._tap_r(serial, "first_video", settle=2)
 
-        # 6. Next (select) → Next (editor)
+        # 6. ถัดไป (เลือก) → ถัดไป (editor)
         self._tap_r(serial, "next_1", settle=4)
         self._tap_r(serial, "next_2", settle=4)
 
-        # 7. Reach the publish screen. A stray tap can open the video preview
-        #    (PreviewVideoActivity) on top — back out until we're on PublishVideoActivity.
+        # 7. ถึงหน้า publish — กัน preview ค้างทับ (กด back กลับ)
         for _ in range(3):
             act = self._current_activity(serial)
             short = act.split("/")[-1] if act else "?"
@@ -214,46 +136,36 @@ class AutoPoster:
             self.log("[POST] ⚠ วนหา publish screen ไม่เจอ หยุดก่อนโพสต์")
             return False
 
-        # 8. Caption
-        # NOTE: with ADBKeyboard active, mServedView is always null even when the
-        # field IS focused — so we can't use focus-detection here. Instead tap the
-        # caption (scrcpy gives it real focus) and broadcast the text directly.
+        # สำคัญ: หน้า publish อ่าน uiautomator ไม่ได้ (preview เล่นตลอด ไม่ idle) → blind ratio
+        # ทุกตัวต้องแตะตอน caption ยังว่าง + ก่อนการ์ดสินค้าขึ้น ไม่งั้นเลย์เอาต์เลื่อนแล้วพลาด
+        # ลำดับ: ป้าย AI (toggle ตัวที่ 3 นิ่ง) → เพิ่มสินค้า (แถวบนสุดไม่ขยับ) → caption ท้ายสุด
+
+        # 8. เปิดป้ายกำกับ AI (ครีเอเตอร์แจ้งเนื้อหาสร้างด้วย AI)
+        self.log("[POST] เปิดป้ายกำกับ AI...")
+        self._tap_r(serial, "ai_label", settle=1.2)
+
+        # 8.5 ปิด Duet (อนุญาตให้ใช้ซ้ำ — เปิด ON เองดีฟอลต์ ต้องการให้ปิด)
+        self.log("[POST] ปิด Duet (อนุญาตให้ใช้ซ้ำ)...")
+        self._tap_r(serial, "duet_toggle", settle=1.2)
+
+        # 9. เพิ่มสินค้าผ่านลิงก์ตะกร้า (โชว์สินค้าในวิดีโอ)
+        self._add_product_by_link(serial, has_adbkb)
+
+        # 10. caption (พิมพ์ท้ายสุด — ความยาวไม่กระทบการแตะอื่นแล้ว)
+        #     ตัดลิงก์ออก เพราะแนบผ่านการ์ดสินค้าแล้ว
         self.log("[POST] ใส่ caption...")
         self._tap_r(serial, "caption_field", settle=1.5)
-        self._type_caption(serial, caption, has_adbkb)
+        self._type_caption(serial, self._caption_without_link(caption), has_adbkb)
+
+        # 10.5 กด "ตกลง" ยืนยันแคปชั่น
+        self.log("[POST] กดตกลง ยืนยันแคปชั่น...")
+        self._tap_r(serial, "caption_ok", settle=1.5)
 
         if dry_run:
-            self.log("[POST] DRY RUN — พิมพ์ caption แล้ว หยุดก่อนกดโพสต์ ✓")
-            self.log("[POST] ตรวจสอบ caption บนมือถือ ถ้าถูกต้องค่อยรันจริง")
+            self.log("[POST] DRY RUN — ป้าย AI + ปิด Duet + สินค้า + caption(ตกลง) แล้ว หยุดก่อนกดโพสต์ ✓")
             return True
 
-        # 9. Post
+        # 11. โพสต์
         self.log("[POST] กดโพสต์...")
         self._tap_r(serial, "post_button", settle=5)
-
-        # 9b. ยืนยันผลด้วย Gemini Vision (A1.3b) — ปิดช่อง silent failure
-        if self.settings.get("verify_post", True) and self.settings.get("google_api_key"):
-            from services.post_verifier import verify_post
-            model = self.settings.get("prompt_model", "gemini-2.0-flash")
-            res = verify_post(self.adb, serial, self.settings["google_api_key"],
-                              model=model, log=self.log)
-            if self.usage_cb:
-                try: self.usage_cb("gemini", "verify", 1, res.get("tokens", 0))
-                except Exception: pass
-            if not res["verified"]:
-                self.log(f"[POST] ✗ ยืนยันแล้วว่าโพสต์ไม่สำเร็จ: {res['reason']}")
-                return False
-            self.log("[POST] ✓ ยืนยันโพสต์สำเร็จ")
-            return True
-
-        self.log("[POST] เสร็จสิ้น flow ✓ (ไม่ได้เปิดการยืนยัน)")
         return True
-
-    # ── Full flow ─────────────────────────────────────────────
-
-    def process(self, serial: str, video_path: Path, product: dict,
-                dry_run: bool = False) -> bool:
-        if not self.push_video(serial, video_path):
-            return False
-        time.sleep(2)
-        return self.post_to_shopee(serial, video_path, product, dry_run=dry_run)

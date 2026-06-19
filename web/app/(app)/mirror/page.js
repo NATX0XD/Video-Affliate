@@ -1,165 +1,222 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useApp }          from '../layout'
+import { useState, useEffect, useRef } from 'react'
+import { useApp }           from '../layout'
 import { MirrorFullscreen } from '@/components/mirror/MirrorFullscreen'
-import { api }             from '@/lib/api'
-import { PageHeader }      from '@/components/layout/PageHeader'
+import { PageHeader }       from '@/components/layout/PageHeader'
+import { Button }           from '@/components/ui/Button'
+import { Input }            from '@/components/ui/input'
+import { api }              from '@/lib/api'
+import { PLAT_META }        from '@/lib/platform-meta'
+import { deviceReadiness }  from '@/lib/device-readiness'
 import {
-  Play, Square, RefreshCw, Wifi, Maximize2, ExternalLink,
-  BatteryMedium, Tag, Smartphone
+  RefreshCw, Wifi, AlertCircle, Smartphone, Send, Snowflake, Thermometer,
+  BatteryMedium, BatteryCharging, Maximize2, User, Sparkles, CheckCircle2,
 } from 'lucide-react'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const FARM_SIZE = 20   // จำนวนช่องในฟาร์ม (โชว์ค้างไว้ รอเชื่อมต่อ)
 
-export default function DevicesManagePage() {
+export default function MirrorFarmPage() {
   const { state, patch } = useApp()
   const [scanning, setScanning] = useState(false)
   const [ip, setIp]   = useState('')
-  const [fs, setFs]   = useState(null)        // serial → fullscreen
+  const [error, setError] = useState('')
+  const [fs, setFs]   = useState(null)
+  const [ts, setTs]   = useState(0)
   const [platforms, setPlatforms] = useState([])
+  const started = useRef(new Set())
 
-  const connected = state.devices.filter(d => d.status === 'device')
+  const devices = state.devices || []
+  const online  = devices.filter(d => d.status === 'device')
 
   useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
 
-  const scan = async () => {
-    setScanning(true)
-    try { const r = await api.scan(); patch({ devices: r.devices }) } catch {}
-    setScanning(false)
-  }
-  const connect = async () => { if (ip.trim()) { try { await api.wifiConnect(ip.trim()); setIp('') } catch {} } }
+  // auto-stream ทุกเครื่องที่ออนไลน์ + tick ภาพทุก ~1.2 วิ
+  useEffect(() => {
+    online.forEach(d => {
+      if (!d.streaming && !started.current.has(d.serial)) {
+        started.current.add(d.serial)
+        api.mirrorStart(d.serial).catch(() => {})
+      }
+    })
+    const id = setInterval(() => setTs(Date.now()), 1200)
+    return () => clearInterval(id)
+  }, [online.map(d => d.serial).join(',')])
 
-  if (fs) {
-    const dev = connected.find(d => d.serial === fs)
-    return <MirrorFullscreen device={dev} onBack={() => setFs(null)} />
+  useEffect(() => () => { api.mirrorStopAll?.().catch(() => {}) }, [])
+
+  const scan = async () => {
+    setScanning(true); setError('')
+    try { const r = await api.scan(); patch({ devices: r.devices }) }
+    catch { setError('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ — เปิด backend ก่อน') }
+    finally { setScanning(false) }
   }
+  const connect = async () => {
+    if (!ip.trim()) return
+    try { await api.wifiConnect(ip.trim()); setIp('') } catch { setError('เชื่อมต่อไม่สำเร็จ') }
+  }
+
+  if (fs) return <MirrorFullscreen device={online.find(d => d.serial === fs)} platforms={platforms} onBack={() => setFs(null)} />
+
+  const posting = online.filter(d => d.activity === 'posting').length
+  const cooling = online.filter(d => d.activity === 'cooldown').length
+  const temps   = online.map(d => d.temp).filter(t => t > 0)
+  const avgTemp = temps.length ? (temps.reduce((a, t) => a + t, 0) / temps.length).toFixed(1) : null
+  const needSetup = online.filter(d => !deviceReadiness(d).ready).length
 
   return (
     <div className="flex flex-col gap-5 lg:gap-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
-        title="จัดการมือถือ"
-        subtitle={`${connected.length} เครื่องเชื่อมต่อ · ตั้งบัญชีและแพลตฟอร์มต่อเครื่องได้`}
+        title="ฟาร์มมือถือ"
+        subtitle={`${online.length} เครื่องออนไลน์ · ดูจอสดทุกเครื่องพร้อมกัน · คลิกเพื่อคุมเครื่อง`}
         action={
           <div className="flex items-center gap-2">
-            <input value={ip} onChange={e => setIp(e.target.value)} onKeyDown={e => e.key === 'Enter' && connect()}
-              placeholder="Wi-Fi: 192.168.x.x"
-              className="bg-surface border border-line text-ink text-sm px-3 py-2.5 rounded-lg w-40 outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 placeholder:text-ink-mute" />
-            <button onClick={connect} className="p-2.5 rounded-lg text-ink-dim bg-surface border border-line hover:border-accent hover:text-accent transition-all"><Wifi size={16} /></button>
-            <button onClick={scan} disabled={scanning}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold text-white bg-accent hover:bg-accent-soft transition-all active:scale-[.98] disabled:opacity-50">
-              <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} /> สแกน
-            </button>
+            <Input value={ip} onChange={e => setIp(e.target.value)} onKeyDown={e => e.key === 'Enter' && connect()}
+                   placeholder="Wi-Fi: 192.168.x.x" className="w-40" />
+            <Button variant="outline" size="icon" onClick={connect}><Wifi size={15} /></Button>
+            <Button onClick={scan} disabled={scanning}>
+              <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} strokeWidth={2.5} /> สแกน
+            </Button>
           </div>
         }
       />
 
-      {connected.length === 0 ? (
-        <div className="rounded-2xl border border-line bg-surface shadow-card p-16 text-center animate-fade-up">
-          <div className="w-14 h-14 rounded-2xl bg-elevated flex items-center justify-center mx-auto mb-4">
-            <Smartphone size={24} className="text-ink-mute" />
-          </div>
-          <p className="text-ink font-semibold mb-1">ยังไม่พบมือถือ</p>
-          <p className="text-ink-dim text-sm">ต่อสาย USB + เปิด USB Debugging แล้วกด "สแกน"</p>
-        </div>
-      ) : (
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
-          {connected.map((d, i) => (
-            <DeviceCard key={d.serial} device={d} platforms={platforms}
-              onFullscreen={() => setFs(d.serial)} index={i} />
-          ))}
+      {error && (
+        <div className="flex items-center gap-3 bg-danger/10 border border-danger/20 text-danger text-sm rounded-xl px-4 py-3">
+          <AlertCircle size={15} className="shrink-0" /> {error}
         </div>
       )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 animate-fade-up">
+        <FleetStat icon={Smartphone}  label="ออนไลน์"       value={`${online.length}/${FARM_SIZE}`} accent />
+        <FleetStat icon={Send}        label="กำลังโพสต์"    value={posting} />
+        <FleetStat icon={Snowflake}   label="พักเครื่อง"    value={cooling} warn={cooling > 0} />
+        <FleetStat icon={Thermometer} label="อุณหภูมิเฉลี่ย" value={avgTemp ? `${avgTemp}°C` : '—'} />
+      </div>
+
+      {/* แบนเนอร์เตรียมเครื่อง (setup ง่าย) */}
+      {needSetup > 0 && (
+        <div className="flex items-center gap-3 rounded-2xl border border-accent/25 bg-accent-wash px-5 py-3.5 animate-fade-up">
+          <Sparkles size={18} className="text-accent shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-foreground text-sm font-semibold">มี {needSetup} เครื่องยังตั้งค่าไม่ครบ</p>
+            <p className="text-muted-foreground text-[11px]">ติดตั้ง ADBKeyboard · ตั้งจอไม่ดับ/ปลดล็อก · จูนพิกัดรุ่น — คลิกการ์ดเครื่องเพื่อตั้งค่าทีละเครื่อง</p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:gap-5 animate-fade-up"
+           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+        {Array.from({ length: Math.max(FARM_SIZE, online.length) }).map((_, i) => (
+          online[i]
+            ? <PhoneCard key={online[i].serial} device={online[i]} ts={ts} index={i} onOpen={() => setFs(online[i].serial)} />
+            : <EmptySlot key={`slot-${i}`} n={i + 1} />
+        ))}
+      </div>
     </div>
   )
 }
 
-function DeviceCard({ device, platforms, onFullscreen, index }) {
-  const [label, setLabel] = useState(device.label || '')
-  const [plats, setPlats] = useState(device.platforms || [])
-  const [ts, setTs] = useState(0)
-  const streaming = device.streaming
-
-  useEffect(() => { setLabel(device.label || ''); setPlats(device.platforms || []) }, [device.serial])
-  useEffect(() => {
-    if (!streaming) { setTs(0); return }
-    const id = setInterval(() => setTs(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [device.serial, streaming])
-
-  const saveLabel = () => api.setDeviceLabel(device.serial, label).catch(() => {})
-  const togglePlat = (key) => {
-    const next = plats.includes(key) ? plats.filter(k => k !== key) : [...plats, key]
-    setPlats(next); api.setDevicePlatforms(device.serial, next).catch(() => {})
-  }
-  const toggleStream = () => streaming ? api.mirrorStop(device.serial) : api.mirrorStart(device.serial)
-  const thumb = streaming && ts ? `${BASE}/snapshot/${device.serial}?_=${ts}` : null
+function PhoneCard({ device, ts, index, onOpen }) {
+  const { serial, model, label, battery, charging, temp, activity, streaming, platforms = [] } = device
+  const thumb = streaming && ts ? `${BASE}/snapshot/${serial}?_=${ts}` : null
+  const act = activity === 'posting' ? { label: 'กำลังโพสต์', cls: 'bg-accent text-white' }
+    : activity === 'cooldown' ? { label: 'พักเครื่อง', cls: 'bg-amber-500 text-white' }
+    : { label: 'ว่าง', cls: 'bg-black/55 text-white' }
 
   return (
-    <div className="rounded-2xl bg-surface border border-line shadow-card p-4 flex gap-4 animate-fade-up"
-         style={{ animationDelay: `${Math.min(index, 12) * 50}ms` }}>
-      {/* Thumbnail */}
-      <button onClick={onFullscreen}
-        className="relative w-[88px] aspect-[9/16] rounded-xl overflow-hidden bg-black shrink-0 border border-line group">
+    <div className="group lift rounded-3xl overflow-hidden border border-border bg-card shadow-card animate-fade-up"
+         style={{ animationDelay: `${Math.min(index, 16) * 40}ms` }}>
+      <button onClick={onOpen} className="relative block w-full aspect-[9/19.5] bg-black overflow-hidden">
         {thumb
-          ? <img src={thumb} alt="" className="w-full h-full" style={{ objectFit: 'fill' }} />
-          : <div className="w-full h-full flex items-center justify-center"><Smartphone size={22} className="text-ink-mute" /></div>}
-        {streaming && (
-          <span className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-black/60 rounded-full px-1.5 py-0.5">
-            <span className="w-1 h-1 rounded-full bg-success animate-pulse-dot" /><span className="text-[8px] text-success font-black">LIVE</span>
+          ? <img src={thumb} alt="" className="w-full h-full object-cover" />
+          : <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-ink-mute">
+              <Smartphone size={26} /><span className="text-[10px]">กำลังเชื่อมจอ…</span>
+            </div>}
+
+        <div className="absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/55 to-transparent pointer-events-none" />
+
+        <div className="absolute top-2 left-2 right-2 flex items-center justify-between">
+          {streaming
+            ? <span className="flex items-center gap-1 bg-black/55 rounded-full px-2 py-0.5"><span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse-dot" /><span className="text-[8px] text-success font-black tracking-wide">LIVE</span></span>
+            : <span />}
+          {battery > 0 && (
+            <span className={`flex items-center gap-1 bg-black/55 rounded-full px-2 py-0.5 text-[10px] font-bold ${battery <= 20 ? 'text-danger' : 'text-white'}`}>
+              {charging ? <BatteryCharging size={11} /> : <BatteryMedium size={11} />}{battery}%
+            </span>
+          )}
+        </div>
+
+        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${act.cls}`}>
+            {activity === 'cooldown' && <Snowflake size={9} className="inline mr-0.5" />}{act.label}
           </span>
-        )}
-        <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-all opacity-0 group-hover:opacity-100">
-          <Maximize2 size={18} className="text-white" />
+          {temp > 0 && <span className={`flex items-center gap-0.5 bg-black/55 rounded-full px-2 py-0.5 text-[9px] font-bold ${temp >= 45 ? 'text-danger' : 'text-white'}`}><Thermometer size={9} />{temp.toFixed(0)}°</span>}
+        </div>
+
+        <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/35 opacity-0 group-hover:opacity-100 transition-all">
+          <span className="flex items-center gap-1.5 text-white text-xs font-semibold bg-black/50 px-3 py-1.5 rounded-full"><Maximize2 size={13} /> คุมเครื่อง</span>
         </span>
       </button>
 
-      {/* Info + controls */}
-      <div className="flex-1 min-w-0 flex flex-col gap-2.5">
-        {/* Label */}
-        <div className="relative">
-          <Tag size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-mute" />
-          <input value={label} onChange={e => setLabel(e.target.value)} onBlur={saveLabel}
-            onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()}
-            placeholder="ชื่อบัญชี / ป้ายเครื่อง"
-            className="w-full bg-elevated border border-line text-ink text-sm font-medium pl-7 pr-2 py-1.5 rounded-lg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20" />
+      <div className="p-3">
+        <div className="flex items-center gap-2">
+          <p className="flex-1 text-foreground text-[13px] font-semibold truncate flex items-center gap-1.5">
+            {label ? <><User size={12} className="text-accent shrink-0" /> {label}</> : (model || serial)}
+          </p>
+          <ReadinessChip device={device} />
         </div>
+        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          {platforms.length === 0
+            ? <span className="text-[10px] text-muted-foreground">ยังไม่เลือกแพลตฟอร์ม</span>
+            : platforms.map(k => {
+                const m = PLAT_META[k]; if (!m) return null
+                const Logo = m.Logo
+                return <span key={k} className="flex items-center justify-center w-5 h-5 rounded-md bg-secondary" title={m.label}><Logo size={11} color={m.color} /></span>
+              })}
+        </div>
+      </div>
+    </div>
+  )
+}
 
-        {/* Meta */}
-        <div className="flex items-center gap-3 text-[11px] text-ink-mute">
-          <span className="font-mono truncate">{device.model || device.serial}</span>
-          {device.battery > 0 && <span className={`flex items-center gap-1 ${device.battery < 20 ? 'text-danger' : ''}`}><BatteryMedium size={11} />{device.battery}%</span>}
-        </div>
+function EmptySlot({ n }) {
+  return (
+    <div className="rounded-3xl overflow-hidden border-2 border-dashed border-border bg-card/30">
+      <div className="aspect-[9/19.5] flex flex-col items-center justify-center gap-2 text-muted-foreground">
+        <Smartphone size={24} className="opacity-30" />
+        <span className="text-[10px] opacity-60">ว่าง</span>
+      </div>
+      <div className="p-3">
+        <p className="text-muted-foreground text-[12px] font-medium">ช่อง {n}</p>
+        <p className="text-muted-foreground text-[10px] mt-1 opacity-60">รอเชื่อมต่อ</p>
+      </div>
+    </div>
+  )
+}
 
-        {/* Platforms */}
-        <div>
-          <p className="text-ink-mute text-[10px] font-bold uppercase tracking-wider mb-1.5">โพสต์ไปที่</p>
-          <div className="flex flex-wrap gap-1.5">
-            {platforms.map(p => {
-              const on = plats.includes(p.key)
-              return (
-                <button key={p.key} onClick={() => p.ready && togglePlat(p.key)} disabled={!p.ready}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all disabled:opacity-40
-                    ${on ? 'bg-accent text-white border-accent' : 'bg-elevated text-ink-dim border-line hover:border-accent/40'}`}>
-                  {p.label}{!p.ready && ' •'}
-                </button>
-              )
-            })}
-          </div>
-        </div>
+function ReadinessChip({ device }) {
+  const { done, total, ready } = deviceReadiness(device)
+  return (
+    <span title="ความพร้อมใช้งาน — คลิกการ์ดเพื่อตั้งค่า"
+      className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0
+        ${ready ? 'bg-success/15 text-success' : 'bg-amber-400/15 text-amber-500'}`}>
+      {ready ? <CheckCircle2 size={10} /> : <Sparkles size={10} />}
+      {ready ? 'พร้อม' : `${done}/${total}`}
+    </span>
+  )
+}
 
-        {/* Actions */}
-        <div className="flex items-center gap-2 mt-auto pt-1">
-          <button onClick={toggleStream}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all
-              ${streaming ? 'bg-danger/10 text-danger border border-danger/20' : 'bg-success/10 text-success border border-success/20'}`}>
-            {streaming ? <Square size={11} className="fill-current" /> : <Play size={11} className="fill-current" />}
-            {streaming ? 'หยุด' : 'ดูสด'}
-          </button>
-          <button onClick={() => api.openShopee(device.serial)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-ink-dim bg-elevated border border-line hover:border-accent hover:text-accent transition-all">
-            <ExternalLink size={11} /> Shopee
-          </button>
-        </div>
+function FleetStat({ icon: Icon, label, value, accent, warn }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card text-card-foreground shadow-card p-4 flex items-center gap-3">
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${accent ? 'bg-accent-wash' : warn ? 'bg-amber-400/15' : 'bg-secondary'}`}>
+        <Icon size={16} className={accent ? 'text-accent' : warn ? 'text-amber-500' : 'text-muted-foreground'} />
+      </div>
+      <div className="min-w-0">
+        <p className={`text-xl font-extrabold nums leading-none ${warn ? 'text-amber-500' : 'text-foreground'}`}>{value}</p>
+        <p className="text-[11px] text-muted-foreground mt-1">{label}</p>
       </div>
     </div>
   )

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api }        from '@/lib/api'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatCard }   from '@/components/dashboard/StatCard'
+import { BarChart }   from '@/components/charts/BarChart'
 import {
   CheckCircle2, Percent, Wallet, Coins, RefreshCw, AlertCircle, BarChart3
 } from 'lucide-react'
@@ -14,21 +15,19 @@ export default function ReportsPage() {
   const [r, setR] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // manual=true เฉพาะตอนกดปุ่มรีเฟรช → spinner หมุน; auto-poll เงียบ ไม่หมุนทุก 10 วิ
+  const load = useCallback(async (manual = false) => {
+    if (manual) setLoading(true)
     try { setR(await api.reports()) } catch {}
-    setLoading(false)
+    if (manual) setLoading(false)
   }, [])
-  useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id) }, [load])
+  useEffect(() => { load(); const id = setInterval(() => load(), 10000); return () => clearInterval(id) }, [load])
 
   const t = r?.totals || {}
   const cost = r?.cost || {}
   const daily = r?.daily || []
-  const maxC = Math.max(1, ...daily.map(d => d.count))
-
-  const usage  = r?.usage_daily || []
-  const maxU   = Math.max(1, ...usage.map(d => d.cost))
-  const bud    = r?.budget || {}
+  const usage = r?.usage_daily || []
+  const bud   = r?.budget || {}
   const mFlow  = bud.month?.flow   || {}
   const mGem   = bud.month?.gemini || {}
 
@@ -38,7 +37,7 @@ export default function ReportsPage() {
         title="รายงาน"
         subtitle="สรุปผลการเผยแพร่ ต้นทุน และอัตราสำเร็จ"
         action={
-          <button onClick={load} disabled={loading}
+          <button onClick={() => load(true)} disabled={loading}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-ink-dim bg-surface border border-line hover:border-accent hover:text-accent transition-all">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> รีเฟรช
           </button>
@@ -53,62 +52,28 @@ export default function ReportsPage() {
         <StatCard index={3} icon={Coins}        label="ต้นทุนรวม"     value={baht(cost.total)} />
       </div>
 
-      {/* Chart */}
-      <div className="rounded-xl bg-surface border border-line shadow-card p-5 lg:p-6 animate-fade-up" style={{ animationDelay: '120ms' }}>
+      {/* Chart — การเผยแพร่ (Tremor-style) */}
+      <div className="rounded-xl bg-card text-card-foreground border border-border shadow-card p-5 lg:p-6 animate-fade-up" style={{ animationDelay: '120ms' }}>
         <div className="flex items-center gap-2.5 mb-5">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-accent-wash"><BarChart3 size={16} className="text-accent" /></div>
-          <span className="text-ink font-semibold text-sm">การเผยแพร่ย้อนหลัง 14 วัน</span>
-          <span className="ml-auto text-[11px] text-ink-mute nums">รวม {daily.reduce((a, d) => a + d.count, 0)} คลิป</span>
+          <span className="text-foreground font-semibold text-sm">การเผยแพร่ย้อนหลัง 14 วัน</span>
+          <span className="ml-auto text-[11px] text-muted-foreground nums">รวม {daily.reduce((a, d) => a + d.count, 0)} คลิป</span>
         </div>
-        <div className="flex items-end gap-2 h-44">
-          {daily.map((d, i) => (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1.5 group">
-              <div className="w-full flex items-end justify-center h-full">
-                <div className="w-full max-w-[28px] rounded-t-md bg-accent/70 group-hover:bg-accent transition-all relative"
-                     style={{ height: `${(d.count / maxC) * 100}%`, minHeight: d.count ? '6px' : '2px' }}>
-                  {d.count > 0 && (
-                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-bold text-ink nums opacity-0 group-hover:opacity-100 transition-opacity">{d.count}</span>
-                  )}
-                </div>
-              </div>
-              <span className="text-[9px] text-ink-mute nums">{d.date}</span>
-            </div>
-          ))}
-        </div>
+        <BarChart data={daily} index="date" categories={['count']} colors={['#a855f7']}
+                  labels={{ count: 'โพสต์' }} valueFormatter={(v) => `${v}`} height={200} />
       </div>
 
-      {/* AI usage chart (J) */}
-      <div className="rounded-xl bg-surface border border-line shadow-card p-5 lg:p-6 animate-fade-up" style={{ animationDelay: '150ms' }}>
+      {/* AI usage chart (J) — stacked Tremor-style */}
+      <div className="rounded-xl bg-card text-card-foreground border border-border shadow-card p-5 lg:p-6 animate-fade-up" style={{ animationDelay: '150ms' }}>
         <div className="flex items-center gap-2.5 mb-1">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-accent-wash"><Wallet size={16} className="text-accent" /></div>
-          <span className="text-ink font-semibold text-sm">ค่าใช้จ่าย AI ย้อนหลัง 14 วัน</span>
-          <div className="ml-auto flex items-center gap-3 text-[11px]">
-            <span className="flex items-center gap-1.5 text-ink-mute"><span className="w-2.5 h-2.5 rounded-sm bg-accent" />Flow</span>
-            <span className="flex items-center gap-1.5 text-ink-mute"><span className="w-2.5 h-2.5 rounded-sm bg-sky-400" />Gemini</span>
-          </div>
+          <span className="text-foreground font-semibold text-sm">ค่าใช้จ่าย AI ย้อนหลัง 14 วัน</span>
         </div>
-        <p className="text-ink-mute text-[11px] mb-5 nums">
+        <p className="text-muted-foreground text-[11px] mb-4 nums">
           เดือนนี้ — Flow {mFlow.qty || 0} คลิป {baht(mFlow.cost)} · Gemini {mGem.qty || 0} ครั้ง {baht(mGem.cost)}
         </p>
-        <div className="flex items-end gap-2 h-44">
-          {usage.map((d, i) => {
-            const fh = (d.flow / maxU) * 100, gh = (d.gemini / maxU) * 100
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1.5 group">
-                <div className="w-full flex flex-col justify-end items-center h-full">
-                  <div className="w-full max-w-[28px] flex flex-col justify-end" style={{ height: '100%' }}>
-                    {d.cost > 0 && (
-                      <span className="text-center text-[9px] font-bold text-ink nums opacity-0 group-hover:opacity-100 transition-opacity mb-0.5">{baht(d.cost)}</span>
-                    )}
-                    <div className="w-full rounded-t-sm bg-sky-400/80 group-hover:bg-sky-400 transition-all" style={{ height: `${gh}%`, minHeight: d.gemini ? '3px' : '0' }} />
-                    <div className="w-full bg-accent/70 group-hover:bg-accent transition-all" style={{ height: `${fh}%`, minHeight: d.flow ? '3px' : '0', borderRadius: d.gemini ? '0' : '3px 3px 0 0' }} />
-                  </div>
-                </div>
-                <span className="text-[9px] text-ink-mute nums">{d.date}</span>
-              </div>
-            )
-          })}
-        </div>
+        <BarChart data={usage} index="date" categories={['flow', 'gemini']} colors={['#a855f7', '#38bdf8']}
+                  labels={{ flow: 'Flow', gemini: 'Gemini' }} valueFormatter={baht} stack height={200} />
       </div>
 
       {/* Errors */}

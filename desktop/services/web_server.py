@@ -10,7 +10,7 @@ import threading
 import time
 from typing import Optional, Callable
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 import uvicorn
@@ -100,7 +100,7 @@ class WebServer:
     # ── App builder ───────────────────────────────────────────
 
     def _build_app(self) -> FastAPI:
-        app = FastAPI(title="Shopee VDO Gen API")
+        app = FastAPI(title="VDO Gen Auto Pilot API")
 
         app.add_middleware(
             CORSMiddleware,
@@ -252,11 +252,6 @@ class WebServer:
                                body.get("code", "KEYCODE_HOME"), serial=serial)
             return {"ok": True}
 
-        @app.post("/api/adb/open_shopee/{serial}")
-        def open_shopee(serial: str):
-            ok = self.adb.open_shopee(serial) if self.adb else False
-            return {"ok": ok}
-
         @app.post("/api/wifi_connect")
         async def wifi_connect(body: dict):
             if self.adb:
@@ -279,50 +274,6 @@ class WebServer:
                 self.autopilot.set_enabled(False)
             return {"ok": True, "enabled": False}
 
-        @app.post("/api/test/post")
-        async def test_post(body: dict):
-            """Dry-run the Shopee posting flow with the test video (no Veo needed)."""
-            serial = body.get("serial", "")
-            if not (self.adb and serial):
-                return {"ok": False, "error": "no device"}
-
-            import config as cfg
-            from services.adb.autoposter import AutoPoster
-            from pathlib import Path
-
-            video = cfg.PENDING_DIR / "test_video.mp4"
-            if not video.exists():
-                # Auto-generate a simple 8s vertical test clip via ffmpeg
-                cfg.PENDING_DIR.mkdir(parents=True, exist_ok=True)
-                import subprocess as _sp
-                r = _sp.run(
-                    ["ffmpeg", "-y", "-f", "lavfi",
-                     "-i", "color=c=0x7c3aed:s=1080x1920:d=8",
-                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-t", "8",
-                     str(video)],
-                    capture_output=True, timeout=60
-                )
-                if not video.exists():
-                    return {"ok": False,
-                            "error": "สร้าง test video ไม่สำเร็จ — ตรวจสอบ ffmpeg (brew install ffmpeg)"}
-
-            test_product = {
-                "basic_info": {"name": "สินค้าทดสอบ Auto Pilot", "price": "199"},
-                "commission": {"rate": "5"},
-                "links": {"affiliate_link": "https://shopee.co.th/test"},
-            }
-
-            dry = body.get("dry_run", True)   # default: don't actually publish
-
-            def _run():
-                poster = AutoPoster(self.adb, log_cb=self.emit_log)
-                ok = poster.process(serial, video, test_product, dry_run=dry)
-                tag = "DRY RUN" if dry else "โพสต์จริง"
-                self.emit_log(f"[TEST] {tag} {'สำเร็จ ✓' if ok else 'ไม่สำเร็จ ✗'}")
-
-            threading.Thread(target=_run, daemon=True).start()
-            return {"ok": True, "dry_run": dry, "message": "test started — ดู System Log"}
-
         # ── Generated video library ──
 
         @app.get("/api/videos")
@@ -343,6 +294,7 @@ class WebServer:
                         prod = j.get("product", {}) or {}
                         bi   = prod.get("basic_info", {}) or {}
                         vids.append({
+                            "id":     j["id"],
                             "name":   p.name,
                             "folder": folder,
                             "size":   p.stat().st_size if p.exists() else 0,
@@ -351,6 +303,8 @@ class WebServer:
                             "product":    j.get("name") or bi.get("name", ""),
                             "price":      bi.get("price", ""),
                             "commission": (prod.get("commission", {}) or {}).get("rate", ""),
+                            "link":       (prod.get("links", {}) or {}).get("affiliate_link", ""),
+                            "cover":      prod.get("cover", ""),   # ← ปกคลิป (ไฟล์ในโฟลเดอร์เดียวกัน)
                             "status":     st,
                         })
                 vids.sort(key=lambda v: v["mtime"], reverse=True)
@@ -380,9 +334,89 @@ class WebServer:
                         "product":    meta.get("name", ""),
                         "price":      meta.get("price", ""),
                         "commission": meta.get("commission", ""),
+                        "link":       meta.get("link", ""),
                         "status":     meta.get("status", ""),
                     })
             return {"videos": vids}
+
+        @app.post("/api/clips/upload")
+        async def upload_clip(file: UploadFile = File(...), name: str = Form(""),
+                              price: str = Form(""), link: str = Form(""), commission: str = Form("")):
+            """เพิ่มคลิปที่ทำเอง → เซฟลง pending + import เข้า DB เป็น generated (พร้อมโพสต์)."""
+            import config as cfg, time as _t, json as _json, re as _re
+            cfg.PENDING_DIR.mkdir(parents=True, exist_ok=True)
+            pid  = f"up{int(_t.time() * 1000)}"
+            base = _re.sub(r'[^A-Za-z0-9._-]', '_', (file.filename or 'clip.mp4').rsplit('/', 1)[-1])
+            if not base.lower().endswith('.mp4'):
+                base += '.mp4'
+            dest = cfg.PENDING_DIR / f"{pid}_{base}"
+            data = await file.read()
+            if not data:
+                return {"ok": False, "error": "ไฟล์ว่าง"}
+            dest.write_bytes(data)
+            sidecar = {
+                "video": dest.name, "product_id": pid,
+                "name": name, "price": price, "commission": commission, "link": link,
+                "engine": "upload", "created_at": int(_t.time()), "status": "ready",
+            }
+            dest.with_suffix(".json").write_text(
+                _json.dumps(sidecar, ensure_ascii=False, indent=2), encoding="utf-8")
+            if self.db:
+                self.db.import_clip({
+                    "product_id": pid,
+                    "basic_info": {"name": name, "price": price},
+                    "commission": {"rate": commission},
+                    "links": {"affiliate_link": link},
+                }, GENERATED, str(dest))
+            self.emit_log(f"[UPLOAD] เพิ่มคลิป {name or dest.name} → pending")
+            self.ws.broadcast_sync({"type": "flow_video", "pid": pid, "name": name})
+            return {"ok": True, "pid": pid, "name": dest.name}
+
+        @app.post("/api/clips/{jid}/meta")
+        async def update_clip_meta(jid: int, body: dict):
+            """แก้ข้อมูลคลิป (ชื่อ/ราคา/ค่าคอม/ลิงก์) — อัปเดต product_json ใน DB."""
+            import json as _json
+            if not self.db:
+                return {"ok": False}
+            j = self.db.get(jid)
+            if not j:
+                return {"ok": False, "error": "ไม่พบคลิป"}
+            prod = j.get("product", {}) or {}
+            if "name" in body:       prod.setdefault("basic_info", {})["name"]  = body["name"]
+            if "price" in body:      prod.setdefault("basic_info", {})["price"] = body["price"]
+            if "commission" in body: prod.setdefault("commission", {})["rate"]  = body["commission"]
+            if "link" in body:       prod.setdefault("links", {})["affiliate_link"] = body["link"]
+            self.db.update(jid,
+                           product_json=_json.dumps(prod, ensure_ascii=False),
+                           name=body.get("name", j["name"]),
+                           caption=body.get("name", j.get("caption", "")))
+            self.emit_log(f"[CLIP] แก้ข้อมูล: {body.get('name', j['name'])}")
+            return {"ok": True}
+
+        @app.post("/api/clips/{jid}/cover")
+        async def upload_clip_cover(jid: int, file: UploadFile = File(...)):
+            """เปลี่ยน/ตั้งปกคลิป — อัปโหลดรูปเอง → เซฟ <วิดีโอ>_cover.<ext> + อัปเดต product.cover."""
+            import json as _json
+            from pathlib import Path as _P
+            if not self.db:
+                return {"ok": False}
+            j = self.db.get(jid)
+            if not j or not j.get("video_path"):
+                return {"ok": False, "error": "ไม่พบคลิป"}
+            data = await file.read()
+            if not data:
+                return {"ok": False, "error": "ไฟล์ว่าง"}
+            ext = _P(file.filename or "").suffix.lower()
+            if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+                ext = ".jpg"
+            vp = _P(j["video_path"])
+            cover_path = vp.with_name(f"{vp.stem}_cover{ext}")
+            cover_path.write_bytes(data)
+            prod = j.get("product", {}) or {}
+            prod["cover"] = cover_path.name
+            self.db.update(jid, product_json=_json.dumps(prod, ensure_ascii=False))
+            self.emit_log(f"[CLIP] เปลี่ยนปก: {j['name']} → {cover_path.name}")
+            return {"ok": True, "cover": cover_path.name}
 
         @app.get("/video/{folder}/{name}")
         def serve_video(folder: str, name: str):
@@ -395,8 +429,11 @@ class WebServer:
             path = d / name
             if not path.exists():
                 return JSONResponse({"error": "not found"}, status_code=404)
+            ext = path.suffix.lower()
+            mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                    ".webp": "image/webp"}.get(ext, "video/mp4")
             from fastapi.responses import FileResponse
-            return FileResponse(str(path), media_type="video/mp4",
+            return FileResponse(str(path), media_type=mime,
                                 headers={"Access-Control-Allow-Origin": "*"})
 
         # ── First-run setup (ชื่อร้าน เก็บลง DB) ──
@@ -424,6 +461,26 @@ class WebServer:
             self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")
             return {"ok": True, "shop_name": shop}
 
+        # ── License ──
+
+        @app.get("/api/license/status")
+        def license_status():
+            from services.license import check
+            return check()
+
+        @app.get("/api/license/machine-id")
+        def license_machine_id():
+            from services.license import machine_id as mid
+            return {"machine_id": mid()}
+
+        @app.post("/api/license/activate")
+        async def license_activate(body: dict):
+            from services.license import activate
+            key = (body.get("key") or "").strip()
+            if not key:
+                return {"ok": False, "reason": "กรุณากรอก License Key"}
+            return activate(key)
+
         # ── งาน/คิว (job tracker + รีวิว) ──
 
         @app.get("/api/jobs")
@@ -446,12 +503,58 @@ class WebServer:
                     "error": j["error"],
                     "folder": FOLDER.get(j["status"], "pending"),  # โฟลเดอร์ของไฟล์ (สำหรับรูปย่อ)
                     "file": _P(vp).name if vp else "",
+                    "cover": prod.get("cover", ""),    # ปกคลิป (ไฟล์ในโฟลเดอร์เดียวกับวิดีโอ)
                     "price": bi.get("price", ""),
                     "commission": (prod.get("commission", {}) or {}).get("rate", ""),
                     "link": link,                      # ตะกร้า (affiliate short link)
                     "created_at": j["created_at"], "updated_at": j["updated_at"],
                 })
             return {"jobs": out, "review_mode": cfg.load().get("review_mode", "auto")}
+
+        @app.post("/api/videos/delete_nolink")
+        def delete_nolink():
+            """ลบคลิปที่ไม่มีลิงก์ตะกร้า (affiliate link ว่าง) — DB row + ไฟล์ mp4/json."""
+            from pathlib import Path as _P
+            deleted = 0
+            if self.db:
+                for st in (GENERATED, POSTED, ERROR):
+                    for j in self.db.list(st, limit=9999):
+                        prod = j.get("product", {}) or {}
+                        link = (prod.get("links", {}) or {}).get("affiliate_link", "")
+                        if (link or "").strip():
+                            continue
+                        vp = j.get("video_path")
+                        if vp and _P(vp).name == "test_video.mp4":
+                            continue   # กันลบไฟล์ทดสอบ
+                        self.db.delete(j["id"])
+                        if vp:
+                            try:
+                                p = _P(vp); p.unlink(missing_ok=True)
+                                p.with_suffix(".json").unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                        deleted += 1
+            else:
+                import config as cfg, json as _json
+                for d in (cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR):
+                    if not d.exists():
+                        continue
+                    for f in list(d.glob("*.mp4")):
+                        if f.name == "test_video.mp4":
+                            continue
+                        side = f.with_suffix(".json")
+                        meta = {}
+                        if side.exists():
+                            try: meta = _json.loads(side.read_text(encoding="utf-8"))
+                            except Exception: meta = {}
+                        if (meta.get("link") or "").strip():
+                            continue
+                        try:
+                            f.unlink(missing_ok=True); side.unlink(missing_ok=True); deleted += 1
+                        except Exception:
+                            pass
+            self.emit_log(f"[CLEANUP] ลบคลิปไม่มีลิงก์ตะกร้า {deleted} คลิป")
+            return {"ok": True, "deleted": deleted}
 
         @app.delete("/api/jobs/{jid}")
         def delete_job(jid: int):
@@ -470,6 +573,13 @@ class WebServer:
         def post_job(jid: int):
             if self.autopilot:
                 return {"ok": self.autopilot.post_job_now(jid)}
+            return {"ok": False}
+
+        @app.post("/api/jobs/{jid}/dryrun")
+        def dry_post_job(jid: int):
+            """ทดสอบโพสต์ (dry) — รัน ADB flow ถึง caption ไม่โพสต์จริง ไม่เปลี่ยนสถานะ."""
+            if self.autopilot:
+                return {"ok": self.autopilot.dry_post_job(jid)}
             return {"ok": False}
 
         @app.get("/api/reports")
@@ -493,19 +603,37 @@ class WebServer:
                     "this_month": round(self.budget.spend_month(), 2) if self.budget else 0,
                     "avg":        round(st["total_cost"] / posted, 2) if posted else 0,
                 },
-                "daily":  self.db.posts_by_day(14),
-                "errors": self.db.error_list(15),
-                "budget": self.budget.snapshot() if self.budget else None,
-                "usage_daily": self.db.usage_by_day(14),   # ค่าใช้จ่าย AI รายวัน (J)
+                "daily":            self.db.posts_by_day(14),
+                "errors":           self.db.error_list(15),
+                "budget":           self.budget.snapshot() if self.budget else None,
+                "usage_daily":      self.db.usage_by_day(14),
+                "platform_revenue": self.db.platform_revenue_by_day(14),
+                "platform_summary": self.db.platform_summary(),
             }
 
         @app.get("/api/platforms")
         def list_platforms():
             from services.platforms import PLATFORMS
+            stats = self.db.platform_summary() if self.db else {}
             return {"platforms": [
-                {"key": k, "label": v["label"], "ready": v["ready"]}
+                {"key": k, "label": v["label"], "ready": v["ready"],
+                 "tuned": v.get("tuned", False),
+                 "stats": stats.get(k, {})}    # {today, month, success_rate, last_ts} (F)
                 for k, v in PLATFORMS.items()
             ]}
+
+        @app.get("/api/post-results")
+        def post_results():
+            from services.platforms import PLATFORMS
+            summary = self.db.platform_summary() if self.db else {}
+            recent  = self.db.recent_platform_posts(100) if self.db else []
+            return {
+                "summary": {
+                    k: {"label": v["label"], **summary.get(k, {})}
+                    for k, v in PLATFORMS.items()
+                },
+                "recent": recent,
+            }
 
         @app.get("/api/settings")
         def get_settings():
@@ -539,6 +667,124 @@ class WebServer:
                 "background":        s.get("background", "สตูดิโอ"),
                 "personality":       s.get("personality", "สนุกสนาน"),
                 "budget":            self.budget.snapshot() if self.budget else None,
+            }
+
+        @app.get("/api/usage")
+        def usage_overview():
+            """ข้อมูลภาพรวมหน้า dashboard: กราฟ 7 วัน + สรุปงบเดือนนี้ — local-only."""
+            import datetime as _dt
+            now = _dt.datetime.now()
+            month_start = int(_dt.datetime(now.year, now.month, 1).timestamp())
+            return {
+                "ok": True,
+                "daily":   self.db.usage_by_day(7),
+                "summary": self.db.usage_summary(month_start),
+                "budget":  self.budget.snapshot() if self.budget else None,
+            }
+
+        @app.get("/api/overview")
+        def overview():
+            """ข้อมูลรวมหน้า 'ภาพรวม' ใน dashboard — ของจริงล้วน ไม่มี dummy (local-only)."""
+            import time as _t
+            import datetime as _dt
+            from services.platforms import PLATFORMS
+            import config as cfg
+
+            now_ts      = _t.time()
+            n           = _dt.datetime.now()
+            day_start   = int(_dt.datetime(n.year, n.month, n.day).timestamp())
+            month_start = int(_dt.datetime(n.year, n.month, 1).timestamp())
+
+            # ── วันนี้ ──
+            posted_today = self.db.count_posted_today() if self.db else 0
+            by = self.db.stats()["by_status"] if self.db else {}
+            queued = (by.get(QUEUED, 0) + by.get(GENERATING, 0) +
+                      by.get(GENERATED, 0) + by.get(POSTING, 0))
+            # อัตราสำเร็จเฉพาะโพสต์ของ "วันนี้"
+            recent_all = self.db.recent_platform_posts(200) if self.db else []
+            today_posts = [r for r in recent_all if (r.get("ts") or 0) >= day_start]
+            ok_today = sum(1 for r in today_posts if r.get("ok"))
+            success_rate = round(ok_today / len(today_posts) * 100) if today_posts else None
+
+            # ── ระบบ ──
+            running = bool(self.autopilot and self.autopilot.enabled)
+            online = hot = cooldown = 0
+            for d in (self.adb.devices.values() if self.adb else []):
+                if d.status == "device":
+                    online += 1
+                if d.cooldown_reason == "hot":
+                    hot += 1
+                elif d.cooldown_reason:
+                    cooldown += 1
+
+            settings  = cfg.load()
+            enabled   = set(settings.get("platforms") or [])
+            psummary  = self.db.platform_summary() if self.db else {}
+            platforms = [
+                {"key": k, "label": v["label"],
+                 "enabled": k in enabled,
+                 "today": psummary.get(k, {}).get("today", 0)}
+                for k, v in PLATFORMS.items()
+            ]
+
+            # ── ต้องลงมือ (alerts) ──
+            alerts = []
+            errs = self.db.error_list(20) if self.db else []
+            if errs:
+                alerts.append({
+                    "level": "error", "icon": "alert",
+                    "title": f"{len(errs)} งานล้มเหลว",
+                    "detail": (errs[0].get("error") or errs[0].get("name") or "")[:80],
+                })
+            if hot:
+                alerts.append({
+                    "level": "warn", "icon": "thermo",
+                    "title": f"เครื่องร้อน {hot} เครื่อง",
+                    "detail": "ระบบพักเครื่องอัตโนมัติจนกว่าจะเย็นลง",
+                })
+            if cooldown:
+                alerts.append({
+                    "level": "info", "icon": "thermo",
+                    "title": f"พักเครื่อง {cooldown} เครื่อง",
+                    "detail": "แบตต่ำ/รอชาร์จ — จะกลับมาทำงานเองเมื่อพร้อม",
+                })
+            snap = self.budget.snapshot() if self.budget else None
+            if snap and snap.get("alert") == "over":
+                alerts.append({
+                    "level": "error", "icon": "alert",
+                    "title": "งบ AI เกินกำหนดแล้ว",
+                    "detail": f"ใช้ไป {snap.get('spent', 0):.0f}฿ จาก {snap.get('budget', 0):.0f}฿ เดือนนี้",
+                })
+            elif snap and snap.get("alert") == "warn":
+                alerts.append({
+                    "level": "warn", "icon": "alert",
+                    "title": "งบ AI ใกล้เต็ม",
+                    "detail": f"ใช้ไปแล้ว {snap.get('percent', 0)}% ของงบเดือนนี้",
+                })
+            if not online and not running:
+                alerts.append({
+                    "level": "info", "icon": "phone",
+                    "title": "ยังไม่พบเครื่องที่เชื่อมต่อ",
+                    "detail": "เสียบมือถือ/เปิด ADB เพื่อเริ่มโพสต์อัตโนมัติ",
+                })
+
+            return {
+                "ok": True,
+                "today": {"posted": posted_today, "success_rate": success_rate, "queued": queued},
+                "system": {
+                    "autopilot": running,
+                    "devices": {"online": online, "hot": hot, "cooldown": cooldown},
+                    "platforms": platforms,
+                },
+                "alerts": alerts,
+                "posts_daily": self.db.posts_by_day(7) if self.db else [],
+                "budget": snap,
+                "usage": self.db.usage_summary(month_start) if self.db else None,
+                "recent": [
+                    {"ts": r.get("ts"), "platform": r.get("platform"),
+                     "ok": bool(r.get("ok")), "name": r.get("job_name", "")}
+                    for r in (recent_all[:8])
+                ],
             }
 
         @app.post("/api/flow/usage")
@@ -599,6 +845,20 @@ class WebServer:
                         except Exception: pass
                     self.emit_log(f"[FLOW] ต่อ {len(srcs)} คลิป → {out_mp4.name}")
 
+            # ปกคลิป = เฟรมแรกของวิดีโอ — ดึงด้วย ffmpeg เป็น <pid>_cover.jpg (ไม่ gen, ฟรี)
+            cover_name = ""
+            try:
+                cover_path = cfg.PENDING_DIR / f"{pid}_cover.jpg"
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(out_mp4), "-frames:v", "1", "-q:v", "2",
+                     str(cover_path)],
+                    capture_output=True, timeout=30)
+                if cover_path.exists() and cover_path.stat().st_size > 0:
+                    cover_name = cover_path.name
+                    self.emit_log(f"[FLOW] ปกคลิป = เฟรมแรก → {cover_name}")
+            except Exception as e:
+                self.emit_log(f"[FLOW] ดึงเฟรมแรกเป็นปกไม่สำเร็จ: {e}")
+
             sidecar = {
                 "video":      out_mp4.name,
                 "product_id": pid,
@@ -607,6 +867,7 @@ class WebServer:
                 "sold_count": body.get("sold", ""),
                 "commission": body.get("commission", ""),
                 "link":       body.get("link", ""),   # ← ตะกร้า (affiliate/product_url)
+                "cover":      cover_name,             # ← ปกคลิป (ไฟล์ในโฟลเดอร์เดียวกัน)
                 "engine":     "flow",
                 "created_at": int(_t.time()),
                 "status":     "ready",
@@ -619,8 +880,11 @@ class WebServer:
                 job = self.db.get_by_product(pid)
                 if job:
                     jid = job["id"]
-                    self.db.update(jid, status=GENERATED,
-                                   video_path=str(out_mp4), caption=sidecar["name"])
+                    prod = job.get("product", {}) or {}
+                    prod["cover"] = cover_name
+                    self.db.update(jid, status=GENERATED, video_path=str(out_mp4),
+                                   caption=sidecar["name"],
+                                   product_json=json.dumps(prod, ensure_ascii=False))
                 else:
                     # extension คุมคิวเอง → คลิปมาตรง สร้าง record ใหม่เป็น generated
                     jid = self.db.import_clip({
@@ -629,6 +893,7 @@ class WebServer:
                                        "sold_count": sidecar["sold_count"]},
                         "commission": {"rate": sidecar["commission"]},
                         "links": {"affiliate_link": sidecar["link"]},
+                        "cover": cover_name,
                     }, GENERATED, str(out_mp4))
                 # บันทึกการใช้ Flow (J): 1 คลิป Flow = qty คลิปย่อยที่ต่อกัน
                 qty = max(1, len(files) if files else 1)
@@ -721,7 +986,7 @@ class WebServer:
 
         @app.get("/debug/snapshot/{serial}")
         async def debug_snapshot(serial: str):
-            import os, sys, subprocess as sp
+            import os, sys, tempfile, subprocess as sp
             results: dict = {"serial": serial, "adb_ready": bool(self.adb),
                              "python": sys.executable}
             if not self.adb:
@@ -731,16 +996,17 @@ class WebServer:
             results["screencap_ok"]  = ok
             results["screencap_msg"] = msg
             if ok:
+                local_png = os.path.join(tempfile.gettempdir(), f"vgap_diag_{serial}.png")
                 r = sp.run(["adb", "-s", serial, "pull", "/sdcard/screen_web.png",
-                             "/tmp/screen_web.png"], capture_output=True, timeout=12)
+                             local_png], capture_output=True, timeout=12)
                 results["pull_ok"]     = r.returncode == 0
                 results["pull_stderr"] = r.stderr.decode(errors="ignore").strip()
                 if r.returncode == 0:
-                    results["file_bytes"] = os.path.getsize("/tmp/screen_web.png")
+                    results["file_bytes"] = os.path.getsize(local_png)
                     try:
                         from PIL import Image
                         import io as _io
-                        with Image.open("/tmp/screen_web.png") as img:
+                        with Image.open(local_png) as img:
                             mode = img.mode
                             if img.mode in ("RGBA", "LA", "P"):
                                 img = img.convert("RGB")

@@ -14,8 +14,11 @@ const thai = IBM_Plex_Sans_Thai({
 })
 
 export const metadata = {
-  title: 'Shopee VDO Gen — Auto Pilot',
-  description: 'Shopee affiliate video automation — near-zero-touch',
+  title: 'VDO Gen Auto Pilot',
+  description: 'ระบบโพสต์คลิปอัตโนมัติหลายแพลตฟอร์ม — near-zero-touch',
+  icons: {
+    apple: '/favicon.png',
+  },
 }
 
 export default function RootLayout({ children }) {

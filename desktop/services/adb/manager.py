@@ -1,4 +1,6 @@
+import os
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -187,18 +189,17 @@ class ADBManager:
         self._running = False
 
     # ── Push file ─────────────────────────────────────────────
-    def push_file(self, serial: str, local: str, remote: str = "/sdcard/DCIM/ShopeeVDO/") -> bool:
+    def push_file(self, serial: str, local: str, remote: str = "/sdcard/DCIM/AutoPost/") -> bool:
         ok, msg = self._adb("shell", "mkdir", "-p", remote, serial=serial)
         ok, msg = self._adb("push", local, remote, serial=serial, timeout=60)
         if not ok:
             self.log(f"[ADB][{serial}] push failed: {msg}")
         return ok
 
-    # ── Open Shopee ───────────────────────────────────────────
-    def open_shopee(self, serial: str) -> bool:
-        # Use monkey to launch — most reliable, works across all Shopee versions
+    # ── Open app by package (monkey launcher — เชื่อถือได้ทุกเวอร์ชัน) ──
+    def open_app(self, serial: str, package: str) -> bool:
         ok, out = self._adb(
-            "shell", "monkey", "-p", "com.shopee.th",
+            "shell", "monkey", "-p", package,
             "-c", "android.intent.category.LAUNCHER", "1",
             serial=serial
         )
@@ -252,9 +253,10 @@ class ADBManager:
             self.log(f"[Snapshot] screencap failed: {msg}")
             return None
 
-        # Step 2: pull to local
+        # Step 2: pull to local (host temp — ข้ามแพลตฟอร์ม, แยกตาม serial กัน race)
+        local_png = os.path.join(tempfile.gettempdir(), f"vgap_screen_web_{serial}.png")
         r = subprocess.run(
-            ["adb", "-s", serial, "pull", "/sdcard/screen_web.png", "/tmp/screen_web.png"],
+            ["adb", "-s", serial, "pull", "/sdcard/screen_web.png", local_png],
             capture_output=True, timeout=12
         )
         if r.returncode != 0:
@@ -265,7 +267,7 @@ class ADBManager:
         try:
             from PIL import Image
             import io as _io
-            with Image.open("/tmp/screen_web.png") as img:
+            with Image.open(local_png) as img:
                 if img.mode in ("RGBA", "LA", "P"):
                     img = img.convert("RGB")
                 w, h = img.size
@@ -283,12 +285,13 @@ class ADBManager:
         if not ok:
             return None
         try:
+            local_png = os.path.join(tempfile.gettempdir(), f"vgap_screen_tmp_{serial}.png")
             r = subprocess.run(
-                ["adb", "-s", serial, "pull", "/sdcard/screen_tmp.png", "/tmp/screen_tmp.png"],
+                ["adb", "-s", serial, "pull", "/sdcard/screen_tmp.png", local_png],
                 capture_output=True, timeout=10
             )
             if r.returncode == 0:
-                with open("/tmp/screen_tmp.png", "rb") as f:
+                with open(local_png, "rb") as f:
                     return f.read()
         except Exception:
             pass

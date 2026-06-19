@@ -45,12 +45,16 @@
 > E คืบ — ตั้งเกณฑ์ cooldown ได้ใน Settings; แบตต่ำพักจนชาร์จถึงเกณฑ์, ร้อนพักขั้นต่ำ N นาที
 
 ## F. แพลตฟอร์ม  ← เน้น "platform ไหนกำลังทำอะไร"
-- [~] registry แพลตฟอร์ม (Shopee ready, อื่นๆ stub)
+- [x] registry แพลตฟอร์ม plugin (BasePoster) — ทุกตัวเลือกได้, route ไป poster เฉพาะ
 - [ ] หน้าสถานะแพลตฟอร์ม: active/ว่าง/โพสต์อยู่/ล็อกอินหลุด
 - [ ] กฎต่อแพลตฟอร์ม (caption/hashtag/โควต้า/เวลา แยกราย platform)
 - [ ] อัตราสำเร็จ-ล้มเหลวต่อแพลตฟอร์ม
-- [ ] flow โพสต์จริงของ TikTok / Reels / IG / YouTube
+- [~] flow โพสต์จริง TikTok/Reels/IG/YouTube — flow ตั้งต้น text-based (UIAutomator) ครบทุกตัว, รอจูนกับเครื่องจริง (Shopee จูนแล้ว)
+- [x] โพสต์คลิปเดียว → ทุกแพลตฟอร์มพร้อมกัน + ทดสอบทุกแพลตฟอร์มทีเดียว (/api/test/post)
 - [ ] account rotation กันแบน
+
+> F คืบ — Shopee เป็น 1 แพลตฟอร์ม (ไม่ใช่แกน); BasePoster + posters TikTok/Reels/IG/YT;
+> ทุกแพลตฟอร์ม ready=True (tuned=False ยกเว้น Shopee) → เลือก/ทดสอบรวมได้; แหล่งสินค้า/affiliate ยังเป็น Shopee
 
 ## G. ตารางเวลา & กฎอัตโนมัติ
 - [x] ช่วงเวลาโพสต์ + โควต้า/วัน + โหมดอนุมัติ + delay สุ่ม

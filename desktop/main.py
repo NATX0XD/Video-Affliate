@@ -51,7 +51,7 @@ def main():
     autopilot.start()          # เริ่มลูป (ทำงานเมื่อ enabled)
 
     print("\n" + "─" * 50)
-    print("  Shopee VDO Gen — Web UI Mode")
+    print("  VDO Gen Auto Pilot — Web UI Mode")
     print("─" * 50)
     print(f"  Backend  → http://localhost:{server.port}")
     print(f"  Web UI   → http://localhost:3000  (run: npm run dev)")
