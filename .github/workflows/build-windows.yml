@@ -1,0 +1,109 @@
+name: Build Windows Installer
+
+# build .exe บน Windows runner ของ GitHub (ฟรี) — ไม่ต้องมีเครื่อง Windows เอง
+# - กดรันเองได้จากแท็บ Actions (workflow_dispatch)
+# - หรือ push tag ขึ้นต้น v (เช่น v1.0.1) → build + แนบไฟล์เข้า GitHub Release ให้ด้วย
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── โหลด binary ที่ต้องแถมไปกับแอป (adb / scrcpy / ffmpeg) ลง electron/bin ──
+      - name: Download bundled binaries
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force -Path electron/bin | Out-Null
+
+          # adb (Google platform-tools)
+          Invoke-WebRequest "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" -OutFile pt.zip
+          Expand-Archive pt.zip -DestinationPath pt -Force
+          Copy-Item pt/platform-tools/adb.exe,pt/platform-tools/AdbWinApi.dll,pt/platform-tools/AdbWinUsbApi.dll electron/bin/ -Force
+
+          # scrcpy (เวอร์ชัน win64 ล่าสุด) — มี scrcpy.exe + scrcpy-server + dll
+          gh release download -R Genymobile/scrcpy -p "scrcpy-win64-*.zip" -D scrcpyzip
+          $z = (Get-ChildItem scrcpyzip/*.zip)[0]
+          Expand-Archive $z.FullName -DestinationPath scrcpy -Force
+          $sd = (Get-ChildItem scrcpy -Directory)[0]
+          Copy-Item "$($sd.FullName)/*" electron/bin/ -Recurse -Force
+          Write-Host "::warning::scrcpy ที่แถม = $($sd.Name) — ตรวจให้ SCRCPY_VERSION ใน desktop/services/adb/scrcpy_control.py ตรงกับเวอร์ชันนี้ ไม่งั้น touch injection (caption) จะไม่ทำงาน"
+
+          # ffmpeg (BtbN static build)
+          gh release download -R BtbN/FFmpeg-Builds -p "ffmpeg-master-latest-win64-gpl.zip" -D ffzip
+          Expand-Archive ffzip/ffmpeg-master-latest-win64-gpl.zip -DestinationPath ff -Force
+          Copy-Item (Get-ChildItem ff -Recurse -Filter ffmpeg.exe)[0].FullName electron/bin/ -Force
+
+          Write-Host "=== electron/bin ==="
+          Get-ChildItem electron/bin | Select-Object Name, Length
+
+      # ── build web (Next static export → web/out) ──
+      - name: Build web
+        shell: pwsh
+        run: |
+          cd web
+          npm install
+          npm run build
+
+      # ── build backend (PyInstaller → desktop/dist/vgap-server.exe) ──
+      - name: Build backend
+        shell: pwsh
+        run: |
+          cd desktop
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          pyinstaller --noconfirm vgap-server.spec
+          Get-ChildItem dist
+
+      # ── build installer (electron-builder → dist/...Setup.exe) ──
+      - name: Build installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd electron
+          npm install
+          npx electron-builder --win --publish never
+          Write-Host "=== dist ==="
+          Get-ChildItem ../dist
+
+      # ── อัปโหลดเป็น artifact ให้โหลดได้จากหน้า run เสมอ ──
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vgap-windows-installer
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+          retention-days: 30
+
+      # ── ถ้า push เป็น tag v* → แนบไฟล์เข้า GitHub Release (auto-update ดึงได้ ถ้าตั้ง provider=github) ──
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
