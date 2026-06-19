@@ -39,13 +39,16 @@ jobs:
           Expand-Archive pt.zip -DestinationPath pt -Force
           Copy-Item pt/platform-tools/adb.exe,pt/platform-tools/AdbWinApi.dll,pt/platform-tools/AdbWinUsbApi.dll electron/bin/ -Force
 
-          # scrcpy (เวอร์ชัน win64 ล่าสุด) — มี scrcpy.exe + scrcpy-server + dll
-          gh release download -R Genymobile/scrcpy -p "scrcpy-win64-*.zip" -D scrcpyzip
+          # scrcpy — ★ ตรึงเวอร์ชันให้ตรงกับ SCRCPY_VERSION ใน desktop/services/adb/scrcpy_control.py
+          #   (โปรโตคอล client/server ต้อง version เดียวกัน ไม่งั้น touch injection = caption พัง)
+          #   ถ้าจะอัปเกรด scrcpy: แก้ทั้ง SCRCPY_VER ที่นี่ + SCRCPY_VERSION ในโค้ด ให้ตรงกัน
+          $SCRCPY_VER = "4.0"
+          gh release download -R Genymobile/scrcpy "v$SCRCPY_VER" -p "scrcpy-win64-*.zip" -D scrcpyzip
           $z = (Get-ChildItem scrcpyzip/*.zip)[0]
           Expand-Archive $z.FullName -DestinationPath scrcpy -Force
           $sd = (Get-ChildItem scrcpy -Directory)[0]
           Copy-Item "$($sd.FullName)/*" electron/bin/ -Recurse -Force
-          Write-Host "::warning::scrcpy ที่แถม = $($sd.Name) — ตรวจให้ SCRCPY_VERSION ใน desktop/services/adb/scrcpy_control.py ตรงกับเวอร์ชันนี้ ไม่งั้น touch injection (caption) จะไม่ทำงาน"
+          Write-Host "scrcpy ที่แถม = $($sd.Name) (ตรึงไว้ที่ v$SCRCPY_VER ให้ตรงกับโค้ด)"
 
           # ffmpeg (BtbN static build)
           gh release download -R BtbN/FFmpeg-Builds -p "ffmpeg-master-latest-win64-gpl.zip" -D ffzip
