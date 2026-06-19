@@ -1069,6 +1069,21 @@ class WebServer:
             except Exception:
                 await self.ws.disconnect(ws)
 
+        # ── เสิร์ฟหน้าเว็บ (Next static export) จาก server เดียวกัน → เปิด http://localhost:PORT ใช้ได้ครบจบ ──
+        # mount ท้ายสุด → /api, /video, /stream, /snapshot, /ws มาก่อนเสมอ ที่เหลือ fallback เป็นไฟล์เว็บ
+        try:
+            from pathlib import Path as _P
+            web_out = _P(__file__).resolve().parents[2] / "web" / "out"
+            if web_out.is_dir() and (web_out / "index.html").exists():
+                from fastapi.staticfiles import StaticFiles
+                app.mount("/", StaticFiles(directory=str(web_out), html=True), name="web")
+                print(f"[web] เสิร์ฟหน้าเว็บจาก {web_out} → http://localhost:{self.port}")
+            else:
+                print(f"[web] ยังไม่มี web/out (ยังไม่ได้ build หน้าเว็บ) — เปิดได้เฉพาะ API · "
+                      f"build ครั้งเดียวด้วย: cd web && npm run build")
+        except Exception as _e:
+            print(f"[web] mount หน้าเว็บไม่สำเร็จ: {_e}")
+
         return app
 
     async def _handle_ws_message(self, msg: dict, ws: WebSocket):
