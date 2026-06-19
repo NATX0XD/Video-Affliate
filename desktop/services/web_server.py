@@ -424,9 +424,15 @@ class WebServer:
             dirs = {"pending": cfg.PENDING_DIR, "done": cfg.DONE_DIR, "error": cfg.ERROR_DIR}
             d = dirs.get(folder)
             # Prevent path traversal
-            if not d or "/" in name or ".." in name:
+            if not d or "/" in name or "\\" in name or ".." in name:
                 return JSONResponse({"error": "bad path"}, status_code=400)
             path = d / name
+            # fallback: ถ้าไม่เจอในโฟลเดอร์ที่ขอ ลองอีก 2 โฟลเดอร์ (กันไฟล์ย้าย/ปกค้าง → จอดำ)
+            if not path.exists():
+                for alt in (cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR):
+                    if (alt / name).exists():
+                        path = alt / name
+                        break
             if not path.exists():
                 return JSONResponse({"error": "not found"}, status_code=404)
             ext = path.suffix.lower()

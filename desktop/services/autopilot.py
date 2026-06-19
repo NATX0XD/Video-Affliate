@@ -324,9 +324,12 @@ class AutoPilot:
         new_path = dest_dir / video.name
         try:
             video.rename(new_path)
-            side = video.with_suffix(".json")
-            if side.exists():
-                side.rename(dest_dir / side.name)
+            # ย้าย sidecar ทั้งหมด: .json + ปก _cover.* (ไม่งั้นรูปปกค้างใน pending → จอดำหลังโพสต์)
+            sides = [video.with_suffix(".json")] + list(video.parent.glob(f"{video.stem}_cover.*"))
+            for side in sides:
+                if side.exists():
+                    try: side.rename(dest_dir / side.name)
+                    except Exception: pass
             return new_path
         except Exception:
             return video
