@@ -1072,8 +1072,14 @@ class WebServer:
         # ── เสิร์ฟหน้าเว็บ (Next static export) จาก server เดียวกัน → เปิด http://localhost:PORT ใช้ได้ครบจบ ──
         # mount ท้ายสุด → /api, /video, /stream, /snapshot, /ws มาก่อนเสมอ ที่เหลือ fallback เป็นไฟล์เว็บ
         try:
+            import sys as _sys
             from pathlib import Path as _P
-            web_out = _P(__file__).resolve().parents[2] / "web" / "out"
+            # หา web/out: โหมดพกพา (frozen exe) = ข้างไฟล์ .exe · โหมด source = ราก repo
+            _cands = []
+            if getattr(_sys, "frozen", False):
+                _cands.append(_P(_sys.executable).resolve().parent / "web" / "out")
+            _cands.append(_P(__file__).resolve().parents[2] / "web" / "out")
+            web_out = next((c for c in _cands if (c / "index.html").exists()), _cands[-1])
             if web_out.is_dir() and (web_out / "index.html").exists():
                 from fastapi.staticfiles import StaticFiles
                 app.mount("/", StaticFiles(directory=str(web_out), html=True), name="web")

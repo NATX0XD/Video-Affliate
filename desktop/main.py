@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 from pathlib import Path
@@ -50,14 +51,19 @@ def main():
     autopilot.restore()        # คืนสถานะเปิด/ปิดจากครั้งก่อน
     autopilot.start()          # เริ่มลูป (ทำงานเมื่อ enabled)
 
+    url = f"http://localhost:{server.port}"
     print("\n" + "─" * 50)
     print("  VDO Gen Auto Pilot — Web UI Mode")
     print("─" * 50)
-    print(f"  Backend  → http://localhost:{server.port}")
-    print(f"  Web UI   → http://localhost:3000  (run: npm run dev)")
-    print(f"  Jobs DB  → {cfg.DB_FILE.name}  "
+    print(f"  เปิดใช้งาน → {url}")
+    print(f"  Jobs DB    → {cfg.DB_FILE.name}  "
           f"(resumed {resumed}, imported {imported}, total {store.count()})")
     print("─" * 50 + "\n")
+
+    # โหมดพกพา (โฟลเดอร์ดับเบิลคลิก): เปิดเบราว์เซอร์ให้อัตโนมัติเมื่อ server พร้อม
+    if os.getenv("VGAP_OPEN_BROWSER"):
+        import threading, webbrowser
+        threading.Timer(2.0, lambda: webbrowser.open(url)).start()
 
     try:
         while True:

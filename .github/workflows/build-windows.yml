@@ -89,7 +89,28 @@ jobs:
           Write-Host "=== dist ==="
           Get-ChildItem ../dist
 
-      # ── อัปโหลดเป็น artifact ให้โหลดได้จากหน้า run เสมอ ──
+      # ── ประกอบ "โฟลเดอร์พกพา" — ก๊อปไปเครื่องไหนก็ดับเบิลคลิกใช้ได้ ไม่ต้องติดตั้งอะไร ──
+      - name: Assemble portable folder
+        shell: pwsh
+        run: |
+          $P = "portable-build/VDO-Gen-AutoPilot"
+          New-Item -ItemType Directory -Force -Path "$P/web/out","$P/bin" | Out-Null
+          Copy-Item desktop/dist/vgap-server.exe "$P/" -Force          # server (Python ในตัว)
+          Copy-Item "web/out/*"     "$P/web/out/" -Recurse -Force      # หน้าเว็บ prebuilt
+          Copy-Item "electron/bin/*" "$P/bin/"    -Recurse -Force      # adb + scrcpy v4.0 + ffmpeg
+          Copy-Item "portable/*"    "$P/"         -Recurse -Force      # ตัวเปิด/ปิด + อ่านก่อน
+          Write-Host "=== โฟลเดอร์พกพา ==="
+          Get-ChildItem $P
+
+      - name: Upload portable folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: vgap-portable-folder
+          path: portable-build/VDO-Gen-AutoPilot
+          if-no-files-found: error
+          retention-days: 30
+
+      # ── อัปโหลด installer (.exe) ด้วย เผื่ออยากใช้แบบติดตั้ง ──
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
