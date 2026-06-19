@@ -649,6 +649,11 @@ class WebServer:
         @app.post("/api/settings")
         async def save_settings(body: dict):
             import config as cfg
+            # ตั้ง Google API key ลง .env ถ้าผู้ใช้กรอกค่าจริง (ข้ามค่า mask ******** เพื่อไม่ทับ key เดิม)
+            key = (body.get("google_api_key") or "").strip()
+            if key and key != cfg.MASK:
+                cfg.set_secret("google_api_key", key)
+                self.emit_log("[SETTINGS] อัปเดต Google API key แล้ว")
             cfg.save(body)             # strips secrets; masked values are ignored
             # AutoPoster/AutoPilot อ่าน cfg.load() สดทุกครั้ง — ไม่ต้อง push เข้า worker
             return {"ok": True}

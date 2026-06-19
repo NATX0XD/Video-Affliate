@@ -6,7 +6,7 @@ import { Input }  from '@/components/ui/input'
 import { Label }  from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { CaptionBuilder } from '@/components/ui/CaptionBuilder'
-import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store } from 'lucide-react'
+import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound } from 'lucide-react'
 
 // ── helpers ───────────────────────────────────────────────────────
 
@@ -74,6 +74,8 @@ export default function SettingsPage() {
   const [cfg, setCfg]     = useState({})
   const [saved, setSaved] = useState(false)
   const [platforms, setPlatforms] = useState([])
+  const [apiKey, setApiKey] = useState('')
+  const keySet = cfg.google_api_key === '********'   // public_load ส่ง mask มาถ้าตั้ง key แล้ว
 
   useEffect(() => { api.getSettings().then(setCfg).catch(() => {}) }, [])
   useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
@@ -97,7 +99,10 @@ export default function SettingsPage() {
   }
 
   const save = async () => {
-    await api.saveSettings(cfg)
+    const payload = { ...cfg }
+    if (apiKey.trim()) payload.google_api_key = apiKey.trim()   // ส่งเฉพาะตอนกรอกใหม่ (ไม่ทับด้วย mask)
+    await api.saveSettings(payload)
+    setApiKey('')
     setSaved(true); setTimeout(() => setSaved(false), 2000)
   }
 
@@ -122,6 +127,16 @@ export default function SettingsPage() {
                title="ชื่อร้าน / แบรนด์"
                desc="ชื่อที่ตั้งตอนลงทะเบียน — แก้ไขได้ที่นี่ ใช้เป็นบล็อก 'ชื่อร้าน' ในแคปชัน">
             <Field label="ชื่อร้าน / แบรนด์" value={cfg.shop_name || ''} onChange={set('shop_name')} placeholder="ชื่อร้านของคุณ" />
+          </Row>
+
+          {/* ══ AI (Gemini) ═══════════════════════════════ */}
+          <Section title="AI (Gemini)" subtitle="คีย์สำหรับให้ AI เขียนพรอมต์/แคปชัน — ขอฟรีที่ aistudio.google.com/apikey" />
+          <Row icon={KeyRound} delay={30}
+               title="Google API Key"
+               desc="ส่วนขยายใช้คีย์นี้เรียก Gemini เขียนพรอมต์คลิป — เก็บในเครื่องเท่านั้น (.env) ไม่ส่งออกนอกเครื่อง">
+            <Field label="Google API Key (Gemini)" type="password"
+                   value={apiKey} onChange={setApiKey}
+                   placeholder={keySet ? 'ตั้งไว้แล้ว ✓ — กรอกใหม่เพื่อเปลี่ยน' : 'วางคีย์ที่นี่ (ขึ้นต้น AIza…)'} />
           </Row>
 
           {/* ══ การโพสต์ ══════════════════════════════════ */}
