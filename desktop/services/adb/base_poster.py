@@ -215,8 +215,16 @@ class BasePoster:
         size_kb = video_path.stat().st_size // 1024
         self.log(f"[{self.TAG}] ส่งวิดีโอไปมือถือ ({size_kb}KB)...")
 
-        # 1) ลบคลิปที่เราเคย push ไว้ก่อนหน้า — กันสะสม + กันตัวเก่าแย่งเซลล์แรก
-        self.adb._adb("shell", f"rm -f {cam}/vgap_*.mp4 {cam}/flow*.mp4", serial=serial)
+        # 1) ลบคลิปที่เราเคย push + ล้าง "ผี" ใน MediaStore (ลบไฟล์เฉย ๆ คลังภาพยังจำ thumbnail เก่า
+        #    → คลิปเทสเก่าโผล่ดักหน้าตัวจริง) → scan path ที่เพิ่งลบ เพื่อให้ entry หายจริง
+        self.adb._adb(
+            "shell",
+            f'for f in {cam}/vgap_*.mp4 {cam}/flow*.mp4; do '
+            f'[ -e "$f" ] && rm -f "$f" && '
+            f'am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$f" >/dev/null 2>&1; '
+            f'done',
+            serial=serial,
+        )
 
         # 2) push ด้วยชื่อใหม่ไม่ซ้ำ → เป็นไฟล์ใหม่ของ MediaStore (date_added = ตอนนี้)
         remote = f"{cam}/vgap_{int(time.time() * 1000)}.mp4"
