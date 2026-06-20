@@ -5,9 +5,10 @@ $root = $PSScriptRoot
 if (-not $root) { $root = (Get-Location).Path }
 Set-Location $root
 
-Write-Host "=== git pull ===" -ForegroundColor Cyan
+Write-Host "=== get latest code ===" -ForegroundColor Cyan
 $before = (git rev-parse HEAD)
-git pull
+git fetch origin
+git reset --hard origin/main          # ชัวร์กว่า git pull (ไม่ต้องตั้ง branch tracking)
 $after  = (git rev-parse HEAD)
 
 if ($before -eq $after) {
