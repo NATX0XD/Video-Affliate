@@ -15,7 +15,7 @@
 
 # next.js
 /.next/
-/out/
+# /out/ — ตั้งใจ track เข้า git (แจกให้ผู้ใช้รันได้เลยไม่ต้อง build); แก้ UI แล้วอย่าลืม build+commit ใหม่
 
 # production
 /build

@@ -83,10 +83,15 @@ Push-Location (Join-Path $root "desktop")
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 Pop-Location
-Push-Location (Join-Path $root "web")
-npm install
-npm run build
-Pop-Location
+# หน้าเว็บ: ถ้ามี web\out อยู่แล้ว (แจกแบบ prebuilt) → ข้าม build ได้เลย ไม่ต้องใช้ Node
+if (Test-Path (Join-Path $root "web\out\index.html")) {
+  Write-Host "  web\out พร้อมแล้ว — ข้าม build (ไม่ต้องลง Node)"
+} else {
+  Push-Location (Join-Path $root "web")
+  npm install
+  npm run build
+  Pop-Location
+}
 
 Write-Host "`n--- tool check ---" -ForegroundColor Cyan
 foreach ($c in "python","node","adb","scrcpy","ffmpeg") {
@@ -94,4 +99,4 @@ foreach ($c in "python","node","adb","scrcpy","ffmpeg") {
   Write-Host ("  {0,-8} {1}" -f $c, $mark)
 }
 
-Write-Host "`nDONE. Close this PowerShell, then double-click 'open.vbs' to start." -ForegroundColor Green
+Write-Host "`nDONE. Close this PowerShell, then double-click 'เปิดโปรแกรม.vbs' to start." -ForegroundColor Green
