@@ -13,8 +13,11 @@ __pycache__/
 # ── Node / Next.js ──
 node_modules/
 .next/
-out/
+/out/
 *.tsbuildinfo
+# หมายเหตุ: web/out (หน้าเว็บที่ build แล้ว) ตั้งใจ track เข้า git
+# เพื่อให้ผู้ใช้โหลดจาก GitHub แล้วรันได้เลยโดยไม่ต้องลง Node/build
+# ⚠ ถ้าแก้โค้ดใน web/ ต้อง `npm run build` แล้ว commit web/out ใหม่ด้วย
 
 # ── Generated data / outputs ──
 desktop/data/output/

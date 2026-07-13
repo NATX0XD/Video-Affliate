@@ -23,4 +23,4 @@ if ($before -eq $after) {
   }
 }
 
-Write-Host "`nDONE. Restart the app: double-click stop.bat, then open.vbs" -ForegroundColor Green
+Write-Host "`nDONE. Restart the app: double-click stop.bat, then เปิดโปรแกรม.vbs" -ForegroundColor Green
