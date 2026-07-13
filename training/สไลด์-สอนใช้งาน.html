@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>อบรมการใช้งาน — VDO Gen Auto Pilot</title>
+<style>
+  :root{
+    --ink:#16131c; --surface:#211b2a; --surface-2:#2c2436; --line:rgba(255,255,255,.09);
+    --text:#efe8f2; --muted:#a89fb4; --accent:#ff6a2b; --accent-2:#33d6c1;
+    --accent-soft:rgba(255,106,43,.15); --teal-soft:rgba(51,214,193,.14);
+    --shadow:0 24px 60px -24px rgba(0,0,0,.55);
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --ink:#f5f1ec; --surface:#ffffff; --surface-2:#efe9e2; --line:rgba(22,15,25,.11);
+      --text:#221e2a; --muted:#6c6473; --accent:#e5501a; --accent-2:#0f9e8d;
+      --accent-soft:rgba(229,80,26,.10); --teal-soft:rgba(15,158,141,.12);
+      --shadow:0 20px 50px -26px rgba(60,40,20,.30);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#16131c; --surface:#211b2a; --surface-2:#2c2436; --line:rgba(255,255,255,.09);
+    --text:#efe8f2; --muted:#a89fb4; --accent:#ff6a2b; --accent-2:#33d6c1;
+    --accent-soft:rgba(255,106,43,.15); --teal-soft:rgba(51,214,193,.14);
+    --shadow:0 24px 60px -24px rgba(0,0,0,.55);
+  }
+  :root[data-theme="light"]{
+    --ink:#f5f1ec; --surface:#ffffff; --surface-2:#efe9e2; --line:rgba(22,15,25,.11);
+    --text:#221e2a; --muted:#6c6473; --accent:#e5501a; --accent-2:#0f9e8d;
+    --accent-soft:rgba(229,80,26,.10); --teal-soft:rgba(15,158,141,.12);
+    --shadow:0 20px 50px -26px rgba(60,40,20,.30);
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"Sukhumvit Set","Sarabun","Thonburi","Leelawadee UI","Segoe UI",system-ui,-apple-system,sans-serif;
+    background:var(--ink); color:var(--text);
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+  .deck{position:fixed; inset:0}
+
+  /* ---- slide frame ---- */
+  .slide{
+    position:absolute; inset:0; display:none;
+    padding:clamp(28px,5vw,80px);
+    flex-direction:column; justify-content:center;
+    opacity:0; overflow-y:auto;
+  }
+  .slide.is-active{display:flex; animation:enter .45s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes enter{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){
+    .slide.is-active{animation:none;opacity:1;transform:none}
+  }
+  .wrap{width:100%;max-width:1080px;margin:0 auto}
+
+  /* ---- typography ---- */
+  .eyebrow{
+    font-size:clamp(.72rem,1.1vw,.85rem); letter-spacing:.22em; text-transform:uppercase;
+    color:var(--accent); font-weight:700; margin-bottom:1.1rem; display:flex; gap:.6em; align-items:center;
+  }
+  .eyebrow::before{content:"";width:2.2em;height:2px;background:var(--accent);border-radius:2px}
+  h1{font-size:clamp(2.4rem,6.2vw,4.6rem); line-height:1.02; font-weight:800; letter-spacing:-.02em; text-wrap:balance}
+  h2{font-size:clamp(1.7rem,3.8vw,2.9rem); line-height:1.1; font-weight:800; letter-spacing:-.015em; text-wrap:balance; margin-bottom:.4rem}
+  .lead{font-size:clamp(1.05rem,1.8vw,1.4rem); color:var(--muted); line-height:1.5; max-width:60ch; margin-top:1.1rem}
+  .sub{color:var(--muted); font-size:clamp(.95rem,1.5vw,1.15rem); margin-bottom:2rem; max-width:62ch; line-height:1.5}
+  strong,b{color:var(--text); font-weight:700}
+  .hl{color:var(--accent); font-weight:700}
+  .hl2{color:var(--accent-2); font-weight:700}
+  code{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; background:var(--surface-2); padding:.12em .45em; border-radius:6px; font-size:.86em; color:var(--text)}
+
+  /* ---- pipeline ---- */
+  .pipe{display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin-top:.6rem}
+  .pipe .step{
+    flex:1 1 200px; background:var(--surface); border:1px solid var(--line); border-radius:16px;
+    padding:1.5rem 1.4rem; position:relative; box-shadow:var(--shadow);
+  }
+  .pipe .arrow{display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:1.8rem;flex:0 0 40px;font-weight:700}
+  .step .n{font-size:.8rem;letter-spacing:.15em;color:var(--accent);font-weight:800}
+  .step h3{font-size:1.25rem;margin:.35rem 0 .4rem;font-weight:800}
+  .step p{color:var(--muted);font-size:.95rem;line-height:1.45}
+  .badge{display:inline-block;margin-top:.7rem;font-size:.78rem;background:var(--accent-soft);color:var(--accent);padding:.25em .7em;border-radius:20px;font-weight:700}
+
+  /* ---- generic cards grid ---- */
+  .grid{display:grid;gap:.9rem;margin-top:.4rem}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media (max-width:720px){.g3,.g4{grid-template-columns:repeat(2,1fr)} .g2{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1.05rem 1.15rem}
+  .card .t{font-weight:800;font-size:1.02rem;margin-bottom:.25rem;display:flex;gap:.5em;align-items:baseline}
+  .card .d{color:var(--muted);font-size:.9rem;line-height:1.4}
+  .card .k{font-family:"SF Mono",ui-monospace,monospace;font-size:.78rem;color:var(--accent-2)}
+
+  /* ---- numbered agenda ---- */
+  .list{display:flex;flex-direction:column;gap:.7rem;margin-top:.5rem}
+  .row{display:flex;gap:1rem;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:.9rem 1.15rem}
+  .row .num{flex:0 0 2.1rem;height:2.1rem;border-radius:9px;background:var(--accent-soft);color:var(--accent);font-weight:800;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+  .row .txt{font-size:1.05rem;font-weight:600}
+  .row .txt small{display:block;color:var(--muted);font-weight:400;font-size:.85rem;margin-top:.1rem}
+  .row .flag{margin-left:auto;font-size:.75rem;font-weight:800;color:var(--accent-2);background:var(--teal-soft);padding:.3em .75em;border-radius:20px;white-space:nowrap}
+
+  /* ---- hands-on slide ---- */
+  .slide.handson{background:radial-gradient(120% 90% at 50% 0%,var(--teal-soft),transparent 60%)}
+  .handson-badge{display:inline-flex;align-items:center;gap:.5em;background:var(--accent-2);color:#052b26;font-weight:800;padding:.5em 1.1em;border-radius:30px;font-size:.9rem;letter-spacing:.02em;margin-bottom:1.3rem}
+  .goto{margin-top:1.6rem;display:inline-flex;align-items:center;gap:.7em;font-size:1.1rem;font-weight:700;color:var(--accent-2);border:1.5px dashed var(--accent-2);padding:.8em 1.3em;border-radius:14px}
+  .doitems{margin-top:1.4rem;display:flex;flex-direction:column;gap:.55rem;max-width:64ch}
+  .doitems li{list-style:none;display:flex;gap:.7em;color:var(--muted);font-size:1rem;line-height:1.4}
+  .doitems li::before{content:"›";color:var(--accent-2);font-weight:800}
+
+  /* ---- table ---- */
+  .tbl{width:100%;border-collapse:collapse;margin-top:.6rem;overflow:hidden;border-radius:12px;border:1px solid var(--line)}
+  .tbl th,.tbl td{text-align:left;padding:.75rem 1rem;font-size:.95rem;border-bottom:1px solid var(--line)}
+  .tbl th{background:var(--surface-2);font-weight:800;font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .tbl td:first-child{font-weight:700;white-space:nowrap}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl td .d{color:var(--muted)}
+
+  .note{margin-top:1.4rem;font-size:.92rem;color:var(--muted);border-left:3px solid var(--accent);padding-left:.9rem;line-height:1.5}
+
+  /* ---- cover ---- */
+  .cover .kicker{font-size:clamp(.8rem,1.3vw,1rem);letter-spacing:.28em;text-transform:uppercase;color:var(--accent-2);font-weight:700}
+  .cover .brand{display:flex;align-items:center;gap:.9rem;margin-bottom:1.4rem}
+  .logo{width:52px;height:52px;border-radius:14px;background:linear-gradient(140deg,var(--accent),#ff9a5b);display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);flex:0 0 auto}
+  .logo::after{content:"";width:0;height:0;border-left:15px solid #fff;border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px}
+  .cover .foot{margin-top:2.4rem;color:var(--muted);font-size:.95rem;display:flex;gap:1.6rem;flex-wrap:wrap}
+  .cover .foot b{color:var(--text)}
+
+  /* ---- chrome (nav) ---- */
+  .topbar{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:16px 22px;z-index:20;pointer-events:none}
+  .mark{display:flex;align-items:center;gap:.55em;font-weight:800;font-size:.82rem;letter-spacing:.02em;color:var(--muted);pointer-events:auto}
+  .mark .dot{width:16px;height:16px;border-radius:5px;background:linear-gradient(140deg,var(--accent),#ff9a5b)}
+  .tools{display:flex;gap:.5rem;pointer-events:auto}
+  .btn{background:var(--surface);border:1px solid var(--line);color:var(--muted);width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:.9rem;display:flex;align-items:center;justify-content:center;transition:.15s}
+  .btn:hover{color:var(--text);border-color:var(--accent)}
+  .counter{font-variant-numeric:tabular-nums;font-size:.8rem;color:var(--muted);align-self:center;padding:0 .4rem;min-width:44px;text-align:center}
+
+  .nav{position:fixed;bottom:0;left:0;right:0;display:flex;align-items:center;gap:14px;padding:14px 22px;z-index:20}
+  .progress{flex:1;height:5px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+  .bar{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2));border-radius:4px;transition:width .35s cubic-bezier(.4,.8,.3,1)}
+  .arrows{display:flex;gap:.5rem}
+  .arrows .btn{width:40px;height:40px;font-size:1.1rem}
+  .hint{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);font-size:.72rem;color:var(--muted);opacity:.6;z-index:20;pointer-events:none}
+  :focus-visible{outline:2px solid var(--accent-2);outline-offset:3px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="mark"><span class="dot"></span> VDO Gen · Auto Pilot</div>
+  <div class="tools">
+    <button class="btn" id="themeBtn" title="สลับธีม (T)">◐</button>
+    <div class="counter"><span id="cur">1</span> / <span id="tot">16</span></div>
+  </div>
+</div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 COVER -->
+  <section class="slide cover">
+    <div class="wrap">
+      <div class="brand"><div class="logo"></div>
+        <div><div class="kicker">อบรมการใช้งาน</div></div>
+      </div>
+      <h1>สร้างคลิป & โพสต์ขายของ<br><span class="hl">อัตโนมัติ</span> ครบวงจร</h1>
+      <p class="lead">ดูดสินค้าจาก Shopee → ให้ AI ทำคลิปวิดีโอสั้น → โพสต์ผ่านมือถือให้เอง ทั้งหมดทำงานในเครื่องคุณเครื่องเดียว</p>
+      <div class="foot">
+        <span>ระบบ <b>VDO Gen — Auto Pilot</b></span>
+        <span>ผู้สอน <b>________</b></span>
+        <span>วันที่ <b>________</b></span>
+      </div>
+      <div class="note">กด <b>→</b> หรือ <b>Spacebar</b> เพื่อไปสไลด์ถัดไป · กด <b>F</b> เต็มจอ · กด <b>T</b> สลับสว่าง/มืด</div>
+    </div>
+  </section>
+
+  <!-- 2 WHAT IT DOES -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">ระบบนี้ทำอะไร</div>
+      <h2>งาน 3 ขั้น ที่เดิมทำเองทั้งวัน — ระบบทำให้แทบทั้งหมด</h2>
+      <div class="pipe" style="margin-top:1.6rem">
+        <div class="step">
+          <div class="n">ขั้นที่ 1</div><h3>ดูดสินค้า</h3>
+          <p>ดึงชื่อ · ราคา · รูป · ลิงก์ affiliate จาก Shopee ผ่านปลั๊กอิน Chrome เก็บเข้าคลัง</p>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <div class="n">ขั้นที่ 2</div><h3>สร้างคลิป</h3>
+          <p>ทำวิดีโอแนวตั้ง 9:16 อัตโนมัติด้วย AI พร้อมแคปชัน เลือกสไตล์คลิปได้ 3 แบบ</p>
+        </div>
+        <div class="arrow">→</div>
+        <div class="step">
+          <div class="n">ขั้นที่ 3</div><h3>โพสต์</h3>
+          <p>สั่งมือถือจริงโพสต์คลิป + แคปชัน + ลิงก์ ตามเวลาที่ตั้งไว้ ทำซ้ำได้ทุกวัน</p>
+        </div>
+      </div>
+      <div class="note">ทำงานบนเครื่องตัวเอง (local) — สินค้า · คลิป · การตั้งค่า เก็บในเครื่อง <b>ไม่ขึ้น cloud</b></div>
+    </div>
+  </section>
+
+  <!-- 3 COMPONENTS -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">ประกอบด้วยอะไร</div>
+      <h2>3 ส่วนที่ทำงานด้วยกัน</h2>
+      <p class="sub">เข้าใจแค่ระดับ "อันไหนทำอะไร" ก็พอ ไม่ต้องรู้ลึก</p>
+      <div class="grid g3">
+        <div class="card">
+          <div class="t">🧠 ตัวโปรแกรมหลัก</div>
+          <div class="d">สมองของระบบ คุมงานทั้งหมด + เก็บข้อมูล ทำงานอยู่เบื้องหลังที่ <span class="k">พอร์ต 3001</span></div>
+        </div>
+        <div class="card">
+          <div class="t">🧩 ปลั๊กอิน Chrome</div>
+          <div class="d">ตัวดูดสินค้าจากหน้า Shopee Affiliate ติดตั้งในเบราว์เซอร์ครั้งเดียว</div>
+        </div>
+        <div class="card">
+          <div class="t">🖥️ หน้าจอควบคุม</div>
+          <div class="d">หน้าเว็บที่เราคลิกใช้งานจริง เปิดที่ <span class="k">localhost:3001</span></div>
+        </div>
+      </div>
+      <div class="note">เวลาใช้งานจริง เราแตะแค่ <b>ปลั๊กอิน Chrome</b> (ตอนดูด) กับ <b>หน้าจอควบคุม</b> เป็นหลัก</div>
+    </div>
+  </section>
+
+  <!-- 4 AGENDA -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">วันนี้เราจะทำอะไรกัน</div>
+      <h2>ลำดับการเรียน</h2>
+      <div class="list" style="margin-top:1.2rem">
+        <div class="row"><div class="num">1</div><div class="txt">ติดตั้ง & เปิดโปรแกรมครั้งแรก<small>ลงเครื่องมือ · ต่อมือถือ · ใส่ API key · โหลดปลั๊กอิน</small></div><div class="flag">🔧 ลงมือทำ</div></div>
+        <div class="row"><div class="num">2</div><div class="txt">รู้จักหน้าจอควบคุม<small>แต่ละเมนูทำอะไร ดูตรงไหน</small></div></div>
+        <div class="row"><div class="num">3</div><div class="txt">ดูดสินค้า → สร้างคลิป<small>ดูดจาก Shopee แล้วสั่งทำคลิป</small></div><div class="flag">🔧 ลงมือทำ</div></div>
+        <div class="row"><div class="num">4</div><div class="txt">โพสต์ผ่านมือถือ<small>สั่งโพสต์จริง + ดูมิเรอร์หน้าจอ</small></div><div class="flag">🔧 ลงมือทำ</div></div>
+        <div class="row"><div class="num">5</div><div class="txt">ตั้งค่า + แก้ปัญหาที่เจอบ่อย<small>เวลาโพสต์ · จำนวน/วัน · cooldown · troubleshooting</small></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 PREREQS -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">ก่อนเริ่ม — เตรียมของให้พร้อม</div>
+      <h2>เช็กลิสต์ก่อนอบรม</h2>
+      <div class="grid g2" style="margin-top:1.2rem">
+        <div class="card"><div class="t">💻 คอมพิวเตอร์ Windows</div><div class="d">เครื่องที่จะลงระบบ (ตอนนี้รองรับ Windows)</div></div>
+        <div class="card"><div class="t">📱 มือถือ + สาย USB</div><div class="d">มือถือ Android ไว้โพสต์ + สายต่อเข้าคอม</div></div>
+        <div class="card"><div class="t">🔑 Google API key</div><div class="d">ไว้ให้ AI เขียนแคปชัน/สร้างคลิป (เตรียมไว้ก่อน)</div></div>
+        <div class="card"><div class="t">🛒 บัญชี Shopee Affiliate</div><div class="d">ไว้ดูดสินค้าที่มีลิงก์ affiliate</div></div>
+      </div>
+      <div class="note">ผู้สอนควรลง & เปิดระบบให้ผ่านมาก่อน 1 รอบ เพื่อกันสะดุดหน้างาน</div>
+    </div>
+  </section>
+
+  <!-- 6 INSTALL OVERVIEW -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">การติดตั้ง</div>
+      <h2>ตั้งครั้งเดียว 3 ขั้น — จากนั้นดับเบิลคลิกใช้ได้ทุกวัน</h2>
+      <div class="list" style="margin-top:1.2rem">
+        <div class="row"><div class="num">1</div><div class="txt">เอาโค้ดลงเครื่อง<small>ดาวน์โหลดจาก GitHub (git clone หรือโหลด ZIP แล้วแตกไฟล์)</small></div></div>
+        <div class="row"><div class="num">2</div><div class="txt">รันคำสั่งเดียว <code>setup-prereqs.ps1</code><small>ลงเครื่องมือให้อัตโนมัติ: Python · Node · adb · scrcpy · ffmpeg (~5–10 นาที)</small></div></div>
+        <div class="row"><div class="num">3</div><div class="txt">ตั้งค่าใช้งานครั้งแรก<small>เปิดโปรแกรม · ใส่ API key · ต่อมือถือ · โหลดปลั๊กอิน Chrome</small></div></div>
+      </div>
+      <div class="note">วิธีนี้รันจากซอร์สโค้ดจริง → <b>ไม่โดน Antivirus จับ</b> เหมือนไฟล์ .exe</div>
+    </div>
+  </section>
+
+  <!-- 7 HANDS-ON 1 -->
+  <section class="slide handson">
+    <div class="wrap">
+      <div class="handson-badge">🔧 ลงมือทำ #1</div>
+      <h2>ติดตั้ง & เปิดโปรแกรมครั้งแรก</h2>
+      <ul class="doitems">
+        <li>รัน <code>setup-prereqs.ps1</code> ให้ครบ (ผู้สอนเดินดูทีละคน)</li>
+        <li>ดับเบิลคลิก <code>เปิดโปรแกรม.vbs</code> → เบราว์เซอร์เด้ง <code>localhost:3001</code></li>
+        <li>ครั้งแรก: หน้าต้อนรับให้ <b>ตั้งชื่อร้าน/แบรนด์</b> → กดเริ่มใช้งาน</li>
+        <li>ไปเมนู <b>ตั้งค่า</b> → ใส่ <b>Google API key</b></li>
+        <li>เสียบมือถือ + เปิด USB debugging + ลงแอป <b>ADBKeyboard</b></li>
+        <li>โหลดปลั๊กอิน: <code>chrome://extensions</code> → Developer mode → Load unpacked → เลือกโฟลเดอร์ <code>extension</code></li>
+      </ul>
+      <div class="goto">▶ ปิดสไลด์ — ทำตาม <b>สคริปต์พาทำ ข้อ 1</b></div>
+    </div>
+  </section>
+
+  <!-- 8 DAILY -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">ใช้งานทุกวัน</div>
+      <h2>3 ปุ่มที่ต้องจำ</h2>
+      <div class="grid g3" style="margin-top:1.2rem">
+        <div class="card"><div class="t">▶️ เปิด</div><div class="d">ดับเบิลคลิก <span class="k">เปิดโปรแกรม.vbs</span> → เบราว์เซอร์เด้งเอง</div></div>
+        <div class="card"><div class="t">⏹️ ปิด</div><div class="d">ดับเบิลคลิก <span class="k">ปิดโปรแกรม.bat</span></div></div>
+        <div class="card"><div class="t">⬆️ อัปเดต</div><div class="d">ดับเบิลคลิก <span class="k">update.bat</span> — ดึงโค้ดใหม่ + เปิดใหม่ให้เอง</div></div>
+      </div>
+      <div class="note">ถ้าเบราว์เซอร์ไม่เด้ง → เปิดเองแล้วพิมพ์ <code>http://localhost:3001</code></div>
+    </div>
+  </section>
+
+  <!-- 9 SCREENS -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">รู้จักหน้าจอควบคุม</div>
+      <h2>เมนูด้านซ้าย จัดเป็น 4 กลุ่ม</h2>
+      <p class="sub">ชื่อเมนูจริงในโปรแกรมเป็นภาษาไทยแบบนี้ — จำตามนี้ได้เลย</p>
+      <div class="grid g4" style="margin-top:.4rem">
+        <div class="card"><div class="t">ค็อกพิต</div><div class="d"><span class="k">ภาพรวม</span> สถานะระบบ + สรุปงาน + กราฟย้อนหลัง</div></div>
+        <div class="card"><div class="t">งาน</div><div class="d"><span class="k">การทำงาน</span> คิวงานที่กำลังทำ (สร้าง/โพสต์)</div></div>
+        <div class="card"><div class="t">ผลการโพสต์</div><div class="d"><span class="k">การทำงาน</span> ประวัติ + สถานะการโพสต์</div></div>
+        <div class="card"><div class="t">คลังคลิป</div><div class="d"><span class="k">การทำงาน</span> คลังสินค้าที่ดูด + คลิปที่สร้าง</div></div>
+        <div class="card"><div class="t">ดูแลเครื่อง</div><div class="d"><span class="k">ฟาร์มมือถือ</span> มือถือที่ต่ออยู่ ต้องเจอก่อนถึงโพสต์ได้</div></div>
+        <div class="card"><div class="t">จอสด</div><div class="d"><span class="k">ฟาร์มมือถือ</span> มิเรอร์หน้าจอมือถือ ดูตอนโพสต์</div></div>
+        <div class="card"><div class="t">ตั้งค่า</div><div class="d"><span class="k">ระบบ</span> API key · engine · เวลา · cooldown</div></div>
+        <div class="card" style="background:var(--accent-soft);border-color:var(--accent)"><div class="t" style="color:var(--accent)">มุมขวาบน</div><div class="d">ตัวเลข <b>มือถือ</b> = เครื่องที่ต่อ · <b>คิวงาน</b> = งานค้าง</div></div>
+      </div>
+      <div class="note">3 เมนูที่ใช้บ่อยสุด: <b class="hl">คลังคลิป</b> (ของ) · <b class="hl">งาน</b> (คิว) · <b class="hl">ดูแลเครื่อง</b> (มือถือ)</div>
+    </div>
+  </section>
+
+  <!-- 10 FLOW -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">วิธีใช้งานจริง</div>
+      <h2>วนซ้ำ 4 ขั้นนี้ทุกวัน</h2>
+      <div class="list" style="margin-top:1.1rem">
+        <div class="row"><div class="num">1</div><div class="txt">ดูดสินค้า<small>เปิดหน้า Shopee Affiliate → กดปุ่มจากปลั๊กอิน → สินค้าเข้า คลังคลิป</small></div></div>
+        <div class="row"><div class="num">2</div><div class="txt">สร้างคลิป<small>เลือกสินค้า → เลือกสไตล์คลิป → ระบบเข้าคิวทำให้อัตโนมัติ</small></div></div>
+        <div class="row"><div class="num">3</div><div class="txt">รีวิว<small>คลิปเสร็จเข้า คลังคลิป ดูก่อนโพสต์ (หรือตั้ง auto ให้โพสต์เลย)</small></div></div>
+        <div class="row"><div class="num">4</div><div class="txt">โพสต์<small>ระบบสั่งมือถือจริงโพสต์ + แคปชัน + ลิงก์ ตามเวลาที่ตั้ง</small></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 ENGINES -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">3 สไตล์คลิป (engine)</div>
+      <h2>เลือกได้ว่าจะให้คลิปหน้าตาแบบไหน</h2>
+      <div class="grid g3" style="margin-top:1.1rem">
+        <div class="card"><div class="t">🖼️ Template</div><div class="d">ต่อรูปสินค้า + ข้อความเป็นวิดีโอ</div><span class="badge">ฟรี · เร็ว</span></div>
+        <div class="card"><div class="t">🧑 Avatar</div><div class="d">คนพูดรีวิวสินค้า (ผ่าน D-ID)</div><span class="badge">เหมือนคนรีวิว</span></div>
+        <div class="card"><div class="t">🎬 Veo</div><div class="d">วิดีโอ AI จาก Google คุณภาพสูง</div><span class="badge">เสียเครดิต</span></div>
+      </div>
+      <div class="note">มือใหม่แนะนำเริ่มที่ <b class="hl">Template</b> ก่อน — ฟรีและเห็นผลไว จากนั้นค่อยลองแบบอื่น</div>
+    </div>
+  </section>
+
+  <!-- 12 HANDS-ON 2 -->
+  <section class="slide handson">
+    <div class="wrap">
+      <div class="handson-badge">🔧 ลงมือทำ #2</div>
+      <h2>ดูดสินค้า → สร้างคลิป</h2>
+      <ul class="doitems">
+        <li>เปิดหน้าสินค้าใน Shopee Affiliate → กดปุ่มดูดจากปลั๊กอิน</li>
+        <li>กลับมาที่เมนู <b>คลังคลิป</b> → เช็กว่าสินค้าเข้ามาแล้ว</li>
+        <li>เลือกสินค้า → เลือก engine <b>Template</b> → สั่งสร้างคลิป</li>
+        <li>ดูคิวที่เมนู <b>งาน</b> → รอคลิปเสร็จ → รีวิวใน <b>คลังคลิป</b></li>
+      </ul>
+      <div class="goto">▶ ปิดสไลด์ — ทำตาม <b>สคริปต์พาทำ ข้อ 2</b></div>
+    </div>
+  </section>
+
+  <!-- 13 HANDS-ON 3 -->
+  <section class="slide handson">
+    <div class="wrap">
+      <div class="handson-badge">🔧 ลงมือทำ #3</div>
+      <h2>โพสต์ผ่านมือถือจริง</h2>
+      <ul class="doitems">
+        <li>เช็กเมนู <b>ดูแลเครื่อง</b> ว่าเจอมือถือ (ต้องเขียว/เชื่อมต่อ)</li>
+        <li>เปิดใช้แพลตฟอร์ม <b>Shopee Video</b> ก่อน (ค่าเริ่มต้น "ปิดอยู่")</li>
+        <li>เลือกคลิปที่รีวิวแล้ว → สั่งโพสต์</li>
+        <li>เปิดเมนู <b>จอสด</b> ดูมือถือทำงานจริงตอนโพสต์</li>
+        <li>เช็กผลที่เมนู <b>ผลการโพสต์</b> → สถานะสำเร็จ</li>
+      </ul>
+      <div class="goto">▶ ปิดสไลด์ — ทำตาม <b>สคริปต์พาทำ ข้อ 3</b></div>
+    </div>
+  </section>
+
+  <!-- 14 SETTINGS -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">ตั้งค่าที่ควรรู้</div>
+      <h2>ปรับในเมนู ตั้งค่า ให้เข้ากับการใช้งาน</h2>
+      <div class="grid g2" style="margin-top:1.1rem">
+        <div class="card"><div class="t">🔑 API key & Engine</div><div class="d">ใส่ Google API key + เลือก engine เริ่มต้นที่ใช้บ่อย</div></div>
+        <div class="card"><div class="t">⏰ เวลาโพสต์ & จำนวน/วัน</div><div class="d">กำหนดช่วงเวลาโพสต์ และโพสต์กี่คลิปต่อวัน</div></div>
+        <div class="card"><div class="t">✍️ แคปชัน</div><div class="d">รูปแบบข้อความ + ลิงก์ affiliate ที่แนบไปกับโพสต์</div></div>
+        <div class="card"><div class="t">🌡️ Cooldown</div><div class="d">พักเครื่องอัตโนมัติเมื่อมือถือร้อน/แบตต่ำ กันเครื่องพัง</div></div>
+      </div>
+      <div class="note">ตั้งครั้งแรกให้พอใช้ก่อน แล้วค่อยจูนทีหลังเมื่อใช้จริงคล่องขึ้น</div>
+    </div>
+  </section>
+
+  <!-- 15 TROUBLESHOOT -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">แก้ปัญหาที่เจอบ่อย</div>
+      <h2>เจอแบบนี้ ทำแบบนี้</h2>
+      <div style="overflow-x:auto">
+      <table class="tbl">
+        <thead><tr><th>อาการ</th><th>วิธีแก้</th></tr></thead>
+        <tbody>
+          <tr><td>เปิดแล้วเบราว์เซอร์ไม่เด้ง</td><td class="d">ดับเบิลคลิก <code>_run-source.bat</code> จะโชว์หน้าต่างดำ + error → ส่งรูปมา</td></tr>
+          <tr><td><code>python</code>/<code>adb</code> ไม่เจอ</td><td class="d">ปิด-เปิด PowerShell หรือรีสตาร์ตเครื่อง (PATH เพิ่งเพิ่ม)</td></tr>
+          <tr><td>หน้า ดูแลเครื่อง ไม่เจอมือถือ</td><td class="d">เช็ก USB debugging + กด Allow บนมือถือ + ลองสายอื่น</td></tr>
+          <tr><td>โพสต์แล้วพิมพ์ไทยไม่ได้</td><td class="d">ต้องลงแอป <b>ADBKeyboard</b> บนมือถือ</td></tr>
+          <tr><td>setup บอกไม่พบ winget</td><td class="d">อัปเดต "App Installer" จาก Microsoft Store ก่อน</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 16 CLOSE -->
+  <section class="slide cover">
+    <div class="wrap">
+      <div class="eyebrow">สรุป & ถามได้เลย</div>
+      <h1>จับหลักได้แล้ว<br>ที่เหลือคือ<span class="hl"> ทำซ้ำ</span></h1>
+      <p class="lead">ดูด → สร้าง → รีวิว → โพสต์ · เปิดด้วย <code>เปิดโปรแกรม.vbs</code> ทุกวัน · ติดตรงไหนเปิดคู่มือเริ่มต้นได้</p>
+      <div class="grid g3" style="margin-top:1.8rem">
+        <div class="card"><div class="t">💬 ถามระหว่างทำ</div><div class="d">แปะคำถามที่ Padlet: <span class="k">________</span></div></div>
+        <div class="card"><div class="t">🔗 ลิงก์ & ไฟล์</div><div class="d">repo · API key · ADBKeyboard รวมไว้ที่ Padlet</div></div>
+        <div class="card"><div class="t">📸 ส่งการบ้าน</div><div class="d">แปะภาพคลิป/โพสต์ที่ทำเสร็จลง Padlet</div></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="hint" id="hint">← → เปลี่ยนสไลด์ · T สลับธีม · F เต็มจอ</div>
+<div class="nav">
+  <div class="progress"><div class="bar" id="bar"></div></div>
+  <div class="arrows">
+    <button class="btn" id="prev" title="ก่อนหน้า (←)">←</button>
+    <button class="btn" id="next" title="ถัดไป (→)">→</button>
+  </div>
+</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const bar=document.getElementById('bar');
+  const cur=document.getElementById('cur');
+  const tot=document.getElementById('tot');
+  let i=0;
+  tot.textContent=slides.length;
+
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,x)=>s.classList.toggle('is-active',x===i));
+    bar.style.width=((i+1)/slides.length*100)+'%';
+    cur.textContent=i+1;
+    location.hash=i+1;
+  }
+  function nextS(){show(i+1)}
+  function prevS(){show(i-1)}
+
+  document.getElementById('next').onclick=nextS;
+  document.getElementById('prev').onclick=prevS;
+
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){e.preventDefault();nextS()}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();prevS()}
+    else if(e.key==='Home'){show(0)}
+    else if(e.key==='End'){show(slides.length-1)}
+    else if(e.key.toLowerCase()==='f'){toggleFull()}
+    else if(e.key.toLowerCase()==='t'){toggleTheme()}
+  });
+
+  // click right/left half to navigate (ignore buttons/links)
+  document.getElementById('deck').addEventListener('click',e=>{
+    if(e.target.closest('button,a,code')) return;
+    (e.clientX > window.innerWidth/2 ? nextS : prevS)();
+  });
+
+  function toggleFull(){
+    if(!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  }
+  function toggleTheme(){
+    const r=document.documentElement;
+    const isDark = (r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))==='dark';
+    r.setAttribute('data-theme', isDark?'light':'dark');
+  }
+  document.getElementById('themeBtn').onclick=toggleTheme;
+
+  // hide hint after first move
+  let hinted=false;
+  ['keydown','click'].forEach(ev=>document.addEventListener(ev,()=>{
+    if(!hinted){hinted=true;const h=document.getElementById('hint');h.style.transition='opacity .5s';h.style.opacity='0'}
+  },{once:true}));
+
+  window.addEventListener('hashchange',()=>{
+    const n=(parseInt(location.hash.slice(1))-1)||0;
+    if(n!==i) show(n);
+  });
+  show(location.hash? (parseInt(location.hash.slice(1))-1)||0 : 0);
+</script>
+</body>
+</html>
