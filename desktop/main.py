@@ -13,6 +13,42 @@ from services.budget       import BudgetGuard
 from services.autopilot    import AutoPilot
 
 
+def _open_app_window(url: str):
+    """เปิดเป็น 'หน้าต่างแอป' ด้วย Chrome --app (ไม่มีแถบเบราว์เซอร์ = เหมือนแอปจริง)
+    ถ้าหา Chrome ไม่เจอ → fallback เปิดเบราว์เซอร์ปกติ. รองรับ Mac + Windows + Linux."""
+    import shutil, subprocess, webbrowser
+    candidates = []
+    if sys.platform == "darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            shutil.which("google-chrome"), shutil.which("chromium"),
+        ]
+    elif os.name == "nt":
+        pf   = os.environ.get("ProgramFiles",      r"C:\Program Files")
+        pfx  = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        lad  = os.environ.get("LOCALAPPDATA", "")
+        candidates = [
+            pf  + r"\Google\Chrome\Application\chrome.exe",
+            pfx + r"\Google\Chrome\Application\chrome.exe",
+            (lad + r"\Google\Chrome\Application\chrome.exe") if lad else None,
+            pf  + r"\Microsoft\Edge\Application\msedge.exe",   # Edge = chromium, รองรับ --app เช่นกัน
+            shutil.which("chrome"),
+        ]
+    else:
+        candidates = [shutil.which("google-chrome"), shutil.which("chromium"),
+                      shutil.which("chromium-browser")]
+    chrome = next((c for c in candidates if c and os.path.exists(c)), None)
+    if chrome:
+        try:
+            subprocess.Popen([chrome, "--app=" + url, "--new-window"])
+            return
+        except Exception:
+            pass
+    webbrowser.open(url)   # fallback: แท็บเบราว์เซอร์ปกติ
+
+
 def main():
     settings = cfg.load()
 
@@ -60,10 +96,10 @@ def main():
           f"(resumed {resumed}, imported {imported}, total {store.count()})")
     print("─" * 50 + "\n")
 
-    # โหมดพกพา (โฟลเดอร์ดับเบิลคลิก): เปิดเบราว์เซอร์ให้อัตโนมัติเมื่อ server พร้อม
+    # เปิดเป็น "หน้าต่างแอป" (Chrome --app) เมื่อ server พร้อม — เหมือนแอปจริง ไม่ใช่แท็บ
     if os.getenv("VGAP_OPEN_BROWSER"):
-        import threading, webbrowser
-        threading.Timer(2.0, lambda: webbrowser.open(url)).start()
+        import threading
+        threading.Timer(2.0, lambda: _open_app_window(url)).start()
 
     try:
         while True:
