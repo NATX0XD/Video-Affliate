@@ -114,6 +114,7 @@ DEFAULT = {
     "gemini_cost_per_1k": 0,     # ต้นทุน Gemini ต่อ 1,000 token (บาท) — ประเมินค่า Gemini (J)
     "hot_folder": str(PENDING_DIR),
     "shop_name": "",
+    "flow_email": "",            # อีเมล Google ที่ใช้ล็อกอิน Flow ในเบราว์เซอร์ (แสดงให้ผู้ใช้ยืนยัน)
     # Video generation settings
     "age_group": "ทุกวัย",
     "personality": "สนุกสนาน",

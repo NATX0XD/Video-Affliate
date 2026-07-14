@@ -46,6 +46,12 @@ export const api = {
   mirrorStartAll:  ()         => req('POST', '/api/mirror/start_all'),
   mirrorStopAll:   ()         => req('POST', '/api/mirror/stop_all'),
   wifiConnect:     (ip)       => req('POST', '/api/wifi_connect', { ip }),
+  // เชื่อมมือถือ (onboarding P2.2) — endpoint คืน {ok, error?} เสมอ (ไม่ throw ตาม logic)
+  adbTcpip:        (body)     => req('POST', '/api/adb/tcpip', body),    // {serial, port?}
+  adbPair:         (body)     => req('POST', '/api/adb/pair', body),     // {host, port, code}
+  adbConnect:      (body)     => req('POST', '/api/adb/connect', body),  // {host|ip, port?}
+  adbTest:         (serial)   => req('POST', '/api/adb/test', { serial }),
+  testKey:         (key)      => req('POST', '/api/settings/test-key', { google_api_key: key || '' }),
   setDeviceLabel:  (s, label) => req('POST', `/api/devices/${s}/label`, { label }),
   setDevicePlatforms: (s, platforms) => req('POST', `/api/devices/${s}/platforms`, { platforms }),
   adbTap:          (s, x, y)  => req('POST', `/api/adb/tap/${s}`, { x, y }),

@@ -300,10 +300,78 @@ class ADBManager:
         return None
 
     # ── WiFi ADB ─────────────────────────────────────────────
-    def connect_wifi(self, ip: str, port: int = 5555) -> bool:
-        ok, msg = self._adb("connect", f"{ip}:{port}")
-        self.log(f"[ADB] WiFi connect {ip}:{port} → {msg}")
-        return ok
+    @staticmethod
+    def _friendly_adb_error(msg: str) -> str:
+        """แปลข้อความ error ของ adb เป็นภาษาที่คนทั่วไปเข้าใจ."""
+        low = (msg or "").lower()
+        if not low:
+            return "เชื่อมต่อมือถือไม่สำเร็จ"
+        if "not found" in low and "device" not in low:
+            return "ยังไม่ได้ติดตั้งตัวเชื่อมมือถือ (adb) — ดูวิธีติดตั้งในคู่มือ"
+        if "unauthorized" in low:
+            return "มือถือยังไม่อนุญาต — แตะปุ่ม 'อนุญาต' บนจอมือถือ (USB debugging)"
+        if "offline" in low:
+            return "มือถือหลุดการเชื่อมต่อ — เสียบสายใหม่ หรือเชื่อม Wi-Fi ใหม่"
+        if "no devices" in low or "device '" in low and "not found" in low:
+            return "ไม่พบมือถือ — เสียบสาย USB หรือเชื่อม Wi-Fi ก่อน"
+        if "cannot connect" in low or "failed to connect" in low or "unable to connect" in low:
+            return "เชื่อม Wi-Fi ไม่สำเร็จ — ตรวจว่ามือถืออยู่วง Wi-Fi เดียวกัน และเปิดโหมด Wi-Fi ADB แล้ว"
+        if "timeout" in low or "timed out" in low:
+            return "มือถือไม่ตอบสนอง — ลองปลดล็อกจอแล้วลองใหม่"
+        if "pair" in low and ("fail" in low or "incorrect" in low or "error" in low):
+            return "จับคู่ไม่สำเร็จ — ตรวจที่อยู่/พอร์ต และรหัส 6 หลักให้ตรงกับที่มือถือแสดง"
+        return msg.strip()
+
+    def connect_wifi(self, ip: str, port: int = 5555) -> tuple[bool, str]:
+        """เชื่อมมือถือผ่าน Wi-Fi. คืน (สำเร็จจริงไหม, ข้อความจาก adb).
+        adb connect บางเวอร์ชันคืน exit code 0 แม้ล้มเหลว → เช็คข้อความประกอบ."""
+        target = ip if ":" in ip else f"{ip}:{port}"
+        ok, msg = self._adb("connect", target, timeout=15)
+        low = (msg or "").lower()
+        connected = ("connected to" in low) or ("already connected" in low)
+        failed    = any(k in low for k in
+                        ("cannot connect", "failed to connect", "unable to connect",
+                         "connection refused", "no route"))
+        good = ok and connected and not failed
+        self.log(f"[ADB] WiFi connect {target} → {msg}")
+        return good, msg
+
+    def tcpip(self, serial: str, port: int = 5555) -> tuple[bool, str]:
+        """สั่งให้มือถือที่ต่อสาย USB เปิดโหมดเชื่อมผ่าน Wi-Fi (พอร์ต 5555).
+        หลังจากนี้ค่อยเรียก connect_wifi ด้วย IP ของมือถือ. คืน (สำเร็จ, ข้อความ)."""
+        ok, msg = self._adb("tcpip", str(port), serial=serial, timeout=15)
+        low = (msg or "").lower()
+        good = ok and ("restarting" in low or "in tcp mode" in low or not low)
+        self.log(f"[ADB] tcpip {port} ({serial}) → {msg or 'ok'}")
+        return good, msg
+
+    def pair(self, host: str, port: int, code: str) -> tuple[bool, str]:
+        """จับคู่มือถือแบบไร้สาย (Android 11+). host:port + รหัส 6 หลักจากมือถือ.
+        คืน (สำเร็จ, ข้อความ)."""
+        ok, msg = self._adb("pair", f"{host}:{port}", str(code), timeout=25)
+        good = ok and "successfully" in (msg or "").lower()
+        self.log(f"[ADB] pair {host}:{port} → {msg}")
+        return good, msg
+
+    def test_ready(self, serial: str) -> dict:
+        """ตรวจว่ามือถือพร้อมใช้งานจริงไหม: สั่งงาน (ปลุกจอ) ได้ + ถ่ายภาพหน้าจอได้.
+        คืน {ready, input_ok, screenshot_ok, error}. ไม่แตะ UI จริง (ปลอดภัย)."""
+        res = {"ready": False, "input_ok": False, "screenshot_ok": False, "error": ""}
+        # 1) ทดสอบสั่งงาน — ปลุกจอ (เป็น input event ที่ปลอดภัย ไม่กดโดนปุ่มใด)
+        ok, msg = self._adb("shell", "input", "keyevent", "KEYCODE_WAKEUP",
+                            serial=serial, timeout=10)
+        res["input_ok"] = ok
+        if not ok:
+            res["error"] = self._friendly_adb_error(msg)
+            return res
+        # 2) ทดสอบถ่ายภาพหน้าจอ
+        shot = self.fast_screenshot(serial)
+        res["screenshot_ok"] = bool(shot)
+        if not shot:
+            res["error"] = "ถ่ายภาพหน้าจอไม่ได้ — ลองปลดล็อกจอมือถือแล้วลองใหม่"
+            return res
+        res["ready"] = True
+        return res
 
     def disconnect(self, serial: str):
         self._adb("disconnect", serial)

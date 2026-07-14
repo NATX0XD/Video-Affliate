@@ -26,7 +26,7 @@ const TITLES = {
 }
 
 export default function AppLayout({ children }) {
-  const { state, patch } = useStatus()
+  const { state, patch, refresh } = useStatus()
   const path   = usePathname()
   const title  = TITLES[path] ?? 'VDO Gen Auto Pilot'
   const online = state.devices.filter(d => d.status === 'device').length
@@ -77,7 +77,13 @@ export default function AppLayout({ children }) {
     )
   }
   if (!setup.configured) {
-    return <Onboarding onDone={() => setSetup({ checked: true, configured: true })} />
+    return (
+      <Onboarding
+        status={state}
+        onRefresh={refresh}
+        onDone={() => setSetup({ checked: true, configured: true })}
+      />
+    )
   }
 
   return (
