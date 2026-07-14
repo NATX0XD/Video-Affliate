@@ -9,7 +9,7 @@ import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { CaptionBuilder } from '@/components/ui/CaptionBuilder'
 import { useToast } from '@/components/ui/Toast'
 import { termTh, termHint, MSG } from '@/lib/copy'
-import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound } from 'lucide-react'
+import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound, Wrench, RefreshCw } from 'lucide-react'
 
 // ── helpers ───────────────────────────────────────────────────────
 
@@ -84,10 +84,36 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [platforms, setPlatforms] = useState([])
   const [apiKey, setApiKey] = useState('')
+  const [adapterVer, setAdapterVer]   = useState('')
+  const [adapterBusy, setAdapterBusy] = useState(false)
   const keySet = cfg.google_api_key === '********'   // public_load ส่ง mask มาถ้าตั้ง key แล้ว
 
   useEffect(() => { api.getSettings().then(setCfg).catch(() => {}) }, [])
   useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
+  useEffect(() => { api.flowAdapter().then(d => setAdapterVer(d.version || '')).catch(() => {}) }, [])
+
+  // อัปเดตตัวเชื่อม Google Flow (ดึงรุ่นใหม่จาก desktop → toast ผล: ใหม่/ล่าสุด/ล้มเหลว)
+  const updateAdapter = async () => {
+    if (adapterBusy) return
+    setAdapterBusy(true)
+    try {
+      const res = await api.updateFlowAdapter()
+      if (res.ok) {
+        if (res.version && res.version !== adapterVer) {
+          setAdapterVer(res.version)
+          toast.success(`อัปเดตตัวเชื่อมแล้ว — เวอร์ชัน ${res.version}`)
+        } else {
+          toast.info('ตัวเชื่อมเป็นรุ่นล่าสุดอยู่แล้ว')
+        }
+      } else {
+        toast.error(res.error || 'อัปเดตตัวเชื่อมไม่สำเร็จ — ลองใหม่อีกครั้ง')
+      }
+    } catch {
+      toast.error('อัปเดตตัวเชื่อมไม่สำเร็จ — ลองใหม่อีกครั้ง')
+    } finally {
+      setAdapterBusy(false)
+    }
+  }
 
   const set = key => val => setCfg(prev => ({ ...prev, [key]: val }))
 
@@ -153,6 +179,25 @@ export default function SettingsPage() {
                    info={termHint('google_api_key')}
                    value={apiKey} onChange={setApiKey}
                    placeholder={keySet ? 'ตั้งไว้แล้ว ✓ — กรอกใหม่เพื่อเปลี่ยน' : 'วางคีย์ที่นี่ (ขึ้นต้น AIza…)'} />
+          </Row>
+
+          {/* ══ ตัวเชื่อม Google Flow ═════════════════════ */}
+          <Section title="ตัวเชื่อม Google Flow" subtitle="ตัวช่วยให้ระบบทำงานกับหน้า Google Flow ได้ — อัปเดตเมื่อ Flow เปลี่ยนหน้าตา" />
+          <Row icon={Wrench} delay={35}
+               title="อัปเดตตัวเชื่อม"
+               info="ตัวเชื่อมช่วยให้ระบบกดปุ่มบนหน้า Google Flow ได้ถูกที่ — ถ้าวันไหน Google Flow เปลี่ยนหน้าตาจนสร้างวิดีโอไม่ได้ ให้กดปุ่มนี้เพื่อดึงตัวเชื่อมรุ่นใหม่มาแก้ให้"
+               desc="ปกติไม่ต้องแตะ — ใช้เฉพาะตอน Google Flow เปลี่ยนหน้าตาแล้วสร้างวิดีโอไม่ได้ ให้กดปุ่มนี้เพื่ออัปเดตตัวเชื่อมรุ่นใหม่">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-muted-foreground text-xs">เวอร์ชันปัจจุบัน</span>
+                <span className="text-foreground text-sm font-semibold">{adapterVer || '—'}</span>
+              </div>
+              <button onClick={updateAdapter} disabled={adapterBusy}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border border-border bg-secondary text-foreground transition-all hover:bg-secondary/70 active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none">
+                <RefreshCw size={14} className={adapterBusy ? 'animate-spin' : ''} />
+                {adapterBusy ? 'กำลังอัปเดต…' : 'อัปเดตตัวเชื่อม'}
+              </button>
+            </div>
           </Row>
 
           {/* ══ การโพสต์ ══════════════════════════════════ */}

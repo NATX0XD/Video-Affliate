@@ -416,9 +416,15 @@ ${mute ? '- โหมดเสียง: ไม่มีเสียงพูด
     if (m) parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
   }
   const model = cfg.prompt_model || 'gemini-2.0-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cfg.google_api_key)}`;
+  // เรียก Gemini ผ่าน proxy ของ desktop — key ไม่หลุดออกนอกเครื่อง (desktop ถือ GOOGLE_API_KEY เอง)
+  // ไม่มี token = desktop รุ่นเก่าที่ไม่มี proxy → error ชัดเลย ไม่ยิง key ดิบเงียบ (เลิกใช้ key ดิบแล้ว)
+  if (!cfg.token) throw new Error('desktop รุ่นนี้ยังไม่รองรับ AI proxy — อัปเดตโปรแกรมหลักในเครื่องก่อน');
+  const url = `${await apiBase()}/api/ai/gemini`;
+  const reqHeaders = { 'Content-Type': 'application/json', 'X-VGAP-Token': cfg.token };
   // responseMimeType=json บังคับ valid JSON · thinkingBudget 0 = ปิดคิดในใจรุ่น 2.5 (กันโทเคนหมด คำตอบโดนตัด)
+  // proxy รับ {model,contents,generationConfig} แล้วส่งต่อ Gemini → คืน JSON รูปเดิม (candidates/usageMetadata/error)
   const reqBody = JSON.stringify({
+    model,
     contents: [{ parts }],
     generationConfig: { temperature: 1.0, maxOutputTokens: 2048, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
   });
@@ -427,7 +433,7 @@ ${mute ? '- โหมดเสียง: ไม่มีเสียงพูด
   let res = null, lastErr = '';
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: reqBody, signal: AbortSignal.timeout(60000) }).then((r) => r.json());
+      res = await fetch(url, { method: 'POST', headers: reqHeaders, body: reqBody, signal: AbortSignal.timeout(60000) }).then((r) => r.json());
     } catch (e) { res = { error: { message: String((e && e.message) || e) } }; }   // network/timeout → ถือเป็น transient
     if (!res || !res.error) break;                                                  // สำเร็จ → ออกลูป
     lastErr = res.error.message || res.error.status || 'unknown error';
@@ -538,7 +544,7 @@ async function buildFlowPrompt(product, dry = false, i2v = false) {
   if (dry) plog('โหมดทดสอบ → จะลองเรียก Gemini สร้าง JSON จริง (ไม่กดส่ง Flow, ไม่เสียเครดิต Flow)');
   if (cfg.prompt_mode === 'template') { plog('โหมด template (ตั้งใน desktop) → ใช้ paragraph ไม่ใช่ JSON'); return dflt; }
   // โหมด AI: เรียก Gemini เอง (ถ้าพลาด → fallback สไตล์)
-  if (!cfg.google_api_key) { plog('ไม่มี API key → ใช้ paragraph (ตั้ง key ใน desktop ก่อนถึงได้ JSON)'); return dflt; }
+  if (!cfg.google_api_key_set) { plog('ไม่มี API key → ใช้ paragraph (ตั้ง key ใน desktop ก่อนถึงได้ JSON)'); return dflt; }
   // เครดิต/โควต้าหมดตั้งแต่ชิ้นก่อนในรอบนี้ → ข้ามการยิง Gemini เลย (ไม่งั้นทั้งคิวจะพังรัวๆ เปลืองเวลา + spam error)
   // โหมดทดสอบ (dry) = ผู้ใช้กดดู JSON เอง → ข้ามธงบล็อกเสมอ ลองยิง Gemini จริงทุกครั้ง (ไม่งั้น flag ค้างจะทำให้เห็นแต่ paragraph)
   if (!dry) {
@@ -773,6 +779,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       setTimeout(attempt, wait);
     };
 
+    // สำเร็จ → แนบ mime/ขนาดไฟล์ (จาก chrome.downloads) ให้ flow.js เช็คว่าเป็นวิดีโอจริง (defensive)
+    // additive อย่างเดียว — ไม่เปลี่ยนพฤติกรรมดาวน์โหลด (ok/downloadId/filename ยังเหมือนเดิม)
+    const finishOk = (id) => {
+      chrome.downloads.search({ id }, (items) => {
+        const it = (items && items[0]) || {};
+        const fileSize = (it.fileSize != null && it.fileSize >= 0) ? it.fileSize
+          : ((it.totalBytes != null && it.totalBytes >= 0) ? it.totalBytes : null);
+        done({ ok: true, downloadId: id, filename, mime: it.mime || '', fileSize, totalBytes: it.totalBytes });
+      });
+    };
+
     const watch = (id, onInterrupt) => {
       let handled = false;
       const finish = (fn) => {
@@ -783,7 +800,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       };
       const onChange = (delta) => {
         if (delta.id !== id || !delta.state) return;
-        if (delta.state.current === 'complete') finish(() => done({ ok: true, downloadId: id, filename }));
+        if (delta.state.current === 'complete') finish(() => finishOk(id));
         else if (delta.state.current === 'interrupted') finish(() => onInterrupt(id));
       };
       chrome.downloads.onChanged.addListener(onChange);
@@ -791,7 +808,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       chrome.downloads.search({ id }, (items) => {
         const it = items && items[0];
         if (!it) return;
-        if (it.state === 'complete') finish(() => done({ ok: true, downloadId: id, filename }));
+        if (it.state === 'complete') finish(() => finishOk(id));
         else if (it.state === 'interrupted') finish(() => onInterrupt(id));
       });
     };

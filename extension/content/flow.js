@@ -50,10 +50,72 @@ if (window._flowAutomatorLoaded) {
     if (isCtxDead(e && (e.message || (e.error && e.error.message)))) { e.preventDefault(); return true; }
   });
 
+  // ── Flow adapter: ชั้น override selector/behavior (additive, behavior-preserving) ──────────
+  // getSelector(key, fallback): มี override ใน adapter → ใช้ override, ไม่มี → คืน fallback (ค่า hardcode เดิมเป๊ะ).
+  // adapter default = selectors ว่าง → getSelector คืน fallback เสมอ = พฤติกรรมเหมือนเดิม 100%.
+  // แหล่ง adapter (เรียงจากทับทีหลัง = ชนะ): hardcode → bundled flow-adapter.json → cache storage → desktop /api/flow/adapter.
+  const _adapterDefault = { version: "flow-hardcoded", selectors: {}, timings: {}, output_verify: {} };
+  let _adapter = _adapterDefault;
+  function _mergeAdapter(base, extra) {
+    if (!extra || typeof extra !== "object") return base;
+    return {
+      version: extra.version || base.version,
+      selectors:     { ...(base.selectors || {}),     ...(extra.selectors || {}) },
+      timings:       { ...(base.timings || {}),       ...(extra.timings || {}) },
+      output_verify: { ...(base.output_verify || {}), ...(extra.output_verify || {}) },
+    };
+  }
+  // key มี override ที่เป็น string ไม่ว่าง → ใช้; ไม่งั้น fallback (ค่าเดิม)
+  function getSelector(key, fallback) {
+    const v = _adapter && _adapter.selectors && _adapter.selectors[key];
+    return (typeof v === "string" && v.trim()) ? v : fallback;
+  }
+  async function loadAdapter() {
+    let a = _adapterDefault;
+    // 1) bundled default ที่ shipped มากับ extension (web_accessible_resources)
+    try {
+      const j = await fetch(chrome.runtime.getURL("flow-adapter.json")).then((r) => r.json()).catch(() => null);
+      if (j && typeof j === "object") a = _mergeAdapter(a, j);
+    } catch {}
+    // 2) cache ล่าสุด (instant — ใช้ระหว่างรอ desktop ตอบ)
+    try {
+      const c = await chrome.storage.local.get("flow_adapter_cache");
+      if (c.flow_adapter_cache && typeof c.flow_adapter_cache === "object") a = _mergeAdapter(a, c.flow_adapter_cache);
+    } catch {}
+    _adapter = a;
+    // 3) desktop = แหล่งจริง (อาจ remote-updated) → ทับแล้ว cache ไว้ (desktop ปิด/เก่า = คงค่าเดิม ไม่พัง)
+    try {
+      const r = await desktop("GET", "/api/flow/adapter");
+      if (r && r.ok && r.adapter && typeof r.adapter === "object") {
+        _adapter = _mergeAdapter(a, r.adapter);
+        try { await chrome.storage.local.set({ flow_adapter_cache: r.adapter }); } catch {}
+      }
+    } catch {}
+  }
+
+  // ── output verification (defensive) — ไฟล์ที่โหลดมาต้องเป็น "วิดีโอจริง" ก่อน handoff ไป desktop ──
+  // ไม่ auto-retry (กันเสียเครดิตซ้ำ) — ถ้าไม่ใช่วิดีโอ แค่คืน {ok:false} ให้ caller หยุด + แจ้ง error.
+  // results = รายการ response จาก flow_download ({mime, fileSize}). ค่าเกณฑ์ override ได้ผ่าน adapter.output_verify.
+  function verifyOutputs(results) {
+    const ov = (_adapter && _adapter.output_verify) || {};
+    const minBytes = Number.isFinite(ov.min_bytes) ? ov.min_bytes : 51200;   // < ~50KB = ไฟล์ว่าง/พัง
+    const rejectImage = ov.reject_image_mime !== false;                      // default = true (กันได้ภาพนิ่ง)
+    const requireVideo = ov.require_video_mime === true;                     // default = false (คงพฤติกรรมเดิม)
+    for (const r of (results || [])) {
+      const mime = String((r && r.mime) || "").toLowerCase();
+      const size = Number((r && (r.fileSize != null ? r.fileSize : r.totalBytes)) || 0);
+      const isVideo = mime.startsWith("video/");
+      if (rejectImage && mime.startsWith("image/")) return { ok: false, reason: `mime=${mime}` };
+      if (size > 0 && size < minBytes) return { ok: false, reason: `size=${size}B` };
+      if (requireVideo && mime && !isVideo) return { ok: false, reason: `mime=${mime || "unknown"}` };
+    }
+    return { ok: true };
+  }
+
   // Lexical รับข้อความจริง = (1) ข้อความอยู่ใน DOM และ (2) placeholder หายแล้ว
   // (ถ้า placeholder ยังโชว์ แปลว่า editorState ยังว่าง → ส่งจะ empty)
   function placeholderVisible() {
-    return [...document.querySelectorAll('[class*="laceholder"],[data-placeholder]')]
+    return [...document.querySelectorAll(getSelector("placeholder", '[class*="laceholder"],[data-placeholder]'))]
       .some((p) => isVisible(p) && /คุณต้องการสร้างอะไร/.test(p.textContent || p.getAttribute("data-placeholder") || ""));
   }
   function lexicalAccepted(el, text) {
@@ -71,7 +133,7 @@ if (window._flowAutomatorLoaded) {
     return s.display !== "none" && s.visibility !== "hidden" && s.opacity !== "0";
   }
   function allClickable() {
-    return [...document.querySelectorAll('button,[role="button"],a,[tabindex]')]
+    return [...document.querySelectorAll(getSelector("clickable", 'button,[role="button"],a,[tabindex]'))]
       .filter(isVisible);
   }
   function findByText(words, scope = allClickable()) {
@@ -83,8 +145,8 @@ if (window._flowAutomatorLoaded) {
   }
   function editableCands() {
     return [
-      ...document.querySelectorAll('[role="textbox"]'),
-      ...document.querySelectorAll('[contenteditable="true"]'),
+      ...document.querySelectorAll(getSelector("textbox", '[role="textbox"]')),
+      ...document.querySelectorAll(getSelector("contenteditable", '[contenteditable="true"]')),
       ...document.querySelectorAll("textarea"),
       ...document.querySelectorAll('input[type="text"]'),
     ].filter((el) => isVisible(el) && el.id !== "__flow_panel" && el.closest("#__flow_panel") === null);
@@ -103,7 +165,7 @@ if (window._flowAutomatorLoaded) {
     return sorted[0] || null;
   }
   function findFileInput() {
-    return [...document.querySelectorAll('input[type="file"]')][0] || null;
+    return [...document.querySelectorAll(getSelector("fileInput", 'input[type="file"]'))][0] || null;
   }
   async function waitFor(fn, timeout = 20000, step = 500) {
     const end = Date.now() + timeout;
@@ -625,7 +687,7 @@ if (window._flowAutomatorLoaded) {
 
     // จำ src วิดีโอทั้งหมด "ก่อน" สร้าง → หลังสร้างจะหยิบเฉพาะตัวใหม่ (กันได้ไฟล์เดิมซ้ำ)
     const srcOf = (v) => v.src || v.querySelector("source")?.src || "";
-    const beforeSrcs = new Set([...document.querySelectorAll("video")].map(srcOf).filter(Boolean));
+    const beforeSrcs = new Set([...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter(Boolean));
 
     // Agent อาจขออนุมัติก่อนสร้าง → กด Approve
     // ★ ปุ่ม Approve ของ Flow เป็น <div> ไม่มี role → allClickable หาไม่เจอ
@@ -650,7 +712,7 @@ if (window._flowAutomatorLoaded) {
 
     log("รอ Veo สร้างวิดีโอ…");
     startRenderTicker(productId);   // เข้าสู่เฟสเรนเดอร์ → เริ่มจับเวลา ส่ง % ให้หน้าเว็บ
-    const newSrcs = () => [...document.querySelectorAll("video")].map(srcOf).filter((s) => s && !beforeSrcs.has(s));
+    const newSrcs = () => [...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter((s) => s && !beforeSrcs.has(s));
     // รอ src ใหม่ตัวแรกโผล่ (สูงสุด 6 นาที)
     const first = await waitFor(() => (newSrcs().length ? newSrcs() : null), 6 * 60 * 1000, 4000);
     if (!first) { stopRenderTicker(); return { ok: false, error: "รอวิดีโอนานเกินไป (timeout)" }; }
@@ -679,13 +741,23 @@ if (window._flowAutomatorLoaded) {
     // ดาวน์โหลดทุกคลิป (chrome.downloads แนบ cookie ให้เอง)
     const stamp = Date.now();
     const files = [];
+    const dlResults = [];
     for (let i = 0; i < srcs.length; i++) {
       const fname = `flow/${productId || "test"}_${stamp}_${i + 1}.mp4`;
       const dl = await sendTrusted({ action: "flow_download", url: srcs[i], filename: fname });
-      if (dl.ok) files.push(fname.split("/").pop());
+      if (dl.ok) { files.push(fname.split("/").pop()); dlResults.push(dl); }
       log(dl.ok ? `ดาวน์โหลดคลิป ${i + 1}/${srcs.length} ✓ (${uuid(srcs[i])})` : `คลิป ${i + 1} โหลดไม่ได้: ${dl.error}`);
     }
     if (!files.length) return { ok: false, error: "ดาวน์โหลดวิดีโอไม่สำเร็จ" };
+
+    // defensive: ไฟล์ผลลัพธ์ต้องเป็นวิดีโอจริง ไม่ใช่ภาพนิ่ง → ถ้าไม่ใช่ หยุด ไม่ส่งไป desktop, ไม่ retry (กันเสียเครดิตซ้ำ)
+    const vfy = verifyOutputs(dlResults);
+    if (!vfy.ok) {
+      const emsg = "ได้ภาพนิ่งแทนวิดีโอ — ลองสร้างใหม่";
+      log(`${emsg} (${vfy.reason})`);
+      reportProgress("error", emsg, productId);
+      return { ok: false, error: emsg, stillImage: true };
+    }
 
     return { ok: true, videoSrcs: srcs, files };
   }
@@ -985,6 +1057,11 @@ if (window._flowAutomatorLoaded) {
   }
   delay(rememberIfChat, 3000);
   loop(rememberIfChat, 10000);
+
+  // โหลด adapter override (selector/output_verify) ตอนเริ่ม — ล้มเหลว = คงค่า default (พฤติกรรมเดิม)
+  try { loadAdapter().catch(() => {}); } catch {}
+  // รีเฟรช adapter เป็นระยะ (เผื่อ desktop อัปเดต remote adapter ระหว่างเปิดหน้าค้างไว้)
+  loop(() => loadAdapter(), 5 * 60 * 1000);
 
   // ── อ่านเครดิต Flow จากหน้าเว็บ (ตอนเปิดหน้าอยู่) → เก็บลง storage ให้ dashboard อ่าน ──
   // Flow ไม่มี API บอกเครดิต จึงใช้ heuristic อ่าน DOM (อาจต้องปรับเมื่อ Google เปลี่ยน UI)
@@ -1768,7 +1845,7 @@ if (window._flowAutomatorLoaded) {
     if (!isVideoMode()) return { ok: false, error: `ยกเลิกก่อนส่ง — ไม่ได้อยู่โหมดวิดีโอ (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}")`, steps };
     // ── ส่งจริง (15 เครดิต) ── จำคลิปเดิม "ก่อน" ส่ง เพื่อหยิบเฉพาะคลิปใหม่
     const srcOf = (v) => v.src || v.querySelector("source")?.src || "";
-    const beforeSrcs = new Set([...document.querySelectorAll("video")].map(srcOf).filter(Boolean));
+    const beforeSrcs = new Set([...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter(Boolean));
     await sleep(rand(2000, 5000));   // หยุดเหมือนคนก่อนกดสร้างจริง (15 เครดิต) — ลดจังหวะหุ่นยนต์
     const before2 = boxText(box);
     await trustedClickEl(realEditable(box), log); await sleep(300);
@@ -1779,7 +1856,7 @@ if (window._flowAutomatorLoaded) {
     }
     log("ส่งสร้างคลิปแล้ว (15 เครดิต) — รอ Veo สร้างวิดีโอ…");
     // ── รอ Veo + ดาวน์โหลด (reuse logic จาก runGenerate) ──
-    const newSrcs = () => [...document.querySelectorAll("video")].map(srcOf).filter((s) => s && !beforeSrcs.has(s));
+    const newSrcs = () => [...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter((s) => s && !beforeSrcs.has(s));
     const first = await waitFor(() => (newSrcs().length ? newSrcs() : null), 6 * 60 * 1000, 4000);
     if (!first) return { ok: false, error: "รอวิดีโอนานเกินไป (timeout)", steps };
     const collected = new Set(first);
@@ -1795,14 +1872,22 @@ if (window._flowAutomatorLoaded) {
     const srcs = [...collected];
     const shortId = (s) => (s.match(/name=([^&]+)/)?.[1] || s).slice(-12);
     log(`วิดีโอเสร็จ ✓ ${srcs.length} คลิป`);
-    const stamp = Date.now(); const files = [];
+    const stamp = Date.now(); const files = []; const dlResults = [];
     for (let i = 0; i < srcs.length; i++) {
       const fname = `flow/${opts.productId || "clip"}_${stamp}_${i + 1}.mp4`;
       const dl = await sendTrusted({ action: "flow_download", url: srcs[i], filename: fname });
-      if (dl.ok) files.push(fname.split("/").pop());
+      if (dl.ok) { files.push(fname.split("/").pop()); dlResults.push(dl); }
       log(dl.ok ? `ดาวน์โหลดคลิป ${i + 1}/${srcs.length} ✓ (${shortId(srcs[i])})` : `คลิป ${i + 1} โหลดไม่ได้: ${dl.error}`);
     }
     if (!files.length) return { ok: false, error: "ดาวน์โหลดวิดีโอไม่สำเร็จ", steps };
+    // defensive: ไฟล์ผลลัพธ์ต้องเป็นวิดีโอจริง ไม่ใช่ภาพนิ่ง → ถ้าไม่ใช่ หยุด ไม่ส่งไป desktop, ไม่ retry (กันเสียเครดิตซ้ำ)
+    const vfy = verifyOutputs(dlResults);
+    if (!vfy.ok) {
+      const emsg = "ได้ภาพนิ่งแทนวิดีโอ — ลองสร้างใหม่";
+      log(`${emsg} (${vfy.reason})`);
+      reportProgress("error", emsg, opts.productId);
+      return { ok: false, error: emsg, stillImage: true, steps };
+    }
     return { ok: true, sent: true, videoSrcs: srcs, files, steps };
   }
   window._flowFramesToVideo = framesToVideo;

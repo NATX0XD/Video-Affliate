@@ -130,6 +130,8 @@ DEFAULT = {
     "vdo_model": "veo-2.0-generate-001",
     "prompt_model": "gemini-2.0-flash",
     "generate_audio": False,
+    # Flow adapter — URL ของไฟล์ override selector/behavior ของ Google Flow (ว่าง = ใช้ bundled เท่านั้น)
+    "flow_adapter_url": "",
     # Avatar review (D-ID)
     "did_api_key": "",
     "avatar_url": "https://create-images-results.d-id.com/DefaultPresenters/Noelle_f/image.png",
@@ -164,11 +166,49 @@ def public_load() -> dict:
     return cfg
 
 def save(cfg: dict):
-    # Never persist secrets into settings.json — they belong in .env
-    sanitized = {k: v for k, v in cfg.items() if k not in ENV_KEYS}
+    # Allowlist: keep only known settings (DEFAULT ∪ ENV_KEYS) — drop foreign keys so a
+    # malformed/hostile payload can't inject unknown fields. Secrets (ENV_KEYS) never get
+    # persisted into settings.json — they belong in .env.
+    allowed = set(DEFAULT) | set(ENV_KEYS)
+    sanitized = {k: v for k, v in cfg.items() if k in allowed and k not in ENV_KEYS}
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(sanitized, f, ensure_ascii=False, indent=2)
+
+
+# ── Flow adapter (ชั้น override selector/behavior ของ Google Flow) ──────────────
+# bundled default = override ว่าง → flow.js ใช้ค่า/selector เดิมทั้งหมด (พฤติกรรมคงเดิมเป๊ะ).
+# ถ้ามีไฟล์ cache (ดึงจาก remote) จะใช้แทน. helper นี้ไม่แตะ logic gen/credit ใน flow.js.
+FLOW_ADAPTER_FILE = DATA_ROOT / "flow-adapter.json"
+
+DEFAULT_FLOW_ADAPTER = {
+    "version": "bundled-1",
+    "source": "bundled",
+    "selectors": {},       # ว่าง = ไม่ override → ใช้ selector เดิมใน flow.js
+    "timings": {},         # ว่าง = ไม่ override → ใช้ค่า delay/timeout เดิม
+    "output_verify": {},   # ว่าง = defensive เท่านั้น (แจ้ง error, ไม่ retry เสียเครดิต)
+}
+
+def load_flow_adapter() -> dict:
+    """คืน adapter ปัจจุบัน: ไฟล์ cache (~/.vgap/flow-adapter.json) ถ้ามีและ valid,
+    ไม่งั้น bundled default. มี field 'version' เสมอ."""
+    if FLOW_ADAPTER_FILE.exists():
+        try:
+            with open(FLOW_ADAPTER_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                data.setdefault("version", "unknown")
+                data.setdefault("source", "cache")
+                return data
+        except Exception:
+            pass
+    return dict(DEFAULT_FLOW_ADAPTER)
+
+def save_flow_adapter(data: dict):
+    """เขียน adapter ที่ดึงจาก remote ลง cache (~/.vgap/flow-adapter.json)."""
+    FLOW_ADAPTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(FLOW_ADAPTER_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def set_secret(field: str, value: str):
     """Write/update/remove a secret in .env (field is a settings key, e.g.

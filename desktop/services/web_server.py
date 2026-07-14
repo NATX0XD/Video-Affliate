@@ -6,11 +6,12 @@ import asyncio
 import io
 import json
 import re
+import secrets
 import threading
 import time
 from typing import Optional, Callable
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 import uvicorn
@@ -96,6 +97,11 @@ class WebServer:
         self._started_at: Optional[float] = None   # uptime (A1.8)
         self._last_ext_ping: float = 0.0           # เวลาที่ extension ติดต่อล่าสุด (P2.1) — onboarding เช็ค "เชื่อมแล้ว"
 
+        # Shared session token — สร้างใหม่ทุกครั้งที่เปิดโปรแกรม (in-memory เท่านั้น ไม่เขียนดิสก์).
+        # extension ขอ token นี้ผ่าน /api/flow/config แล้วแนบใน header เวลาเรียก proxy sensitive
+        # (แทนการรับ google_api_key ดิบ → key ไม่หลุดออกนอกเครื่อง).
+        self.api_token: str = secrets.token_urlsafe(24)
+
         self.app = self._build_app()
 
     # ── App builder ───────────────────────────────────────────
@@ -103,9 +109,11 @@ class WebServer:
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="VDO Gen Auto Pilot API")
 
+        # CORS: จำกัดเฉพาะหน้าเว็บ local (localhost/127.0.0.1 :3000/:3001) + extension
+        # (chrome-extension://) — กันหน้าเว็บอื่นในเครื่องอ่าน API/ยิง proxy ได้ (เดิม "*" = ใครก็อ่านได้)
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
+            allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1):(3000|3001)|chrome-extension://.*)$",
             allow_credentials=False,
             allow_methods=["*"],
             allow_headers=["*"],
@@ -164,6 +172,7 @@ class WebServer:
                     "extension":     ext,               # {connected, last_ping_ts} (P2.1)
                     "jobs":          self.db.stats(),   # breakdown ละเอียดสำหรับค็อกพิต
                     "budget":        self.budget.snapshot() if self.budget else None,
+                    "token":         self.api_token,    # ให้หน้าเว็บ/extension แนบเวลาเรียก proxy
                 }
             return {
                 "devices":    devices,
@@ -172,6 +181,7 @@ class WebServer:
                 "errors":     0,
                 "pilot_running": running,
                 "extension":  ext,
+                "token":      self.api_token,
             }
 
         @app.post("/api/scan")
@@ -806,14 +816,16 @@ class WebServer:
 
         @app.get("/api/flow/config")
         def flow_config():
-            """ส่งค่าที่ extension ใช้เขียน prompt เอง — local-only (key ออกเฉพาะ localhost).
-            extension คุมคิวสินค้า + เขียน prompt (template/AI) เอง desktop แค่รับคลิปที่ /api/flow/video."""
+            """ส่งค่าที่ extension ใช้เขียน prompt เอง — local-only.
+            เลิกส่ง google_api_key ดิบแล้ว (กันรั่ว) → ส่ง token + flag ว่ามี key แทน.
+            extension เรียก Gemini ผ่าน proxy POST /api/ai/gemini (แนบ token) ให้ desktop ถือ key เอง."""
             self._touch_extension()
             import config as cfg
             s = cfg.load()
             return {
                 "ok": True,
-                "google_api_key":    s.get("google_api_key", ""),   # real key (extension เรียก Gemini เอง)
+                "token":              self.api_token,               # แนบใน header เวลาเรียก proxy
+                "google_api_key_set": bool(s.get("google_api_key")),# มี key แล้วไหม (ไม่ส่งค่าดิบ)
                 "prompt_mode":       s.get("prompt_mode", "ai"),
                 "prompt_template":   s.get("prompt_template", ""),
                 "prompt_style_note": s.get("prompt_style_note", ""),
@@ -824,6 +836,116 @@ class WebServer:
                 "personality":       s.get("personality", "สนุกสนาน"),
                 "budget":            self.budget.snapshot() if self.budget else None,
             }
+
+        # ── AI proxy: เรียก Gemini ฝั่ง server (key ไม่หลุดออกนอกเครื่อง) ──
+        # extension แนบ token (จาก /api/flow/config) ใน header X-VGAP-Token → desktop ถือ GOOGLE_API_KEY เอง.
+        # รองรับทั้ง passthrough (contents/generationConfig — คงพฤติกรรมเดิมของ extension เป๊ะ)
+        # และแบบง่าย (prompt). คืน JSON รูปเดียวกับ Gemini (candidates/usageMetadata/error) ไม่แปลง.
+        @app.post("/api/ai/gemini")
+        async def ai_gemini(body: dict, request: Request):
+            self._touch_extension()
+            tok = (request.headers.get("x-vgap-token")
+                   or request.headers.get("authorization", "").removeprefix("Bearer ").strip())
+            if not tok or not secrets.compare_digest(tok, self.api_token):
+                return JSONResponse({"error": {"message": "unauthorized"}}, status_code=401)
+            import config as cfg
+            import httpx
+            key = (cfg.load().get("google_api_key") or "").strip()
+            if not key:
+                return JSONResponse(
+                    {"error": {"message": "ยังไม่ได้ใส่รหัส Google API key ใน desktop"}},
+                    status_code=400)
+            model = (body.get("model") or cfg.load().get("prompt_model")
+                     or "gemini-2.0-flash").strip()
+            import re as _re
+            if not _re.fullmatch(r"[A-Za-z0-9._\-]{1,64}", model):
+                return JSONResponse({"error": {"message": "ชื่อโมเดลไม่ถูกต้อง"}}, status_code=400)
+            # contents ตรงจาก extension (รองรับรูป/JSON mode) ถ้าไม่มีค่อยห่อจาก prompt เดี่ยว
+            if isinstance(body.get("contents"), list):
+                payload = {"contents": body["contents"]}
+            else:
+                prompt = (body.get("prompt") or "").strip()
+                if not prompt:
+                    return JSONResponse({"error": {"message": "ไม่มี prompt"}}, status_code=400)
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            if isinstance(body.get("generationConfig"), dict):
+                payload["generationConfig"] = body["generationConfig"]
+            if isinstance(body.get("systemInstruction"), dict):
+                payload["systemInstruction"] = body["systemInstruction"]
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                   f"{model}:generateContent")
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    r = await client.post(url, params={"key": key}, json=payload)
+            except httpx.TimeoutException:
+                return JSONResponse(
+                    {"error": {"message": "เชื่อมต่อ Gemini ไม่ทัน (หมดเวลา) — ลองใหม่อีกครั้ง"}},
+                    status_code=504)
+            except Exception as e:
+                return JSONResponse(
+                    {"error": {"message": f"เรียก Gemini ไม่สำเร็จ: {e}"}}, status_code=502)
+            try:
+                data = r.json()
+            except Exception:
+                data = {"error": {"message": (r.text or "")[:300]}}
+            return JSONResponse(data, status_code=r.status_code)
+
+        # ── Flow adapter: ชั้น override selector/behavior ของ Google Flow ──
+        # GET = adapter ปัจจุบัน (bundled default หรือ remote ล่าสุด, มี version).
+        # POST update = ดึงจาก flow_adapter_url → validate → cache ~/.vgap/flow-adapter.json.
+        # remote ล้ม → error อ่านง่าย + คงตัวเดิม (ไม่ทับ). ไม่แตะ logic gen/credit ใน flow.js.
+        @app.get("/api/flow/adapter")
+        def flow_adapter():
+            self._touch_extension()
+            import config as cfg
+            a = cfg.load_flow_adapter()
+            return {"ok": True, "adapter": a, "version": a.get("version", "")}
+
+        @app.post("/api/flow/adapter/update")
+        async def flow_adapter_update(body: dict = None):
+            import config as cfg
+            import httpx
+            cur_ver = cfg.load_flow_adapter().get("version", "")
+            # ใช้เฉพาะ URL ที่ตั้งไว้ในตั้งค่า (flow_adapter_url) เท่านั้น
+            # กัน SSRF: ไม่รับ url ที่ client ส่งมาเอง (จะยิงไปที่ไหนก็ได้)
+            url = (cfg.load().get("flow_adapter_url", "") or "").strip()
+            if not url:
+                return JSONResponse(
+                    {"ok": False, "error": "ยังไม่ได้ตั้ง URL ของ adapter (flow_adapter_url) ในตั้งค่า",
+                     "version": cur_ver}, status_code=400)
+            try:
+                r = httpx.get(url, timeout=15, follow_redirects=True)
+            except httpx.TimeoutException:
+                return JSONResponse(
+                    {"ok": False, "error": "ดึง adapter ไม่ทัน (หมดเวลา) — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=504)
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False, "error": f"ดึง adapter ไม่ได้: {e} — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=502)
+            if r.status_code != 200:
+                return JSONResponse(
+                    {"ok": False, "error": f"ปลายทางตอบรหัส {r.status_code} — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=502)
+            try:
+                data = r.json()
+            except Exception:
+                return JSONResponse(
+                    {"ok": False, "error": "ไฟล์ adapter ไม่ใช่ JSON ที่ถูกต้อง — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=422)
+            if not isinstance(data, dict) or "version" not in data:
+                return JSONResponse(
+                    {"ok": False, "error": "adapter ต้องเป็น object และต้องมี field 'version' — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=422)
+            data.setdefault("source", "remote")
+            try:
+                cfg.save_flow_adapter(data)
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False, "error": f"บันทึก adapter ไม่ได้: {e}", "version": cur_ver},
+                    status_code=500)
+            self.emit_log(f"[FLOW] อัปเดต adapter → version {data.get('version')}")
+            return {"ok": True, "version": data.get("version", ""), "adapter": data}
 
         @app.get("/api/usage")
         def usage_overview():

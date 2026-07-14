@@ -81,4 +81,15 @@ export const api = {
   queuePush:       (body)     => req('POST', '/api/queue/push', body),
   queueNext:       ()         => req('GET',  '/api/queue/next'),
   queueClaim:      (body = {}) => req('POST', '/api/queue/claim', body),
+  // ตัวเชื่อม Google Flow (adapter override layer) — โชว์เวอร์ชัน + อัปเดตเมื่อ Flow เปลี่ยนหน้าตา
+  flowAdapter:       ()       => req('GET', '/api/flow/adapter'),
+  // อ่าน body เอง (แม้ status ไม่ 200) เพื่อเอา error ภาษาไทย + version มาโชว์ toast เองที่หน้า
+  updateFlowAdapter: (url)    => fetch(`${BASE}/api/flow/adapter/update`, {
+                                   method: 'POST',
+                                   headers: { 'Content-Type': 'application/json' },
+                                   body: JSON.stringify(url ? { url } : {}),
+                                 }).then(async r => {
+                                   const d = await r.json().catch(() => ({}))
+                                   return { ...d, ok: r.ok && d.ok !== false }
+                                 }).catch(() => ({ ok: false })),
 }
