@@ -1,5 +1,6 @@
 import './globals.css'
 import { Inter, IBM_Plex_Sans_Thai } from 'next/font/google'
+import { ToastProvider } from '@/components/ui/Toast'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -26,7 +27,9 @@ export default function RootLayout({ children }) {
     <html lang="th" data-theme="dark"
           className={`h-full ${inter.variable} ${thai.variable}`}>
       <body className="h-full bg-base text-ink antialiased">
-        {children}
+        <ToastProvider>
+          {children}
+        </ToastProvider>
       </body>
     </html>
   )

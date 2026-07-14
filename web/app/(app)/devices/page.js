@@ -5,6 +5,8 @@ import { useApp }   from '../layout'
 import { api }      from '@/lib/api'
 import { PLAT_META } from '@/lib/platform-meta'
 import { deviceReadiness } from '@/lib/device-readiness'
+import { InfoTooltip } from '@/components/ui/InfoTooltip'
+import { termHint, MSG } from '@/lib/copy'
 import {
   Smartphone, BatteryMedium, BatteryCharging, Thermometer, MemoryStick,
   HardDrive, Wifi, WifiOff, Signal, RefreshCw, CheckCircle2, XCircle,
@@ -46,18 +48,30 @@ function Bar({ pct, colorCls, h = 'h-1.5' }) {
 
 // ── Readiness row ─────────────────────────────────────────────────
 
+// คำอธิบายศัพท์ยากในเช็กลิสต์ความพร้อม (ดึงจาก glossary กลาง)
+const READY_HINTS = {
+  adb:   termHint('adb'),
+  kbd:   termHint('adb_keyboard'),
+  calib: termHint('calibrate'),
+  plat:  termHint('platform'),
+  awake: 'ตั้งให้จอมือถือไม่ดับและไม่ล็อก ระหว่างระบบทำงานแทนคุณ',
+  label: 'ตั้งชื่อบัญชี/ร้านของเครื่องนี้ ให้ดูออกว่าเป็นเครื่องไหน',
+}
+
 function ReadinessRow({ item }) {
   const icon = item.ok === true
     ? <CheckCircle2 size={12} className="text-success shrink-0" />
     : item.ok === false
       ? <XCircle     size={12} className="text-danger shrink-0" />
       : <AlertCircle size={12} className="text-muted-foreground shrink-0" />
+  const hint = READY_HINTS[item.key]
   return (
-    <div className="flex items-center gap-1.5 text-[11px]">
+    <div className="flex items-center gap-1 text-[11px]">
       {icon}
       <span className={item.ok === false ? 'text-danger' : item.ok === true ? 'text-foreground/70' : 'text-muted-foreground'}>
         {item.label}
       </span>
+      {hint && <InfoTooltip text={hint} size={11} />}
     </div>
   )
 }
@@ -262,6 +276,7 @@ export default function DevicesPage() {
   const [ip, setIp]               = useState('')
   const [platforms, setPlatforms] = useState([])
 
+  const ready   = state.ws_connected   // ต้องเชื่อมต่อโปรแกรมหลักก่อน จึงสแกน/เชื่อมมือถือได้
   const devices = state.devices || []
   const online  = devices.filter(d => d.status === 'device')
   const offline = devices.filter(d => d.status !== 'device')
@@ -305,20 +320,31 @@ export default function DevicesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <input value={ip} onChange={e => setIp(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && connect()}
-            placeholder="Wi-Fi: 192.168.x.x"
-            className="w-36 text-xs bg-secondary border border-border text-foreground px-3 py-2 rounded-lg outline-none focus:border-accent placeholder:text-muted-foreground" />
-          <button onClick={connect}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-secondary text-xs font-medium transition-all">
+          <div className="flex items-center gap-1">
+            <input value={ip} onChange={e => setIp(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && ready && connect()}
+              placeholder="Wi-Fi: 192.168.x.x" disabled={!ready}
+              className="w-36 text-xs bg-secondary border border-border text-foreground px-3 py-2 rounded-lg outline-none focus:border-accent placeholder:text-muted-foreground disabled:opacity-50" />
+            <InfoTooltip text={termHint('wifi_adb')} />
+          </div>
+          <button onClick={connect} disabled={!ready} title={!ready ? MSG.needDesktop : undefined}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-secondary text-xs font-medium transition-all disabled:opacity-50 disabled:pointer-events-none">
             <Wifi size={13} /> เชื่อม
           </button>
-          <button onClick={scan} disabled={scanning}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent hover:bg-accent-soft text-white text-xs font-bold transition-all disabled:opacity-60">
+          <button onClick={scan} disabled={scanning || !ready} title={!ready ? MSG.needDesktop : undefined}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent hover:bg-accent-soft text-white text-xs font-bold transition-all disabled:opacity-60 disabled:pointer-events-none">
             <RefreshCw size={13} className={scanning ? 'animate-spin' : ''} /> สแกน
           </button>
         </div>
       </motion.div>
+
+      {/* ยังเชื่อมต่อโปรแกรมหลักไม่ได้ — บอกเหตุผลปุ่มที่กดไม่ได้ */}
+      {!ready && (
+        <div className="flex items-center gap-2.5 rounded-xl bg-amber-400/10 border border-amber-400/25 px-4 py-3 text-amber-500 text-xs">
+          <WifiOff size={15} className="shrink-0" />
+          <span>{MSG.needDesktop}</span>
+        </div>
+      )}
 
       {/* Summary chips */}
       <motion.div

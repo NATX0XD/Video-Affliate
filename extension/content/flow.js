@@ -649,10 +649,11 @@ if (window._flowAutomatorLoaded) {
     else log("ไม่เจอปุ่ม Approve (อาจตั้ง 'ไม่ถามอีก' ไว้แล้ว) — รอวิดีโอต่อ");
 
     log("รอ Veo สร้างวิดีโอ…");
+    startRenderTicker(productId);   // เข้าสู่เฟสเรนเดอร์ → เริ่มจับเวลา ส่ง % ให้หน้าเว็บ
     const newSrcs = () => [...document.querySelectorAll("video")].map(srcOf).filter((s) => s && !beforeSrcs.has(s));
     // รอ src ใหม่ตัวแรกโผล่ (สูงสุด 6 นาที)
     const first = await waitFor(() => (newSrcs().length ? newSrcs() : null), 6 * 60 * 1000, 4000);
-    if (!first) return { ok: false, error: "รอวิดีโอนานเกินไป (timeout)" };
+    if (!first) { stopRenderTicker(); return { ok: false, error: "รอวิดีโอนานเกินไป (timeout)" }; }
 
     // settle: เก็บทุกคลิปที่ agent สร้าง (กี่ตัวก็ได้) — หยุดเมื่อ agent เสร็จจริง + ไม่มีคลิปใหม่
     const collected = new Set(first);
@@ -673,6 +674,7 @@ if (window._flowAutomatorLoaded) {
     const srcs = [...collected];
     const uuid = (s) => (s.match(/name=([^&]+)/)?.[1] || s).slice(-12);
     log(`วิดีโอเสร็จ ✓ ${srcs.length} คลิป | uuid: ${srcs.map(uuid).join(", ")}`);
+    reportProgress("downloading", `${srcs.length} คลิป`, productId);
 
     // ดาวน์โหลดทุกคลิป (chrome.downloads แนบ cookie ให้เอง)
     const stamp = Date.now();
@@ -705,6 +707,35 @@ if (window._flowAutomatorLoaded) {
       catch { resolve(null); }
     });
   }
+
+  // ── รายงานความคืบหน้าการสร้างคลิป (stage มาตรฐาน) กลับ desktop ────────────
+  // desktop broadcast ต่อเป็น WS {type:"gen_progress"} → หน้าเว็บโชว์เป็น step checklist
+  // เดินคู่กับ flow_log เดิม (ไม่ลบ log) — แค่เพิ่มสัญญาณ stage ให้ UI อ่านง่าย
+  // stage: prompt | submit | rendering | downloading | done | error
+  let _renderTicker = null;
+  function stopRenderTicker() { if (_renderTicker) { clearInterval(_renderTicker); _renderTicker = null; } }
+  function reportProgress(stage, detail, productId, pct) {
+    if (stage !== "rendering") stopRenderTicker();   // ออกจากช่วงเรนเดอร์ = หยุดจับเวลา
+    try {
+      desktop("POST", "/api/flow/progress", {
+        jobId:  productId == null ? null : String(productId),
+        stage,
+        detail: detail == null ? "" : String(detail),
+        pct:    pct == null ? null : pct,
+      });
+    } catch {}
+  }
+  // ระหว่าง Veo เรนเดอร์ (นานได้ถึง ~6 นาที) — ส่งวินาทีที่ผ่านไปเป็นระยะ ให้แถบ % ขยับ
+  function startRenderTicker(productId) {
+    stopRenderTicker();
+    const t0 = Date.now();
+    reportProgress("rendering", 0, productId);
+    _renderTicker = setInterval(() => {
+      if (!alive()) return stopRenderTicker();
+      reportProgress("rendering", Math.round((Date.now() - t0) / 1000), productId);
+    }, 5000);
+  }
+
   // อัปรูป Shopee → ความละเอียดเต็ม (ตัด suffix thumbnail ออก)
   function hiResImage(url) {
     if (!url) return "";
@@ -747,6 +778,7 @@ if (window._flowAutomatorLoaded) {
       if (g.flow_gen && g.flow_gen.charName) log(`ผู้รีวิว: ${g.flow_gen.charName} · สไตล์: ${g.flow_gen.style || "-"}`);
     } catch {}
 
+    if (!dry) reportProgress("submit", name, p.product_id);   // เริ่มส่งให้ Veo (ครอบทั้ง agent + i2v)
     // เลือกเครื่องยนต์: i2v (nano banana → frames-to-video, หน้าเป๊ะ) หรือ agent (runGenerate เดิม)
     let res;
     if (engine === "i2v") {
@@ -768,6 +800,9 @@ if (window._flowAutomatorLoaded) {
       commission: (p.commission || {}).rate, link, files: res.files,
     });
     log(note && note.ok ? `→ desktop ต่อ ${res.files.length} คลิป เข้าคิวโพสต์ ✓ (ตะกร้า: ${link ? "มี" : "ไม่มี!"})` : `แจ้ง desktop ไม่สำเร็จ: ${note && note.error}`);
+    if (!dry) reportProgress(note && note.ok ? "done" : "error",
+                             note && note.ok ? name : ((note && note.error) || "แจ้ง desktop ไม่สำเร็จ"),
+                             p.product_id);
     return { ok: true, files: res.files };
   }
 
@@ -879,11 +914,13 @@ if (window._flowAutomatorLoaded) {
         }
         // (2) เครดิตพอ → สร้างต่อได้เลย
       }
+      if (!dry) reportProgress("prompt", curName, product.product_id);   // AI เริ่มเขียนสคริปต์
       let prompt = null;
       try { prompt = await buildPrompt(product, dry, engine === "i2v"); }   // JSON จาก Gemini — i2v ได้ schema motion-only (ตัดบรรยายภาพ)
       catch (e) {
         if (e.message === "__BUDGET__") { log("งบเดือนนี้เต็ม — หยุดสร้างชั่วคราว"); break; }
         log("สร้าง prompt ไม่ได้ ข้ามตัวนี้: " + e.message);
+        if (!dry) reportProgress("error", "เขียนสคริปต์ไม่สำเร็จ: " + e.message, product.product_id);
         jobs.shift(); if (!dry) await chrome.storage.local.set({ flow_jobs: jobs });
         continue;
       }
@@ -891,8 +928,9 @@ if (window._flowAutomatorLoaded) {
       try {
         const r = await runForProduct(product, prompt, log, dry, engine);
         jobOk = !!(r && r.ok);
-        if (jobOk) done++; else log(`ข้ามตัวนี้: ${r && r.error}`);
-      } catch (e) { log("ERROR: " + e.message); }
+        if (jobOk) done++;
+        else { log(`ข้ามตัวนี้: ${r && r.error}`); if (!dry) reportProgress("error", (r && r.error) || "สร้างไม่สำเร็จ", product.product_id); }
+      } catch (e) { log("ERROR: " + e.message); if (!dry) reportProgress("error", e.message, product.product_id); }
       jobs.shift();                                          // เอาออกจากคิว (resume ได้ถ้า reload)
       if (!dry) await chrome.storage.local.set({ flow_jobs: jobs });
       // ★ i2v + สำเร็จ → เปิดโปรเจ็คใหม่ "หลัง shift แล้ว" → ต่อให้ navigate ทำ context ตาย ก็ไม่สร้าง job เดิมซ้ำ

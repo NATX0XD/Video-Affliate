@@ -1,12 +1,28 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
+// ── global error hook ─────────────────────────────────────────────
+// ToastProvider ลงทะเบียน handler ที่นี่ เพื่อเด้ง toast แทน catch เงียบ
+// (ยังคง throw ต่อเหมือนเดิม — ไม่กระทบ caller ที่ catch อยู่แล้ว)
+let _errHandler = null
+export function setApiErrorHandler(fn) { _errHandler = fn }
+function notifyError(info) { try { _errHandler?.(info) } catch {} }
+
 async function req(method, path, body) {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  if (!res.ok) throw new Error(`API ${method} ${path} → ${res.status}`)
+  let res
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch (e) {
+    notifyError({ kind: 'network', method, path, error: e?.message })   // ต่อ backend ไม่ได้ / ออฟไลน์
+    throw e
+  }
+  if (!res.ok) {
+    notifyError({ kind: 'http', status: res.status, method, path })
+    throw new Error(`API ${method} ${path} → ${res.status}`)
+  }
   return res.json()
 }
 

@@ -1,6 +1,8 @@
 'use client'
 import { useState } from 'react'
 import { api } from '@/lib/api'
+import { InfoTooltip } from '@/components/ui/InfoTooltip'
+import { termHint } from '@/lib/copy'
 import { Zap, Store, ArrowRight, Loader2 } from 'lucide-react'
 
 export function Onboarding({ initialShop = '', onDone }) {
@@ -37,7 +39,7 @@ export function Onboarding({ initialShop = '', onDone }) {
 
         {/* Card */}
         <div className="rounded-2xl bg-surface border border-line shadow-card p-6 flex flex-col gap-5">
-          <Field icon={Store} label="ชื่อร้าน / แบรนด์" required
+          <Field icon={Store} label="ชื่อร้าน / แบรนด์" required info={termHint('shop_name')}
             value={shop} onChange={setShop} placeholder="เช่น ร้านของฉัน" autoFocus
             onEnter={submit} />
 
@@ -57,12 +59,13 @@ export function Onboarding({ initialShop = '', onDone }) {
   )
 }
 
-function Field({ icon: Icon, label, required, type = 'text', value, onChange, placeholder, autoFocus, onEnter }) {
+function Field({ icon: Icon, label, required, type = 'text', value, onChange, placeholder, autoFocus, onEnter, info }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-ink-dim text-xs font-medium flex items-center gap-1.5">
         <Icon size={13} className="text-ink-mute" /> {label}
         {required && <span className="text-accent">*</span>}
+        {info && <InfoTooltip text={info} />}
       </label>
       <input
         type={type}

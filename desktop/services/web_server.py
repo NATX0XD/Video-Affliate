@@ -927,6 +927,21 @@ class WebServer:
                 out["budget"] = self.budget.snapshot()
             return out
 
+        @app.post("/api/flow/progress")
+        async def flow_progress(body: dict):
+            """extension รายงานความคืบหน้าการสร้างคลิป → broadcast WS ให้หน้าเว็บโชว์ step checklist.
+            stage มาตรฐาน: prompt | submit | rendering | downloading | done | error"""
+            job_id = body.get("jobId")
+            self.ws.broadcast_sync({
+                "type":   "gen_progress",
+                "stage":  (body.get("stage") or "").strip(),
+                "detail": body.get("detail", ""),
+                "pct":    body.get("pct"),
+                "jobId":  job_id,
+                "pid":    job_id,   # useStatus route อ่าน msg.pid — คงความเข้ากันได้
+            })
+            return {"ok": True}
+
         # ── Logs + diagnostics (A1.8) ──
 
         @app.get("/api/logs")

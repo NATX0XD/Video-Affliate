@@ -45,7 +45,8 @@ export function useStatus() {
 
       case 'gen_progress':
         patch({ genProgress: {
-          pid: msg.pid, stage: msg.stage, detail: msg.detail,
+          jobId: msg.jobId ?? msg.pid, pid: msg.jobId ?? msg.pid,
+          stage: msg.stage, detail: msg.detail, pct: msg.pct ?? null,
           error: msg.stage === 'error' ? msg.detail : null, ts: Date.now(),
         }})
         break
