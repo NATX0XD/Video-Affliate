@@ -51,10 +51,13 @@ class AutoPilot:
         return self._enabled
 
     def restore(self):
-        """โหมด manual-only: ปิดลูปออโต้โพสต์เสมอ (ยังเก็บปุ่ม โพสต์เลย/ทดสอบ ไว้ใช้)."""
-        self._enabled = False
+        """คืนสถานะโหมดอัตโนมัติจากครั้งก่อน (จำค่าใน DB) — ครั้งแรก default ปิดเพื่อความปลอดภัย.
+        (ปุ่ม โพสต์เลย/ทดสอบ ยังใช้ได้เสมอไม่ว่าออโต้เปิดหรือปิด)"""
+        on = False
         if self.db:
-            self.db.set_config("autopilot_on", "0")
+            on = (self.db.get_config("autopilot_on", "0") == "1")
+        self._enabled = on
+        self.log(f"[AUTO] คืนสถานะโหมดอัตโนมัติ: {'เปิด' if on else 'ปิด'}")
 
     def set_enabled(self, on: bool):
         self._enabled = bool(on)
