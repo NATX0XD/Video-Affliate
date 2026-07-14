@@ -142,6 +142,40 @@ async function apiBase() {
   return `http://localhost:${_portCache}`;
 }
 
+// ── mirror สินค้าไป desktop (G3) — additive อย่างเดียว ─────────────────────
+// แปลง product ทรงซ้อน (basic_info/commission/links/images) จาก scraper → flat dict
+// ที่ตาราง products ใน SQLite รับ (name/price/commission/image_url/cart_link/source).
+// dedup ฝั่ง desktop ใช้ cart_link → ใช้ affiliate_link ก่อน ไม่มีค่อย product_url (คงที่ต่อสินค้า).
+function mapProductForDesktop(p) {
+  const bi = (p && p.basic_info) || {};
+  const links = (p && p.links) || {};
+  const rate = p && p.commission && p.commission.rate != null ? p.commission.rate : '';
+  return {
+    name: bi.name || '',
+    price: bi.price != null ? String(bi.price) : '',
+    commission: rate === '' ? '' : String(rate),
+    image_url: (p && p.images && p.images[0]) || '',
+    cart_link: links.affiliate_link || links.product_url || '',
+    source: 'shopee',
+  };
+}
+// ยิงไป POST {apiBase}/api/products แบบ fire-and-forget — เงียบเสมอถ้า desktop ปิด
+// (chrome.storage ยังเป็นแหล่งข้อมูลหลัก ไม่พังถ้ายิงไม่ได้). service worker fetch localhost ได้ตรง.
+async function postProductsToDesktop(products) {
+  if (!products || !products.length) return;
+  try {
+    const base = await apiBase();
+    await fetch(`${base}/api/products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ products: products.map(mapProductForDesktop) }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) {
+    // desktop อาจไม่เปิด/พอร์ตไม่ตรง — ไม่รบกวน flow เดิม (products ยังอยู่ครบใน chrome.storage)
+  }
+}
+
 // ── broadcast ไปหน้า extension (sidepanel/dashboard) แบบไม่พ่น error ──
 // ถ้าไม่มีหน้าไหนเปิดรับ sendMessage จะ reject "Receiving end does not exist"
 // ซึ่ง try/catch จับไม่ได้ (เป็น promise) — ใช้ callback + แตะ lastError แทน
@@ -581,6 +615,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const merged = [...existing, ...fresh];
       chrome.storage.local.set({ products: merged }, () => {
         notifyPages({ action: 'products_updated', added: fresh.length, total: merged.length });
+        postProductsToDesktop(fresh);   // G3: mirror สินค้าใหม่ไป SQLite ควบคู่ (ไม่ await ไม่บล็อก, เก็บ storage เหมือนเดิม)
         sendResponse({ ok: true, added: fresh.length, total: merged.length, enriched });
       });
     });

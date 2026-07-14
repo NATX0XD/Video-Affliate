@@ -1110,6 +1110,64 @@ class WebServer:
                 "last_error": self.db.last_error() if self.db else None,
             }
 
+        # ── Products (G3): แคตตาล็อกสินค้าที่ดูดมา → web เห็นครบ (เพิ่มควบคู่ ไม่แตะ flow) ──
+
+        @app.post("/api/products")
+        async def add_products(body: dict):
+            """extension ดูดสินค้า → push เข้า DB. รองรับทั้งรายการเดียวและหลายรายการ (products[]).
+            เก็บใน SQLite เท่านั้น — ไม่ยุ่งกับ flow gen/คิวใน extension."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "error": "db not ready"}
+            items = body.get("products")
+            if not isinstance(items, list):
+                items = [body]                      # รายการเดียว = ตัว body เอง
+            ids = []
+            for p in items:
+                if not isinstance(p, dict):
+                    continue
+                try:
+                    ids.append(self.db.add_product(p))
+                except Exception as e:
+                    self.emit_log(f"[PRODUCTS] เพิ่มไม่สำเร็จ: {e}", level="warn")
+            self.emit_log(f"[PRODUCTS] รับสินค้า {len(ids)} รายการ")
+            return {"ok": True, "ids": ids, "count": len(ids)}
+
+        @app.get("/api/products")
+        def list_products(status: str = None, limit: int = 500, offset: int = 0):
+            """รายการสินค้าในแคตตาล็อก (ล่าสุดก่อน)."""
+            if not self.db:
+                return {"products": []}
+            return {"products": self.db.list_products(status, limit, offset)}
+
+        # ── Queue (โครงคิวงานบน DB สำหรับอนาคต — วาง endpoint + เก็บใน DB เท่านั้น) ──
+
+        @app.post("/api/queue/push")
+        async def queue_push(body: dict):
+            """วางงานลงคิวบน DB (payload อิสระ). รอบนี้ยังไม่บังคับ extension ใช้."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "error": "db not ready"}
+            payload = body.get("payload") if isinstance(body.get("payload"), dict) else body
+            qid = self.db.queue_push(payload or {}, int(body.get("priority", 0) or 0))
+            return {"ok": True, "id": qid}
+
+        @app.get("/api/queue/next")
+        def queue_next():
+            """ดูงานถัดไปในคิว (peek ไม่ claim)."""
+            if not self.db:
+                return {"ok": False, "item": None}
+            return {"ok": True, "item": self.db.queue_next()}
+
+        @app.post("/api/queue/claim")
+        async def queue_claim(body: dict = None):
+            """คว้างานถัดไปแบบ atomic (flip → claimed)."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "item": None}
+            worker = (body or {}).get("worker", "") if isinstance(body, dict) else ""
+            return {"ok": True, "item": self.db.queue_claim(worker)}
+
         # ── Snapshot (pre-capture cache — responds instantly) ──
 
         @app.get("/snapshot/{serial}")

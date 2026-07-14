@@ -16,6 +16,7 @@ export const useApp = () => useContext(AppCtx)
 
 const TITLES = {
   '/dashboard': 'ค็อกพิต',
+  '/pipeline':  'ไปป์ไลน์',
   '/reports':   'รายงาน',
   '/jobs':      'งาน',
   '/posts':     'ผลการโพสต์',

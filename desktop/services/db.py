@@ -127,6 +127,33 @@ class JobStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_pp_ts ON platform_posts(ts);
                 CREATE INDEX IF NOT EXISTS idx_pp_plat ON platform_posts(platform);
+
+                -- สินค้า (G3): แคตตาล็อกสินค้าที่ดูดมา ให้ web เห็นครบ (แยกจาก jobs/คลิป)
+                CREATE TABLE IF NOT EXISTS products (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name        TEXT DEFAULT '',
+                    price       TEXT DEFAULT '',
+                    commission  TEXT DEFAULT '',
+                    image_url   TEXT DEFAULT '',
+                    cart_link   TEXT DEFAULT '',
+                    source      TEXT DEFAULT '',      -- shopee | manual | ...
+                    created_ts  INTEGER,
+                    status      TEXT DEFAULT 'new'    -- new | queued | used | ...
+                );
+                CREATE INDEX IF NOT EXISTS idx_products_created ON products(created_ts);
+                CREATE INDEX IF NOT EXISTS idx_products_status  ON products(status);
+
+                -- คิวงานบน DB (โครงอนาคต): extension ดึงงานไปทำเอง แทน in-memory
+                CREATE TABLE IF NOT EXISTS queue (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    payload    TEXT DEFAULT '{}',    -- JSON งาน (product/prompt/ฯลฯ)
+                    status     TEXT NOT NULL DEFAULT 'pending',  -- pending | claimed | done
+                    priority   INTEGER DEFAULT 0,    -- มากกว่า = ทำก่อน
+                    claimed_by TEXT DEFAULT '',
+                    created_ts INTEGER,
+                    claimed_ts INTEGER DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);
                 """
             )
             self._conn.commit()
@@ -153,7 +180,41 @@ class JobStore:
             for sql in pp_adds:
                 self._conn.execute(sql)
 
-            if adds or pp_adds:
+            # products (G3): เติมคอลัมน์ที่อาจขาดถ้าตารางถูกสร้างไว้ก่อนหน้า (ปลอดภัย)
+            prod_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(products)")}
+            prod_adds = []
+            for col, ddl in (
+                ("name",       "ALTER TABLE products ADD COLUMN name TEXT DEFAULT ''"),
+                ("price",      "ALTER TABLE products ADD COLUMN price TEXT DEFAULT ''"),
+                ("commission", "ALTER TABLE products ADD COLUMN commission TEXT DEFAULT ''"),
+                ("image_url",  "ALTER TABLE products ADD COLUMN image_url TEXT DEFAULT ''"),
+                ("cart_link",  "ALTER TABLE products ADD COLUMN cart_link TEXT DEFAULT ''"),
+                ("source",     "ALTER TABLE products ADD COLUMN source TEXT DEFAULT ''"),
+                ("created_ts", "ALTER TABLE products ADD COLUMN created_ts INTEGER"),
+                ("status",     "ALTER TABLE products ADD COLUMN status TEXT DEFAULT 'new'"),
+            ):
+                if prod_cols and col not in prod_cols:
+                    prod_adds.append(ddl)
+            for sql in prod_adds:
+                self._conn.execute(sql)
+
+            # queue (โครงคิวอนาคต): เติมคอลัมน์ที่อาจขาด (ปลอดภัย)
+            q_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(queue)")}
+            q_adds = []
+            for col, ddl in (
+                ("payload",    "ALTER TABLE queue ADD COLUMN payload TEXT DEFAULT '{}'"),
+                ("status",     "ALTER TABLE queue ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'"),
+                ("priority",   "ALTER TABLE queue ADD COLUMN priority INTEGER DEFAULT 0"),
+                ("claimed_by", "ALTER TABLE queue ADD COLUMN claimed_by TEXT DEFAULT ''"),
+                ("created_ts", "ALTER TABLE queue ADD COLUMN created_ts INTEGER"),
+                ("claimed_ts", "ALTER TABLE queue ADD COLUMN claimed_ts INTEGER DEFAULT 0"),
+            ):
+                if q_cols and col not in q_cols:
+                    q_adds.append(ddl)
+            for sql in q_adds:
+                self._conn.execute(sql)
+
+            if adds or pp_adds or prod_adds or q_adds:
                 self._conn.commit()
 
     # ── helpers ───────────────────────────────────────────────
@@ -625,6 +686,114 @@ class JobStore:
         with self._lock:
             rows = self._conn.execute("SELECT key, value FROM app_config").fetchall()
         return {r["key"]: r["value"] for r in rows}
+
+    # ── products (G3): แคตตาล็อกสินค้าที่ดูดมา ──────────────────
+
+    def add_product(self, product: dict) -> Optional[int]:
+        """เพิ่มสินค้า 1 รายการเข้าแคตตาล็อก (แยกจาก jobs/คลิป). คืน id ที่เพิ่ง insert.
+
+        รับ dict ที่มีคีย์ตรงคอลัมน์ (name/price/commission/image_url/cart_link/source/status)
+        — ไม่แตะตาราง jobs. dedup แบบเบา ๆ ด้วย cart_link: ถ้ามี cart_link ซ้ำ → คืน id เดิม.
+        """
+        cart = (product.get("cart_link") or "").strip()
+        if cart:
+            with self._lock:
+                r = self._conn.execute(
+                    "SELECT id FROM products WHERE cart_link=? LIMIT 1", (cart,)
+                ).fetchone()
+            if r:
+                return r["id"]
+        ts = _now()
+        with self._lock:
+            cur = self._conn.execute(
+                """INSERT INTO products
+                   (name, price, commission, image_url, cart_link, source, created_ts, status)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    str(product.get("name", "") or ""),
+                    str(product.get("price", "") or ""),
+                    str(product.get("commission", "") or ""),
+                    str(product.get("image_url", "") or ""),
+                    cart,
+                    str(product.get("source", "") or ""),
+                    ts,
+                    str(product.get("status", "") or "new"),
+                ),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def list_products(self, status: Optional[str] = None,
+                      limit: int = 500, offset: int = 0) -> list:
+        q = "SELECT * FROM products"
+        args: list = []
+        if status:
+            q += " WHERE status=?"
+            args.append(status)
+        q += " ORDER BY created_ts DESC, id DESC LIMIT ? OFFSET ?"
+        args += [limit, offset]
+        with self._lock:
+            rows = self._conn.execute(q, args).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_product(self, product_id: int) -> Optional[dict]:
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT * FROM products WHERE id=?", (product_id,)
+            ).fetchone()
+        return dict(r) if r else None
+
+    # ── queue (โครงคิวงานบน DB สำหรับอนาคต) ────────────────────
+
+    def queue_push(self, payload: dict, priority: int = 0) -> int:
+        """วางงานลงคิว (เก็บ payload เป็น JSON). คืน id ของงานในคิว."""
+        with self._lock:
+            cur = self._conn.execute(
+                """INSERT INTO queue (payload, status, priority, created_ts)
+                   VALUES (?, 'pending', ?, ?)""",
+                (json.dumps(payload or {}, ensure_ascii=False), int(priority or 0), _now()),
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    @staticmethod
+    def _queue_row(r: Optional[sqlite3.Row]) -> Optional[dict]:
+        if r is None:
+            return None
+        d = dict(r)
+        try:
+            d["payload"] = json.loads(d.get("payload") or "{}")
+        except Exception:
+            d["payload"] = {}
+        return d
+
+    def queue_next(self) -> Optional[dict]:
+        """ดูงานถัดไปในคิว (peek) โดยไม่ claim — priority สูงก่อน แล้วเก่าก่อน."""
+        with self._lock:
+            r = self._conn.execute(
+                """SELECT * FROM queue WHERE status='pending'
+                   ORDER BY priority DESC, id ASC LIMIT 1"""
+            ).fetchone()
+        return self._queue_row(r)
+
+    def queue_claim(self, worker: str = "") -> Optional[dict]:
+        """คว้างานถัดไปแบบ atomic → flip เป็น claimed แล้วคืนงานนั้น (กันแย่งกัน)."""
+        ts = _now()
+        with self._lock:
+            r = self._conn.execute(
+                """SELECT id FROM queue WHERE status='pending'
+                   ORDER BY priority DESC, id ASC LIMIT 1"""
+            ).fetchone()
+            if r is None:
+                return None
+            qid = r["id"]
+            self._conn.execute(
+                "UPDATE queue SET status='claimed', claimed_by=?, claimed_ts=? WHERE id=?",
+                (worker or "", ts, qid),
+            )
+            self._conn.commit()
+            row = self._conn.execute("SELECT * FROM queue WHERE id=?", (qid,)).fetchone()
+        return self._queue_row(row)
 
     # ── logs (A1.8) ───────────────────────────────────────────
 

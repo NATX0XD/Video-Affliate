@@ -4,12 +4,13 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
-  ListOrdered, Settings, Film, X, CheckSquare, MonitorSmartphone, ShieldAlert,
+  ListOrdered, Settings, Film, X, CheckSquare, MonitorSmartphone, ShieldAlert, GitBranch,
 } from 'lucide-react'
 
 const NAV = [
   { group: 'ภาพรวม', items: [
     { href: '/dashboard', label: 'ค็อกพิต',      icon: LayoutDashboard },
+    { href: '/pipeline',  label: 'ไปป์ไลน์',     icon: GitBranch       },
   ]},
   { group: 'การทำงาน', items: [
     { href: '/jobs',      label: 'งาน',           icon: ListOrdered     },

@@ -72,4 +72,12 @@ export const api = {
   licenseStatus:   ()         => req('GET',  '/api/license/status'),
   licenseActivate: (key)      => req('POST', '/api/license/activate', { key }),
   machineId:       ()         => req('GET',  '/api/license/machine-id'),
+  // สินค้า (G3): แคตตาล็อกสินค้าที่ดูดมา (DB) — web เห็นครบ
+  products:        (q = '')   => req('GET',  `/api/products${q}`),
+  pushProduct:     (body)     => req('POST', '/api/products', body),   // สินค้าเดี่ยว {name,price,...} หรือ {products:[...]}
+  addProducts:     (body)     => req('POST', '/api/products', body),   // {products:[...]} หรือ product เดี่ยว (คงไว้ — เดิม)
+  // คิวงานบน DB (โครงอนาคต)
+  queuePush:       (body)     => req('POST', '/api/queue/push', body),
+  queueNext:       ()         => req('GET',  '/api/queue/next'),
+  queueClaim:      (body = {}) => req('POST', '/api/queue/claim', body),
 }
