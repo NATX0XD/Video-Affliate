@@ -29,8 +29,20 @@ class AutoPilot:
         self._thread: Optional[threading.Thread] = None
         self._stop = False
         self._workers = {}      # serial → thread (โพสต์ขนานต่อเครื่อง)
+        self._device_locks = {}          # serial → Lock (T5: กันโพสต์ชนกันต่อเครื่อง)
+        self._locks_guard = threading.Lock()
         self.done_count = 0
         self.err_count  = 0
+
+    def _device_lock(self, serial: str) -> threading.Lock:
+        """Lock ต่อ device serial — กันสองงาน (worker + ปุ่มโพสต์เลย/ทดสอบ) สั่งโพสต์
+        เครื่องเดียวพร้อมกัน (T5). คนละเครื่อง = คนละ lock → ยังโพสต์ขนานได้."""
+        with self._locks_guard:
+            lk = self._device_locks.get(serial)
+            if lk is None:
+                lk = threading.Lock()
+                self._device_locks[serial] = lk
+            return lk
 
     # ── control ───────────────────────────────────────────────
 
@@ -98,30 +110,31 @@ class AutoPilot:
         return True
 
     def _dry_post_one(self, job, serial, s):
-        product = job["product"]
-        name = (product.get("basic_info", {}) or {}).get("name", "")[:35]
-        video = Path(job["video_path"]) if job.get("video_path") else None
-        if not video or not video.exists():
-            self.log("[ทดสอบ] ไฟล์วิดีโอหาย — สร้างคลิปก่อน")
-            return
-        all_ready = ready_enabled(s)
-        plats = [p for p in (self._device_platforms(serial) or []) if p in all_ready] or all_ready
-        self.log(f"[ทดสอบ] โพสต์ (dry): {name} → {', '.join(plats)} — พิมพ์ caption แล้วหยุดก่อนโพสต์จริง")
-        dev = self.adb.devices.get(serial) if self.adb else None
-        if dev:
-            dev.posting = True
-        try:
-            for pk in plats:
-                p = make_poster(pk, self.adb, self.log, s)
-                if hasattr(p, "usage_cb"):
-                    p.usage_cb = self._record_usage
-                r = p.process(serial, video, product, dry_run=True)   # ★ dry: หยุดก่อนกดโพสต์
-                self.log(f"[ทดสอบ] {pk}: " + ("ผ่าน flow ✓ (caption ติด หยุดก่อนโพสต์)" if r
-                         else "ติดบางสเตป — ดู log ด้านบนว่าค้างปุ่มไหน"))
-        finally:
+        with self._device_lock(serial):   # T5: ใช้ lock เดียวกับโพสต์จริง กันชนเครื่องเดียว
+            product = job["product"]
+            name = (product.get("basic_info", {}) or {}).get("name", "")[:35]
+            video = Path(job["video_path"]) if job.get("video_path") else None
+            if not video or not video.exists():
+                self.log("[ทดสอบ] ไฟล์วิดีโอหาย — สร้างคลิปก่อน")
+                return
+            all_ready = ready_enabled(s)
+            plats = [p for p in (self._device_platforms(serial) or []) if p in all_ready] or all_ready
+            self.log(f"[ทดสอบ] โพสต์ (dry): {name} → {', '.join(plats)} — พิมพ์ caption แล้วหยุดก่อนโพสต์จริง")
+            dev = self.adb.devices.get(serial) if self.adb else None
             if dev:
-                dev.posting = False
-        self.log("[ทดสอบ] เสร็จ — ไม่ได้โพสต์จริง สถานะคลิปไม่เปลี่ยน")
+                dev.posting = True
+            try:
+                for pk in plats:
+                    p = make_poster(pk, self.adb, self.log, s)
+                    if hasattr(p, "usage_cb"):
+                        p.usage_cb = self._record_usage
+                    r = p.process(serial, video, product, dry_run=True)   # ★ dry: หยุดก่อนกดโพสต์
+                    self.log(f"[ทดสอบ] {pk}: " + ("ผ่าน flow ✓ (caption ติด หยุดก่อนโพสต์)" if r
+                             else "ติดบางสเตป — ดู log ด้านบนว่าค้างปุ่มไหน"))
+            finally:
+                if dev:
+                    dev.posting = False
+            self.log("[ทดสอบ] เสร็จ — ไม่ได้โพสต์จริง สถานะคลิปไม่เปลี่ยน")
 
     # ── loop ──────────────────────────────────────────────────
 
@@ -244,59 +257,72 @@ class AutoPilot:
             time.sleep(1)
 
     def _post_one(self, job, serial, s, dev_plats=None):
-        jid = job["id"]; product = job["product"]
-        pid = product.get("product_id") or str(jid)
-        name = (product.get("basic_info", {}) or {}).get("name", "")[:35]
-        video = Path(job["video_path"]) if job.get("video_path") else None
+        with self._device_lock(serial):   # T5: กันโพสต์ชนกันบนเครื่องเดียว
+            jid = job["id"]; product = job["product"]
+            pid = product.get("product_id") or str(jid)
+            name = (product.get("basic_info", {}) or {}).get("name", "")[:35]
+            video = Path(job["video_path"]) if job.get("video_path") else None
 
-        self._status(pid, "posting")
-        dev = self.adb.devices.get(serial) if self.adb else None
-        if dev:
-            dev.posting = True                    # เครื่องนี้กำลังทำงาน (E)
-        if not video or not video.exists():
-            self.db.mark_error(jid, "ไฟล์วิดีโอหาย")
-            if dev: dev.posting = False
-            self.err_count += 1; self._status(pid, "error"); self._stats(); return
-
-        all_ready = ready_enabled(s)
-        # เครื่องนี้รับเฉพาะแพลตฟอร์มที่กำหนด (ถ้าไม่ตั้ง → ทั้งหมด)
-        plats = [p for p in (dev_plats or []) if p in all_ready] or all_ready
-        self.log(f"[AUTO] โพสต์: {name} → {', '.join(plats)}")
-        results = []
-        try:
-            for pk in plats:
-                p = make_poster(pk, self.adb, self.log, s)
-                if hasattr(p, "usage_cb"):
-                    p.usage_cb = self._record_usage   # บันทึกการใช้ Gemini ตอน verify (J)
-                r = p.process(serial, video, product)
-                if r is None:
-                    continue
-                try:
-                    _price = float((product.get("basic_info", {}) or {}).get("price", 0) or 0)
-                    _comm  = float((product.get("commission", {}) or {}).get("rate", 0) or 0)
-                    self.db.add_platform_post(pk, bool(r), jid, price=_price, commission=_comm)
-                except Exception:
-                    pass
-                results.append(bool(r))
-        finally:
+            self._status(pid, "posting")
+            dev = self.adb.devices.get(serial) if self.adb else None
             if dev:
-                dev.posting = False
-        ok = bool(results) and all(results)
+                dev.posting = True                    # เครื่องนี้กำลังทำงาน (E)
+            if not video or not video.exists():
+                self.db.mark_error(jid, "ไฟล์วิดีโอหาย")
+                if dev: dev.posting = False
+                self.err_count += 1; self._status(pid, "error"); self._stats(); return
 
-        if ok:
-            new_path = self._move(video, cfg.DONE_DIR)
-            self.db.mark_posted(jid, video_path=str(new_path))
-            self.done_count += 1; self._status(pid, "done")
-        else:
-            res = self.db.record_failure(jid, GENERATED, "โพสต์ไม่สำเร็จ")
-            if res["retrying"]:
-                self.log(f"[AUTO] {name} พลาด — ลองใหม่ใน {res['retry_in']}s")
-                self._status(pid, "retry")
-            else:
+            all_ready = ready_enabled(s)
+            # เครื่องนี้รับเฉพาะแพลตฟอร์มที่กำหนด (ถ้าไม่ตั้ง → ทั้งหมด)
+            plats = [p for p in (dev_plats or []) if p in all_ready] or all_ready
+            self.log(f"[AUTO] โพสต์: {name} → {', '.join(plats)}")
+            results = []   # แต่ละตัว: True=สำเร็จ · False=ล้มจริง · "unverified"=ยืนยันไม่ได้ (T4)
+            try:
+                for pk in plats:
+                    p = make_poster(pk, self.adb, self.log, s)
+                    if hasattr(p, "usage_cb"):
+                        p.usage_cb = self._record_usage   # บันทึกการใช้ Gemini ตอน verify (J)
+                    r = p.process(serial, video, product)
+                    if r is None:
+                        continue
+                    if r == "unverified":     # T4: โพสต์แล้วแต่ยืนยันผลไม่ได้ — ไม่นับเป็นสถิติ (ไม่รู้ผล)
+                        results.append("unverified")
+                        continue
+                    try:
+                        _price = float((product.get("basic_info", {}) or {}).get("price", 0) or 0)
+                        _comm  = float((product.get("commission", {}) or {}).get("rate", 0) or 0)
+                        self.db.add_platform_post(pk, bool(r), jid, price=_price, commission=_comm)
+                    except Exception:
+                        pass
+                    results.append(bool(r))
+            finally:
+                if dev:
+                    dev.posting = False
+
+            # ตัดสินผลรวม (ลำดับความสำคัญ): ล้มจริง > ยืนยันไม่ได้ > สำเร็จ (T4)
+            if not results or any(r is False for r in results):
+                res = self.db.record_failure(jid, GENERATED, "โพสต์ไม่สำเร็จ")
+                if res["retrying"]:
+                    self.log(f"[AUTO] {name} พลาด — ลองใหม่ใน {res['retry_in']}s")
+                    self._status(pid, "retry")
+                else:
+                    new_path = self._move(video, cfg.ERROR_DIR)
+                    self.db.update(jid, video_path=str(new_path))
+                    self.err_count += 1; self._status(pid, "error")
+            elif any(r == "unverified" for r in results):
+                # ยืนยันไม่ได้ → ห้าม move เข้า DONE เงียบ, ห้าม retry อัตโนมัติ (กัน double-post)
+                # → พักไว้ที่ error (terminal) + แจ้ง user ให้เปิดแอปตรวจเอง
                 new_path = self._move(video, cfg.ERROR_DIR)
+                self.db.mark_error(jid, "โพสต์แล้วแต่ยืนยันผลไม่ได้ — โปรดเปิดแอปตรวจว่าโพสต์ขึ้นจริงไหม")
                 self.db.update(jid, video_path=str(new_path))
-                self.err_count += 1; self._status(pid, "error")
-        self._stats()
+                self.err_count += 1
+                self.log(f"[AUTO] ⚠ {name}: ยืนยันผลไม่ได้ — ไม่ย้ายเข้า 'เสร็จสิ้น' อัตโนมัติ โปรดตรวจเอง")
+                self._status(pid, "error")
+            else:
+                new_path = self._move(video, cfg.DONE_DIR)
+                self.db.mark_posted(jid, video_path=str(new_path))
+                self.done_count += 1; self._status(pid, "done")
+            self._stats()
 
     # ── helpers ───────────────────────────────────────────────
 

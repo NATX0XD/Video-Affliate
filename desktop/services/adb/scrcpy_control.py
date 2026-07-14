@@ -21,6 +21,8 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
+from services.adb.adb_path import adb_bin
+
 SCRCPY_VERSION = "4.0"
 SERVER_REMOTE  = "/data/local/tmp/scrcpy-server.jar"
 
@@ -100,7 +102,7 @@ class ScrcpyControl:
     # ── lifecycle ─────────────────────────────────────────────
 
     def _adb(self, *args):
-        return subprocess.run(["adb", "-s", self.serial, *args],
+        return subprocess.run([adb_bin(self.log), "-s", self.serial, *args],
                               capture_output=True, text=True)
 
     def start(self) -> bool:
@@ -118,7 +120,7 @@ class ScrcpyControl:
         self._adb("forward", f"tcp:{self._port}", f"localabstract:scrcpy_{self._scid}")
 
         self._proc = subprocess.Popen(
-            ["adb", "-s", self.serial, "shell",
+            [adb_bin(self.log), "-s", self.serial, "shell",
              f"CLASSPATH={SERVER_REMOTE}",
              "app_process", "/", "com.genymobile.scrcpy.Server", SCRCPY_VERSION,
              f"scid={self._scid}", "log_level=error", "tunnel_forward=true",

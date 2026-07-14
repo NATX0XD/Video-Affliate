@@ -2,13 +2,21 @@
 Post verifier — logic-based via ADB uiautomator dump.
 ไม่ใช้ AI/API ใดทั้งสิ้น — parse UI tree แล้วหา keyword แทน
 
-CONSERVATIVE BY DESIGN: verified=False เฉพาะตอนมั่นใจว่าล้มเหลว
-เหตุผล: โพสต์ซ้ำ (duplicate) เสี่ยงโดนแบน ร้ายกว่า retry พลาด
+สามสถานะผลลัพธ์ (status):
+    success     = พบ indicator ว่าสำเร็จ  → verified=True
+    failed      = พบ indicator ว่าล้มเหลว → verified=False (ให้ retry)
+    unverified  = ยืนยันไม่ได้ (dump/pull/exception — ไม่ได้หลักฐานมาเช็ค)
+                  → verified=False แต่ "แยกจาก failed": autopilot ไม่ move เข้า DONE
+                    เงียบ และไม่ retry อัตโนมัติ (กัน double-post) — ให้ user ตรวจเอง
+    unknown     = ได้หลักฐานมาแต่ไม่พบ indicator ชัดเจน → verified=True (conservative:
+                  ถือว่าสำเร็จ เพื่อกันโพสต์ซ้ำ ซึ่งเสี่ยงโดนแบนกว่า retry พลาด)
 """
 import os
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
+
+from services.adb.adb_path import adb_bin
 
 # ── Keyword banks ────────────────────────────────────────────────────────────
 
@@ -35,8 +43,9 @@ _SUCCESS_KW = [
 def verify_post(adb, serial: str, log=print, platform: str = "", **_) -> dict:
     """Return {'verified': bool, 'status': str, 'reason': str}.
 
-    verified=False → มั่นใจว่าล้มเหลว (ให้ retry)
-    verified=True  → สำเร็จ หรือ ไม่แน่ใจ (conservative)
+    status: success | failed | unverified | unknown (ดูหัวไฟล์)
+    verified=True  → success/unknown (ถือว่าสำเร็จ)
+    verified=False → failed (ให้ retry) หรือ unverified (ยืนยันไม่ได้ — ห้ามเงียบ)
     """
     try:
         ok, msg = adb._adb(
@@ -44,18 +53,18 @@ def verify_post(adb, serial: str, log=print, platform: str = "", **_) -> dict:
             serial=serial, timeout=15,
         )
         if not ok:
-            log(f"[VERIFY] uiautomator dump ล้มเหลว ({msg}) — ข้าม (ถือว่าสำเร็จ)")
-            return {"verified": True, "status": "unknown", "reason": "dump failed"}
+            log(f"[VERIFY] uiautomator dump ล้มเหลว ({msg}) — ยืนยันผลไม่ได้")
+            return {"verified": False, "status": "unverified", "reason": f"dump failed: {msg}"}
 
         # host temp path — ข้ามแพลตฟอร์ม (Windows ไม่มี /tmp) + แยกตาม serial กัน race หลายเครื่อง
         local_xml = os.path.join(tempfile.gettempdir(), f"vgap_ui_verify_{serial}.xml")
         r = subprocess.run(
-            ["adb", "-s", serial, "pull", "/sdcard/ui_verify.xml", local_xml],
+            [adb_bin(log), "-s", serial, "pull", "/sdcard/ui_verify.xml", local_xml],
             capture_output=True, timeout=12,
         )
         if r.returncode != 0:
-            log("[VERIFY] pull ล้มเหลว — ข้าม (ถือว่าสำเร็จ)")
-            return {"verified": True, "status": "unknown", "reason": "pull failed"}
+            log("[VERIFY] pull ล้มเหลว — ยืนยันผลไม่ได้")
+            return {"verified": False, "status": "unverified", "reason": "pull failed"}
 
         ui_text = _extract_ui_text(local_xml)
 
@@ -69,12 +78,12 @@ def verify_post(adb, serial: str, log=print, platform: str = "", **_) -> dict:
                 log(f"[VERIFY] ✓ พบ success indicator: '{kw}'")
                 return {"verified": True, "status": "success", "reason": f"พบข้อความ: {kw}"}
 
-        log("[VERIFY] ไม่พบ indicator ชัดเจน — ถือว่าสำเร็จ")
+        log("[VERIFY] ไม่พบ indicator ชัดเจน — ถือว่าสำเร็จ (conservative)")
         return {"verified": True, "status": "unknown", "reason": "ไม่พบ indicator"}
 
     except Exception as e:
-        log(f"[VERIFY] ยืนยันไม่สำเร็จ ({e}) — ถือว่าสำเร็จไว้ก่อน")
-        return {"verified": True, "status": "unknown", "reason": str(e)}
+        log(f"[VERIFY] ยืนยันไม่สำเร็จ ({e}) — ยืนยันผลไม่ได้")
+        return {"verified": False, "status": "unverified", "reason": str(e)}
 
 
 def _extract_ui_text(path: str) -> str:

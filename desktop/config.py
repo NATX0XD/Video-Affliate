@@ -7,12 +7,43 @@ from pathlib import Path
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 
 # ข้อมูลที่ต้อง "เขียน + คงอยู่ข้ามการเปิด-ปิด/อัปเดต" (settings/.env/db/คลิป)
-# frozen one-file exe: __file__ อยู่ใน temp ที่ถูกลบทุกครั้งเปิด → ต้องใช้โฟลเดอร์ผู้ใช้ ไม่งั้นข้อมูลหายหมด
-# dev: ใช้โฟลเดอร์ desktop เดิม (พฤติกรรมไม่เปลี่ยน)
-if getattr(sys, "frozen", False):
-    DATA_ROOT = Path(os.environ.get("VGAP_DATA_DIR") or (Path.home() / ".vgap"))
-else:
-    DATA_ROOT = Path(__file__).parent
+# เก็บนอก repo เสมอ (ทุกโหมด) → update.ps1 (git reset --hard) ลบข้อมูลผู้ใช้ไม่ได้.
+#   VGAP_DATA_DIR ถ้าตั้งไว้ ไม่งั้น = ~/.vgap
+DATA_ROOT = Path(os.environ.get("VGAP_DATA_DIR") or (Path.home() / ".vgap"))
+
+
+def _migrate_legacy_data(new_root: Path):
+    """ผู้ใช้เดิม (โหมด source) เคยเก็บ settings.json/.env/data ไว้ใน desktop/ ซึ่งถูก
+    update.ps1 (git reset --hard) ลบทับได้ → ก็อปมา new_root ครั้งเดียว กันของหาย.
+    ก็อป (ไม่ย้าย) เพื่อไม่ทำลายของเดิม; ทำเฉพาะไอเท็มที่ปลายทางยังไม่มี."""
+    if getattr(sys, "frozen", False):
+        return
+    old_root = Path(__file__).parent
+    try:
+        if old_root.resolve() == new_root.resolve():
+            return
+    except Exception:
+        return
+    try:
+        new_root.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return
+    import shutil
+    for name in ("settings.json", ".env", "data"):
+        src, dst = old_root / name, new_root / name
+        try:
+            if dst.exists() or not src.exists():
+                continue
+            if src.is_dir():
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+        except Exception:
+            pass
+
+
+_migrate_legacy_data(DATA_ROOT)
+
 try:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
 except Exception:

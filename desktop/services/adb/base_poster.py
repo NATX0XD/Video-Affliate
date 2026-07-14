@@ -246,15 +246,21 @@ class BasePoster:
 
     # ── Verify (Gemini Vision) ────────────────────────────────
 
-    def _maybe_verify(self, serial: str) -> bool:
+    def _maybe_verify(self, serial: str):
+        """คืนผลยืนยัน 3 สถานะ: True = สำเร็จ · False = ล้มเหลวจริง (retry) ·
+        "unverified" = ยืนยันผลไม่ได้ (autopilot จะไม่ move เข้า DONE เงียบ)."""
         if not self.settings.get("verify_post", True):
             self.log(f"[{self.TAG}] เสร็จสิ้น flow ✓ (ปิดการยืนยันผล)")
             return True
         from services.post_verifier import verify_post
         res = verify_post(self.adb, serial, log=self.log, platform=self.TAG)
-        if not res["verified"]:
+        status = res.get("status")
+        if status == "failed":
             self.log(f"[{self.TAG}] ✗ ยืนยันแล้วว่าโพสต์ไม่สำเร็จ: {res['reason']}")
             return False
+        if status == "unverified":
+            self.log(f"[{self.TAG}] ⚠ ยืนยันผลไม่ได้ ({res['reason']}) — โพสต์อาจไม่ขึ้น โปรดตรวจเอง")
+            return "unverified"
         self.log(f"[{self.TAG}] ✓ ยืนยันโพสต์สำเร็จ")
         return True
 

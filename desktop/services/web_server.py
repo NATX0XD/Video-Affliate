@@ -998,6 +998,7 @@ class WebServer:
         @app.get("/debug/snapshot/{serial}")
         async def debug_snapshot(serial: str):
             import os, sys, tempfile, subprocess as sp
+            from services.adb.adb_path import adb_bin
             results: dict = {"serial": serial, "adb_ready": bool(self.adb),
                              "python": sys.executable}
             if not self.adb:
@@ -1008,7 +1009,7 @@ class WebServer:
             results["screencap_msg"] = msg
             if ok:
                 local_png = os.path.join(tempfile.gettempdir(), f"vgap_diag_{serial}.png")
-                r = sp.run(["adb", "-s", serial, "pull", "/sdcard/screen_web.png",
+                r = sp.run([adb_bin(self.adb.log), "-s", serial, "pull", "/sdcard/screen_web.png",
                              local_png], capture_output=True, timeout=12)
                 results["pull_ok"]     = r.returncode == 0
                 results["pull_stderr"] = r.stderr.decode(errors="ignore").strip()

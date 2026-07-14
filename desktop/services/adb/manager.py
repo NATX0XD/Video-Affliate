@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from services.adb.adb_path import adb_bin
+
 @dataclass
 class Device:
     serial: str
@@ -35,7 +37,7 @@ class ADBManager:
 
     # ── ADB command ──────────────────────────────────────────
     def _adb(self, *args, serial: str = None, timeout: int = 10) -> tuple[bool, str]:
-        cmd = ["adb"]
+        cmd = [adb_bin(self.log)]
         if serial:
             cmd += ["-s", serial]
         cmd += list(args)
@@ -256,7 +258,7 @@ class ADBManager:
         # Step 2: pull to local (host temp — ข้ามแพลตฟอร์ม, แยกตาม serial กัน race)
         local_png = os.path.join(tempfile.gettempdir(), f"vgap_screen_web_{serial}.png")
         r = subprocess.run(
-            ["adb", "-s", serial, "pull", "/sdcard/screen_web.png", local_png],
+            [adb_bin(self.log), "-s", serial, "pull", "/sdcard/screen_web.png", local_png],
             capture_output=True, timeout=12
         )
         if r.returncode != 0:
@@ -287,7 +289,7 @@ class ADBManager:
         try:
             local_png = os.path.join(tempfile.gettempdir(), f"vgap_screen_tmp_{serial}.png")
             r = subprocess.run(
-                ["adb", "-s", serial, "pull", "/sdcard/screen_tmp.png", local_png],
+                [adb_bin(self.log), "-s", serial, "pull", "/sdcard/screen_tmp.png", local_png],
                 capture_output=True, timeout=10
             )
             if r.returncode == 0:

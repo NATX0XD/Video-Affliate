@@ -19,6 +19,10 @@ node_modules/
 # เพื่อให้ผู้ใช้โหลดจาก GitHub แล้วรันได้เลยโดยไม่ต้องลง Node/build
 # ⚠ ถ้าแก้โค้ดใน web/ ต้อง `npm run build` แล้ว commit web/out ใหม่ด้วย
 
+# ── User data (ห้าม track — git reset --hard จะลบทับของผู้ใช้) ──
+# ของจริงย้ายไป ~/.vgap แล้ว (config.py) แต่กันไฟล์เดิมในเครื่องผู้ใช้ถูก track ซ้ำ
+desktop/settings.json
+
 # ── Generated data / outputs ──
 desktop/data/output/
 desktop/data/products/
@@ -31,3 +35,6 @@ _archive/web-git-backup/
 # ── OS ──
 .DS_Store
 Thumbs.db
+
+# local venv
+desktop/.venv/
