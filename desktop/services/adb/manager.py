@@ -13,6 +13,7 @@ class Device:
     serial: str
     status: str = "offline"   # offline | online | unauthorized
     model: str = ""
+    brand: str = ""           # ยี่ห้อ/ผู้ผลิต (จาก ro.product.brand หรือ manufacturer)
     android: str = ""
     battery: int = 0
     temp: float = 0.0         # °C — อุณหภูมิแบต (จาก dumpsys battery) (E)
@@ -78,6 +79,13 @@ class ADBManager:
                 # ดึง model
                 _, model = self._adb("shell", "getprop", "ro.product.model", serial=serial)
                 dev.model = model.strip() or serial
+                # ดึงยี่ห้อ (อ่านครั้งเดียว — ไม่เปลี่ยน จึง cache กันเรียกซ้ำทุกรอบ)
+                if not dev.brand:
+                    _, brand = self._adb("shell", "getprop", "ro.product.brand", serial=serial)
+                    dev.brand = brand.strip()
+                    if not dev.brand:
+                        _, mfr = self._adb("shell", "getprop", "ro.product.manufacturer", serial=serial)
+                        dev.brand = mfr.strip()
                 # ดึง Android version
                 _, ver = self._adb("shell", "getprop", "ro.build.version.release", serial=serial)
                 dev.android = ver.strip()
@@ -353,22 +361,41 @@ class ADBManager:
         self.log(f"[ADB] pair {host}:{port} → {msg}")
         return good, msg
 
+    def _read_identity(self, serial: str) -> dict:
+        """อ่านรุ่น/ยี่ห้อ/เวอร์ชัน Android ของเครื่อง (getprop) — โชว์ให้ผู้ใช้รู้ว่าเจอเครื่องรุ่นอะไร.
+        คืน {model, brand, android}. ถ้าอ่านไม่ได้จะเป็นค่าว่าง."""
+        def _prop(name: str) -> str:
+            ok, out = self._adb("shell", "getprop", name, serial=serial, timeout=8)
+            return out.strip() if ok else ""
+        return {
+            "model":   _prop("ro.product.model"),
+            "brand":   _prop("ro.product.brand") or _prop("ro.product.manufacturer"),
+            "android": _prop("ro.build.version.release"),
+        }
+
     def test_ready(self, serial: str) -> dict:
-        """ตรวจว่ามือถือพร้อมใช้งานจริงไหม: สั่งงาน (ปลุกจอ) ได้ + ถ่ายภาพหน้าจอได้.
-        คืน {ready, input_ok, screenshot_ok, error}. ไม่แตะ UI จริง (ปลอดภัย)."""
-        res = {"ready": False, "input_ok": False, "screenshot_ok": False, "error": ""}
+        """ตรวจว่ามือถือพร้อมใช้งานจริงไหม: สั่งงาน (ปลุกจอ) ได้ + ถ่ายภาพหน้าจอได้ +
+        คืนข้อมูลรุ่นเครื่องให้ผู้ใช้เห็น. ไม่แตะ UI จริง (ปลอดภัย).
+        คืน {ready, input_ok, screenshot_ok, error, reason, serial, model, brand, android}."""
+        res = {"ready": False, "input_ok": False, "screenshot_ok": False,
+               "error": "", "reason": "", "serial": serial,
+               "model": "", "brand": "", "android": ""}
         # 1) ทดสอบสั่งงาน — ปลุกจอ (เป็น input event ที่ปลอดภัย ไม่กดโดนปุ่มใด)
         ok, msg = self._adb("shell", "input", "keyevent", "KEYCODE_WAKEUP",
                             serial=serial, timeout=10)
         res["input_ok"] = ok
         if not ok:
             res["error"] = self._friendly_adb_error(msg)
+            res["reason"] = res["error"] or "ยังไม่พบมือถือ — เช็กสาย/เปิด USB debugging"
             return res
+        # เครื่องตอบสนอง → อ่านข้อมูลรุ่นมาโชว์ (ก่อนทดสอบถ่ายภาพ)
+        res.update(self._read_identity(serial))
         # 2) ทดสอบถ่ายภาพหน้าจอ
         shot = self.fast_screenshot(serial)
         res["screenshot_ok"] = bool(shot)
         if not shot:
             res["error"] = "ถ่ายภาพหน้าจอไม่ได้ — ลองปลดล็อกจอมือถือแล้วลองใหม่"
+            res["reason"] = res["error"]
             return res
         res["ready"] = True
         return res

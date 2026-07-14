@@ -29,6 +29,7 @@ async function req(method, path, body) {
 export const api = {
   status:          ()         => req('GET',  '/api/status'),
   scan:            ()         => req('POST', '/api/scan'),
+  devices:         ()         => req('GET',  '/api/devices'),   // รายการมือถือ + รุ่น/ยี่ห้อ
   getSettings:     ()         => req('GET',  '/api/settings'),
   saveSettings:    (data)     => req('POST', '/api/settings', data),
   platforms:       ()         => req('GET',  '/api/platforms'),

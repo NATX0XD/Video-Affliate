@@ -7,10 +7,12 @@ import { GatedButton } from '@/components/ui/GatedButton'
 import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { Button } from '@/components/ui/Button'
 import { useToast } from '@/components/ui/Toast'
+import { Dialog } from '@/components/ui/Dialog'
 import { termTh, termHint, MSG } from '@/lib/copy'
 import {
   Zap, Store, KeyRound, Smartphone, Share2, ArrowRight, ArrowLeft,
   Loader2, Check, CheckCircle2, XCircle, Wifi, Plug, RefreshCw,
+  BookOpen, AlertTriangle, ChevronRight,
 } from 'lucide-react'
 
 const STEPS = [
@@ -24,6 +26,84 @@ const REVIEW_MODES = [
   { key: 'auto', label: 'โพสต์อัตโนมัติทันที', desc: 'สร้างคลิปเสร็จแล้วโพสต์ให้เลย ไม่ต้องกดยืนยัน' },
   { key: 'hold', label: 'ให้ฉันตรวจก่อนโพสต์',  desc: 'สร้างคลิปเสร็จแล้วพักไว้ รอคุณกดอนุมัติก่อนจึงโพสต์' },
 ]
+
+/**
+ * DEV_GUIDES — วิธีเปิด "โหมดนักพัฒนา + การแก้จุดบกพร่อง USB" แยกตามยี่ห้อ
+ * (เมนูแต่ละยี่ห้ออยู่คนละที่ — ใช้คำไทยง่าย + วงเล็บคำอังกฤษบนเครื่องจริง)
+ * ถ้าไม่เปิดสองอย่างนี้ คอมจะเชื่อม (adb) กับมือถือไม่ติด
+ */
+const DEV_GUIDES = [
+  { key: 'samsung', label: 'Samsung', steps: [
+    'เปิด "การตั้งค่า (Settings)"',
+    'เลื่อนลงล่างสุด แตะ "เกี่ยวกับโทรศัพท์ (About phone)"',
+    'แตะ "ข้อมูลซอฟต์แวร์ (Software information)"',
+    'แตะที่ "หมายเลขบิลด์ (Build number)" ติดต่อกัน 7 ครั้ง จนขึ้น "คุณเป็นนักพัฒนาแล้ว" (ใส่ PIN ถ้าเครื่องถาม)',
+    'กลับไปหน้า "การตั้งค่า" → แตะ "ตัวเลือกสำหรับนักพัฒนา (Developer options)"',
+    'เปิดสวิตช์ "การแก้จุดบกพร่อง USB (USB debugging)"',
+    'เสียบสาย USB เข้าคอม → บนมือถือจะเด้งหน้าต่างขึ้น กด "อนุญาต (Allow)"',
+  ] },
+  { key: 'xiaomi', label: 'Xiaomi / Redmi / POCO', steps: [
+    'เปิด "การตั้งค่า (Settings)"',
+    'แตะ "เกี่ยวกับโทรศัพท์ (About phone)"',
+    'แตะที่ "เวอร์ชัน MIUI" หรือ "เวอร์ชัน HyperOS" ติดต่อกัน 7 ครั้ง จนขึ้น "คุณเป็นนักพัฒนาแล้ว"',
+    'กลับไป "การตั้งค่า" → "การตั้งค่าเพิ่มเติม (Additional settings)" → "ตัวเลือกสำหรับนักพัฒนา (Developer options)"',
+    'เปิด "การแก้จุดบกพร่อง USB (USB debugging)"',
+    'เปิด "ติดตั้งผ่าน USB (Install via USB)" ด้วย (สำคัญสำหรับ Xiaomi)',
+    'เสียบสาย USB → กด "อนุญาต (Allow)" บนมือถือ',
+  ] },
+  { key: 'oppo', label: 'OPPO', steps: [
+    'เปิด "การตั้งค่า (Settings)"',
+    'แตะ "เกี่ยวกับอุปกรณ์ (About device)" → "เวอร์ชัน (Version)"',
+    'แตะที่ "หมายเลขบิลด์ (Build number)" ติดต่อกัน 7 ครั้ง จนขึ้นว่าเป็นนักพัฒนา',
+    'กลับไป "การตั้งค่า" → "การตั้งค่าเพิ่มเติม (Additional settings)" → "ตัวเลือกสำหรับนักพัฒนา"',
+    'เปิด "การแก้จุดบกพร่อง USB (USB debugging)" และ "ติดตั้งผ่าน USB (USB install)"',
+    'เสียบสาย USB → กด "อนุญาต (Allow)" บนมือถือ',
+  ] },
+  { key: 'vivo', label: 'vivo', steps: [
+    'เปิด "การตั้งค่า (Settings)"',
+    'แตะ "เกี่ยวกับโทรศัพท์ (About phone)" → "ข้อมูลซอฟต์แวร์ (Software version)"',
+    'แตะที่ "หมายเลขบิลด์ (Build number)" ติดต่อกัน 7 ครั้ง จนขึ้นว่าเป็นนักพัฒนา',
+    'กลับไป "การตั้งค่า" → "การตั้งค่าเพิ่มเติม (More settings)" → "ตัวเลือกสำหรับนักพัฒนา"',
+    'เปิด "การแก้จุดบกพร่อง USB (USB debugging)" และ "ติดตั้งผ่าน USB (USB install)"',
+    'เสียบสาย USB → กด "อนุญาต (Allow)" บนมือถือ',
+  ] },
+  { key: 'realme', label: 'realme', steps: [
+    'เปิด "การตั้งค่า (Settings)"',
+    'แตะ "เกี่ยวกับอุปกรณ์ (About device)" → "เวอร์ชัน (Version)"',
+    'แตะที่ "หมายเลขบิลด์ (Build number)" ติดต่อกัน 7 ครั้ง จนขึ้นว่าเป็นนักพัฒนา',
+    'กลับไป "การตั้งค่า" → "การตั้งค่าเพิ่มเติม (Additional settings)" → "ตัวเลือกสำหรับนักพัฒนา"',
+    'เปิด "การแก้จุดบกพร่อง USB (USB debugging)" และ "ติดตั้งผ่าน USB (USB install)"',
+    'เสียบสาย USB → กด "อนุญาต (Allow)" บนมือถือ',
+  ] },
+  { key: 'huawei', label: 'Huawei / HONOR', steps: [
+    'เปิด "การตั้งค่า (Settings)"',
+    'แตะ "เกี่ยวกับโทรศัพท์ (About phone)"',
+    'แตะที่ "หมายเลขบิลด์ (Build number)" ติดต่อกัน 7 ครั้ง จนขึ้นว่าเป็นนักพัฒนา',
+    'กลับไป "การตั้งค่า" → "ระบบและการอัปเดต (System & updates)" → "ตัวเลือกสำหรับนักพัฒนา"',
+    'เปิด "การแก้จุดบกพร่อง USB (USB debugging)"',
+    'เสียบสาย USB → กด "อนุญาต (Allow)" บนมือถือ',
+  ] },
+  { key: 'other', label: 'ยี่ห้ออื่น ๆ', steps: [
+    'เปิด "การตั้งค่า (Settings)"',
+    'ไปที่ "เกี่ยวกับโทรศัพท์ (About phone)" (บางรุ่นต้องเข้า "ข้อมูลซอฟต์แวร์" หรือ "เวอร์ชัน" ต่ออีกชั้น)',
+    'หา "หมายเลขบิลด์ (Build number)" แล้วแตะติดต่อกัน 7 ครั้ง จนขึ้น "คุณเป็นนักพัฒนาแล้ว"',
+    'กลับไป "การตั้งค่า" → หา "ตัวเลือกสำหรับนักพัฒนา (Developer options)" (มักอยู่ใน "ระบบ" หรือ "การตั้งค่าเพิ่มเติม")',
+    'เปิด "การแก้จุดบกพร่อง USB (USB debugging)"',
+    'เสียบสาย USB → กด "อนุญาต (Allow)" บนมือถือ',
+  ] },
+]
+
+/** เดายี่ห้อจากข้อความ brand ที่อ่านจากมือถือ (getprop) เพื่อเลือก guide ให้อัตโนมัติ */
+function guessBrandKey(s = '') {
+  const b = String(s).toLowerCase()
+  if (b.includes('samsung')) return 'samsung'
+  if (b.includes('xiaomi') || b.includes('redmi') || b.includes('poco')) return 'xiaomi'
+  if (b.includes('oppo')) return 'oppo'
+  if (b.includes('vivo')) return 'vivo'
+  if (b.includes('realme')) return 'realme'
+  if (b.includes('huawei') || b.includes('honor')) return 'huawei'
+  return 'other'
+}
 
 /**
  * Onboarding — ตัวช่วยตั้งค่าครั้งแรกแบบทีละขั้น (wizard, P2.2)
@@ -52,9 +132,13 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
   const [ip, setIp]               = useState('')
   const [connecting, setConnecting] = useState(false)
   const [testingSerial, setTestingSerial] = useState('')
-  const [tested, setTested]       = useState({})      // serial -> true
+  const [results, setResults]     = useState({})      // serial -> {ok, name, android, reason}
   const [plats, setPlats]         = useState([])
   const [saving, setSaving]       = useState(false)
+
+  // ── คู่มือเปิดโหมดนักพัฒนา + USB debugging ──
+  const [guideOpen, setGuideOpen]   = useState(false)
+  const [guideBrand, setGuideBrand] = useState('samsung')
 
   // ── ตัวเลือกเพิ่มเติม (มือถือรุ่นใหม่ / เคยต่อสาย USB) ──
   const [pairHost, setPairHost]   = useState('')
@@ -132,10 +216,23 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
     setTestingSerial(serial)
     try {
       const r = await api.adbTest(serial)
-      if (r.ok || r.ready) { setTested(t => ({ ...t, [serial]: true })); toast.success('มือถือพร้อมใช้งาน') }
-      else toast.error(r.error || 'มือถือยังไม่พร้อม — ลองปลุกหน้าจอแล้วลองใหม่')
+      const ok = !!(r.ok || r.ready)
+      const name = [r.brand, r.model].filter(Boolean).join(' ').trim()
+      const reason = ok ? '' : (r.reason || r.error || 'มือถือยังไม่พร้อม — ลองปลุกหน้าจอแล้วลองใหม่')
+      setResults(m => ({ ...m, [serial]: { ok, name, android: r.android || '', reason } }))
+      if (ok) toast.success(name
+        ? `เชื่อมต่อแล้ว: ${name}${r.android ? ` (Android ${r.android})` : ''}`
+        : 'มือถือพร้อมใช้งาน')
+      else toast.error(reason)
     } catch {}
     setTestingSerial('')
+  }
+
+  // เปิดคู่มือ — เลือกยี่ห้อให้อัตโนมัติจากเครื่องที่เจอ (ถ้ารู้ยี่ห้อ)
+  const openGuide = () => {
+    const dev = online.find(d => d.brand) || online[0]
+    if (dev?.brand) setGuideBrand(guessBrandKey(dev.brand))
+    setGuideOpen(true)
   }
 
   const togglePlatform = (key) =>
@@ -163,7 +260,7 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
     { ready: shop.trim().length > 0, reason: 'ใส่ชื่อร้านก่อนจึงจะไปต่อได้' },
     { ready: keyOk === true || (keySet && !apiKey.trim()),
       reason: 'กดปุ่ม "ทดสอบคีย์" ให้ผ่านก่อน หรือกด "ข้ามไปก่อน"' },
-    { ready: online.length > 0, reason: MSG.needDevice },
+    { ready: true },   // ผ่านได้เสมอ (ตั้งค่าก่อนมีมือถือได้) — เตือนในหน้าถ้ายังไม่ทดสอบผ่าน
     { ready: selected.length > 0, reason: 'เลือกอย่างน้อย 1 แพลตฟอร์มปลายทาง' },
   ]
 
@@ -205,7 +302,8 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
                 ip={ip} setIp={setIp} connecting={connecting} onConnect={connectWifi}
                 online={online} usbCand={usbCand} extConnected={extConnected}
                 wsConnected={!!status.ws_connected}
-                testingSerial={testingSerial} tested={tested} onTestDevice={testDevice}
+                testingSerial={testingSerial} results={results} onTestDevice={testDevice}
+                onOpenGuide={openGuide}
                 pairHost={pairHost} setPairHost={setPairHost}
                 pairPort={pairPort} setPairPort={setPairPort}
                 pairCode={pairCode} setPairCode={setPairCode}
@@ -234,7 +332,7 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
             </div>
 
             <div className="flex items-center gap-2">
-              {(step === 1 || step === 2) && (
+              {step === 1 && (
                 <Button variant="link" size="sm" onClick={next}
                         className="text-muted-foreground">
                   ข้ามไปก่อน
@@ -261,6 +359,9 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
           ข้อมูลถูกบันทึกในเครื่องของคุณเท่านั้น — แก้ไขได้ภายหลังที่หน้าตั้งค่า
         </p>
       </div>
+
+      <DevModeGuide open={guideOpen} onClose={() => setGuideOpen(false)}
+                    brand={guideBrand} setBrand={setGuideBrand} />
     </div>
   )
 }
@@ -323,10 +424,11 @@ function StepKey({ apiKey, setApiKey, keySet, keyOk, keyTesting, onTest, flowEma
 
 function StepPhone({
   ip, setIp, connecting, onConnect, online, usbCand, extConnected, wsConnected,
-  testingSerial, tested, onTestDevice,
+  testingSerial, results, onTestDevice, onOpenGuide,
   pairHost, setPairHost, pairPort, setPairPort, pairCode, setPairCode, pairing, onPair,
   usbSerial, setUsbSerial, tcpiping, onUsbToWifi, onRefresh,
 }) {
+  const anyTestedOk = online.some(d => results[d.serial]?.ok)
   return (
     <StepBody icon={Smartphone} title={termTh('adb')}
               desc="เชื่อมมือถือกับคอมผ่าน Wi-Fi เพื่อให้ระบบโพสต์ให้อัตโนมัติ">
@@ -355,36 +457,86 @@ function StepPhone({
         </Button>
       </div>
 
-      {/* รายการเครื่องที่ออนไลน์ + ปุ่มทดสอบมือถือ */}
+      {/* รายการเครื่องที่ออนไลน์ + ปุ่มทดสอบการเชื่อมต่อ (โชว์ผลจริง) */}
       {online.length > 0 && (
         <div className="mt-4 flex flex-col gap-2">
-          {online.map(d => (
-            <div key={d.serial}
-                 className="flex items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 px-3 py-2">
-              <div className="min-w-0">
-                <p className="text-foreground text-sm font-medium truncate">{d.model || d.serial}</p>
-                <p className="text-muted-foreground text-[11px] truncate">{d.serial}</p>
+          {online.map(d => {
+            const res  = results[d.serial]
+            const busy = testingSerial === d.serial
+            return (
+              <div key={d.serial}
+                   className="rounded-lg border border-border bg-secondary/40 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-foreground text-sm font-medium truncate">{d.model || d.serial}</p>
+                    <p className="text-muted-foreground text-[11px] truncate">{d.serial}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button variant={res?.ok ? 'ghost' : 'outline'} size="sm"
+                            onClick={() => onTestDevice(d.serial)} disabled={busy}>
+                      {busy
+                        ? <Loader2 size={13} className="animate-spin" />
+                        : res ? <RefreshCw size={13} /> : <Check size={13} />}
+                      {res ? 'ทดสอบใหม่' : 'ทดสอบการเชื่อมต่อ'}
+                    </Button>
+                    <InfoTooltip text="กดเพื่อเช็กว่าคอมสั่งงานมือถือเครื่องนี้ได้จริง (ปลุกจอ + ลองถ่ายภาพหน้าจอ ไม่กดโดนอะไร)" />
+                  </div>
+                </div>
+
+                {/* ผลการทดสอบ — เขียว = สำเร็จ / แดง = เหตุผล + ลิงก์คู่มือ */}
+                {res && (res.ok ? (
+                  <p className="mt-2 flex items-center gap-1.5 text-success text-xs font-medium">
+                    <CheckCircle2 size={14} className="shrink-0" />
+                    เชื่อมต่อแล้ว{res.name ? `: ${res.name}` : ''}{res.android ? ` (Android ${res.android})` : ''}
+                  </p>
+                ) : (
+                  <p className="mt-2 flex items-start gap-1.5 text-danger text-xs leading-relaxed">
+                    <XCircle size={14} className="shrink-0 mt-[1px]" />
+                    <span>
+                      {res.reason}{' '}
+                      <button type="button" onClick={onOpenGuide}
+                              className="underline underline-offset-2 font-medium hover:text-foreground">
+                        ดูวิธีเปิด USB debugging
+                      </button>
+                    </span>
+                  </p>
+                ))}
               </div>
-              {tested[d.serial] ? (
-                <span className="flex items-center gap-1 text-success text-xs font-medium shrink-0">
-                  <CheckCircle2 size={14} /> พร้อม
-                </span>
-              ) : (
-                <Button variant="outline" size="sm" className="shrink-0"
-                        onClick={() => onTestDevice(d.serial)}
-                        disabled={testingSerial === d.serial}>
-                  {testingSerial === d.serial
-                    ? <Loader2 size={13} className="animate-spin" />
-                    : <Check size={13} />}
-                  ทดสอบมือถือ
-                </Button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
-      <div className="flex justify-end mt-3">
+      {/* เตือนถ้ายังไม่ทดสอบผ่าน (ยังไปต่อได้) */}
+      {online.length > 0 && !anyTestedOk && (
+        <p className="mt-2 flex items-center gap-1.5 text-amber-500 text-[11px]">
+          <AlertTriangle size={13} className="shrink-0" />
+          แนะนำให้กด "ทดสอบการเชื่อมต่อ" ให้ผ่านก่อนไปต่อ
+        </p>
+      )}
+
+      {/* ยังไม่พบมือถือ — ชี้ไปคู่มือ */}
+      {online.length === 0 && (
+        <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
+          <p className="flex items-center gap-1.5 text-amber-500 text-xs font-medium">
+            <AlertTriangle size={14} className="shrink-0" /> ยังไม่พบมือถือ
+          </p>
+          <p className="text-muted-foreground text-[11px] mt-1 leading-relaxed">
+            เสียบสาย USB หรือเชื่อม Wi-Fi ด้านบน แล้วกด "เช็คอีกครั้ง" — ถ้าเสียบแล้วยังไม่ขึ้น มักเป็นเพราะยังไม่ได้เปิด "โหมดนักพัฒนา + USB debugging" บนมือถือ (ตั้งค่าให้เสร็จก่อนแล้วค่อยเชื่อมทีหลังก็ได้)
+          </p>
+          <button type="button" onClick={onOpenGuide}
+                  className="mt-2 inline-flex items-center gap-1 text-accent text-xs font-medium hover:underline">
+            <BookOpen size={13} /> ดูวิธีเปิดโหมดนักพัฒนา + USB debugging
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 mt-3">
+        <button type="button" onClick={onOpenGuide}
+                className="inline-flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground">
+          <BookOpen size={13} /> วิธีเปิด USB debugging
+          <InfoTooltip text="ถ้าเชื่อม adb ไม่ติด มักเพราะยังไม่ได้เปิดโหมดนักพัฒนา + การแก้จุดบกพร่อง USB บนมือถือ — กดดูขั้นตอนตามยี่ห้อ" />
+        </button>
         <Button variant="ghost" size="sm" onClick={() => onRefresh?.()} className="text-muted-foreground">
           <RefreshCw size={13} /> เช็คอีกครั้ง
         </Button>
@@ -506,6 +658,55 @@ function StepPlatforms({ plats, selected, onToggle, reviewMode, setReviewMode })
         </div>
       </div>
     </StepBody>
+  )
+}
+
+/* ───────────── คู่มือ: เปิดโหมดนักพัฒนา + USB debugging ───────────── */
+
+function DevModeGuide({ open, onClose, brand, setBrand }) {
+  const guide = DEV_GUIDES.find(g => g.key === brand) || DEV_GUIDES[DEV_GUIDES.length - 1]
+  return (
+    <Dialog open={open} onClose={onClose} size="lg" icon={BookOpen}
+            title="เปิดโหมดนักพัฒนา + การแก้จุดบกพร่อง USB"
+            description="ถ้าไม่เปิดสองอย่างนี้บนมือถือ คอมจะเชื่อมต่อ (adb) กับมือถือไม่ติด — เลือกยี่ห้อแล้วทำตามทีละขั้น">
+      {/* เลือกยี่ห้อ */}
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <p className="text-muted-foreground text-xs">ยี่ห้อมือถือของคุณ</p>
+        <InfoTooltip text="เมนูของแต่ละยี่ห้ออยู่คนละที่ — เลือกยี่ห้อให้ตรงเพื่อดูขั้นตอนที่ถูกต้อง (ไม่เจอยี่ห้อ ให้เลือก 'ยี่ห้ออื่น ๆ')" />
+      </div>
+      <select value={brand} onChange={e => setBrand(e.target.value)}
+              className="w-full bg-secondary border border-border text-foreground text-sm px-3 py-2.5 rounded-lg outline-none focus:border-accent mb-4">
+        {DEV_GUIDES.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
+      </select>
+
+      {/* ขั้นตอนเฉพาะยี่ห้อ */}
+      <ol className="flex flex-col gap-2.5">
+        {guide.steps.map((s, i) => (
+          <li key={i} className="flex gap-2.5">
+            <span className="mt-[1px] w-5 h-5 rounded-full bg-accent-wash text-accent text-[11px] font-bold flex items-center justify-center shrink-0">
+              {i + 1}
+            </span>
+            <span className="text-foreground text-[13px] leading-relaxed">{s}</span>
+          </li>
+        ))}
+      </ol>
+
+      {/* หมายเหตุสำคัญ */}
+      <div className="mt-4 rounded-xl border border-border bg-secondary/50 p-3 flex flex-col gap-2">
+        <p className="flex items-start gap-1.5 text-muted-foreground text-[11px] leading-relaxed">
+          <Plug size={13} className="text-accent shrink-0 mt-[1px]" />
+          ใช้สายที่ "ส่งข้อมูลได้" (ไม่ใช่สายชาร์จอย่างเดียว) — คอมพอร์ต USB-C ต่อ USB-C↔USB-C, คอมพอร์ตปกติ/มือถือรุ่นเก่าใช้ USB-A↔USB-C หรือ micro USB
+        </p>
+        <p className="flex items-start gap-1.5 text-muted-foreground text-[11px] leading-relaxed">
+          <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-[1px]" />
+          เสียบสายครั้งแรก มือถือจะเด้งหน้าต่าง "อนุญาตการแก้จุดบกพร่อง USB" — ต้องกด "อนุญาต (Allow)" (ติ๊ก "อนุญาตเสมอ" ไว้ด้วยจะดี) ไม่งั้นคอมจะมองไม่เห็นเครื่อง
+        </p>
+        <p className="flex items-start gap-1.5 text-muted-foreground text-[11px] leading-relaxed">
+          <ChevronRight size={13} className="text-accent shrink-0 mt-[1px]" />
+          ทำเสร็จแล้ว กลับมากด "เช็คอีกครั้ง" แล้วกด "ทดสอบการเชื่อมต่อ"
+        </p>
+      </div>
+    </Dialog>
   )
 }
 

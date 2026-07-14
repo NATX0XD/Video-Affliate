@@ -127,6 +127,7 @@ class WebServer:
                     devices.append({
                         "serial":  d.serial,
                         "model":   d.model,
+                        "brand":   getattr(d, "brand", ""),   # ยี่ห้อ (E)
                         "android": d.android,
                         "battery": d.battery,
                         "temp":    d.temp,            # °C อุณหภูมิแบต (E)
@@ -179,11 +180,28 @@ class WebServer:
                 return {"devices": []}
             devs = self.adb.scan()
             result = [{"serial": d.serial, "model": d.model,
+                       "brand": getattr(d, "brand", ""),
                        "android": d.android, "battery": d.battery,
                        "temp": d.temp, "charging": d.charging,
                        "status": d.status} for d in devs]
             self.ws.broadcast_sync({"type": "devices", "devices": result})
             return {"devices": result}
+
+        @app.get("/api/devices")
+        def list_devices():
+            """รายการมือถือที่ต่ออยู่ตอนนี้ + รุ่น/ยี่ห้อ — ให้หน้าเว็บดูว่าเจอเครื่องอะไรบ้าง."""
+            devs = []
+            if self.adb:
+                for d in self.adb.devices.values():
+                    devs.append({
+                        "serial":  d.serial,
+                        "model":   d.model,
+                        "brand":   getattr(d, "brand", ""),
+                        "android": d.android,
+                        "battery": d.battery,
+                        "status":  d.status,
+                    })
+            return {"devices": devs}
 
         @app.post("/api/devices/{serial}/label")
         async def set_device_label(serial: str, body: dict):
