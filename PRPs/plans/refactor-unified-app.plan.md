@@ -96,6 +96,7 @@
 
 ### Phase 2 — Onboarding stepper + prereq/device test (L)
 - [ ] stepper เดียวในเว็บ: ลง extension → เมล Google Flow + Google API key + ชื่อร้าน + ค่าเริ่มต้น (ที่เดียว) → checklist prereq (login Flow/Shopee) → เชื่อมมือถือ + ปุ่มทดสอบ · ทุกช่องมี InfoTooltip
+- [ ] **ขั้น "ตรวจ/ติดตั้งเครื่องมือ" ในตัว onboarding ทั้ง Mac+Win** (feedback เจ้าของ): เช็ก adb/scrcpy/ffmpeg มีไหม → ถ้าขาด โชว์ปุ่ม/คำสั่งติดตั้ง (Win=setup-prereqs.ps1, Mac=setup-mac.command) · **สร้างแล้ว: setup-mac.command + เปิดโปรแกรม-mac.command** (Mac ไม่เคยมี = เหตุ ADB ต่อไม่ติด) · ปลายทาง Phase 5 = vendor binary ไม่พึ่ง PATH
 - [ ] backend signal ตรวจ login Google Flow / Shopee (ผ่าน extension)
 - [ ] Wi-Fi ADB ครบ: `adb tcpip` + pairing (Android 11+) + ช่องพอร์ต + ปุ่มทดสอบ (tap+screenshot) · แก้ Mac connect
 - [ ] validate API key + ปุ่มทดสอบคีย์ · wire device-readiness (kbd/awake) จริง (เลิก mock)
