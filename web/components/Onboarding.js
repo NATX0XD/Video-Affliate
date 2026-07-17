@@ -12,12 +12,13 @@ import { termTh, termHint, MSG } from '@/lib/copy'
 import {
   Zap, Store, KeyRound, Smartphone, Share2, ArrowRight, ArrowLeft,
   Loader2, Check, CheckCircle2, XCircle, Wifi, Plug, RefreshCw,
-  BookOpen, AlertTriangle, ChevronRight,
+  BookOpen, AlertTriangle, ChevronRight, Puzzle, ExternalLink, Copy,
 } from 'lucide-react'
 
 const STEPS = [
   { label: termTh('shop_name') },
   { label: termTh('google_api_key') },
+  { label: termTh('extension') },
   { label: termTh('adb') },
   { label: termTh('platform') },
 ]
@@ -135,6 +136,8 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
   const [results, setResults]     = useState({})      // serial -> {ok, name, android, reason}
   const [plats, setPlats]         = useState([])
   const [saving, setSaving]       = useState(false)
+  const [extPath, setExtPath]       = useState('')
+  const [openingExt, setOpeningExt] = useState(false)
 
   // ── คู่มือเปิดโหมดนักพัฒนา + USB debugging ──
   const [guideOpen, setGuideOpen]   = useState(false)
@@ -160,8 +163,19 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
     api.platforms().then(d => setPlats(d.platforms || [])).catch(() => {})
   }, [initialShop])
 
+  // โหลด path โฟลเดอร์ extension (โชว์ให้ก๊อป / Load unpacked)
+  useEffect(() => { api.extPath().then(d => setExtPath(d.path || '')).catch(() => {}) }, [])
+
+  // เข้าขั้น "ส่วนขยาย" → poll สถานะทุก 3 วิ จนตรวจเจอ ext ต่อแล้ว
+  useEffect(() => {
+    if (step !== 2) return
+    onRefresh?.()
+    const t = setInterval(() => onRefresh?.(), 3000)
+    return () => clearInterval(t)
+  }, [step, onRefresh])
+
   // เข้าขั้น "เชื่อมมือถือ" → ดึงสถานะเครื่องล่าสุด
-  useEffect(() => { if (step === 2) onRefresh?.() }, [step, onRefresh])
+  useEffect(() => { if (step === 3) onRefresh?.() }, [step, onRefresh])
 
   const devices = status.devices || []
   const online  = devices.filter(d => d.status === 'device')
@@ -238,6 +252,22 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
   const togglePlatform = (key) =>
     setSelected(sel => sel.includes(key) ? sel.filter(k => k !== key) : [...sel, key])
 
+  const openExt = async () => {
+    setOpeningExt(true)
+    try {
+      const r = await api.openExtPage()
+      if (r.opened_chrome) toast.success('เปิดหน้า chrome://extensions + โฟลเดอร์ให้แล้ว')
+      else toast.error(r.hint || 'เปิด Chrome ไม่ได้ — เปิด chrome://extensions เอง')
+    } catch {}
+    setOpeningExt(false)
+  }
+  const copyPath = () => {
+    if (!extPath) return
+    navigator.clipboard?.writeText(extPath)
+      .then(() => toast.success('ก๊อปที่อยู่โฟลเดอร์แล้ว'))
+      .catch(() => {})
+  }
+
   const save = async () => {
     setSaving(true)
     try {
@@ -260,7 +290,8 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
     { ready: shop.trim().length > 0, reason: 'ใส่ชื่อร้านก่อนจึงจะไปต่อได้' },
     { ready: keyOk === true || (keySet && !apiKey.trim()),
       reason: 'กดปุ่ม "ทดสอบคีย์" ให้ผ่านก่อน หรือกด "ข้ามไปก่อน"' },
-    { ready: true },   // ผ่านได้เสมอ (ตั้งค่าก่อนมีมือถือได้) — เตือนในหน้าถ้ายังไม่ทดสอบผ่าน
+    { ready: true },   // ส่วนขยาย: ไปต่อได้เสมอ (โหลดทีหลังได้ — แต่ต้องมีก่อนสร้างคลิป)
+    { ready: true },   // มือถือ: ผ่านได้เสมอ (ตั้งค่าก่อนมีมือถือได้) — เตือนในหน้าถ้ายังไม่ทดสอบผ่าน
     { ready: selected.length > 0, reason: 'เลือกอย่างน้อย 1 แพลตฟอร์มปลายทาง' },
   ]
 
@@ -279,7 +310,7 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
             <Zap size={26} className="text-white fill-white" />
           </div>
           <h1 className="text-foreground text-xl font-extrabold tracking-tight">ตั้งค่า VDO Gen Auto Pilot ครั้งแรก</h1>
-          <p className="text-muted-foreground text-sm mt-1.5">ทำ 4 ขั้นสั้น ๆ แล้วเริ่มโพสต์คลิปอัตโนมัติได้เลย</p>
+          <p className="text-muted-foreground text-sm mt-1.5">ทำ 5 ขั้นสั้น ๆ แล้วเริ่มโพสต์คลิปอัตโนมัติได้เลย</p>
         </div>
 
         {/* Card */}
@@ -298,6 +329,13 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
               />
             )}
             {step === 2 && (
+              <StepExt
+                extConnected={extConnected} extPath={extPath}
+                onOpen={openExt} opening={openingExt} onCopy={copyPath}
+                onRefresh={onRefresh}
+              />
+            )}
+            {step === 3 && (
               <StepPhone
                 ip={ip} setIp={setIp} connecting={connecting} onConnect={connectWifi}
                 online={online} usbCand={usbCand} extConnected={extConnected}
@@ -313,7 +351,7 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
                 onRefresh={onRefresh}
               />
             )}
-            {step === 3 && (
+            {step === 4 && (
               <StepPlatforms
                 plats={plats} selected={selected} onToggle={togglePlatform}
                 reviewMode={reviewMode} setReviewMode={setReviewMode}
@@ -332,7 +370,7 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
             </div>
 
             <div className="flex items-center gap-2">
-              {step === 1 && (
+              {(step === 1 || step === 2) && (
                 <Button variant="link" size="sm" onClick={next}
                         className="text-muted-foreground">
                   ข้ามไปก่อน
@@ -344,7 +382,7 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
                   ถัดไป <ArrowRight size={15} />
                 </GatedButton>
               ) : (
-                <GatedButton ready={gate[3].ready} reason={gate[3].reason}
+                <GatedButton ready={gate[4].ready} reason={gate[4].reason}
                              onClick={save} disabled={saving} className="glow-accent min-w-[170px]">
                   {saving
                     ? <Loader2 size={15} className="animate-spin" />
@@ -658,6 +696,70 @@ function StepPlatforms({ plats, selected, onToggle, reviewMode, setReviewMode })
         </div>
       </div>
     </StepBody>
+  )
+}
+
+/* ───────────── ขั้นส่วนขยาย (Extension) — พาทำทีละขั้น ───────────── */
+
+function StepExt({ extConnected, extPath, onOpen, opening, onCopy, onRefresh }) {
+  return (
+    <StepBody icon={Puzzle} title={termTh('extension')}
+              desc="ส่วนเสริมนี้สั่ง Google Flow สร้างคลิป + ดูดสินค้าจาก Shopee — ติดตั้งลง Chrome ครั้งเดียว">
+      {extConnected ? (
+        <div className="rounded-xl border border-success/30 bg-success/5 p-4 flex items-center gap-2.5">
+          <CheckCircle2 size={20} className="text-success shrink-0" />
+          <div>
+            <p className="text-foreground text-sm font-semibold">ต่อส่วนเสริมแล้ว</p>
+            <p className="text-muted-foreground text-xs">ระบบเห็น extension ทำงานอยู่ — กด "ถัดไป" ได้เลย</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <ol className="flex flex-col gap-3">
+            <ExtSub n={1} title="เปิดหน้าส่วนขยายของ Chrome">
+              <Button size="sm" onClick={onOpen} disabled={opening}>
+                {opening ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+                เปิด chrome://extensions + โฟลเดอร์
+              </Button>
+              <p className="text-muted-foreground text-[11px] mt-1">ระบบจะเปิดหน้า Chrome ให้ + เผยโฟลเดอร์ extension ใน Finder ให้ลากวาง</p>
+            </ExtSub>
+            <ExtSub n={2} title='เปิด "โหมดนักพัฒนา (Developer mode)"'>
+              <p className="text-muted-foreground text-xs">สลับสวิตช์มุมขวาบนของหน้า chrome://extensions ให้ติด (สีน้ำเงิน)</p>
+            </ExtSub>
+            <ExtSub n={3} title='กด "Load unpacked" แล้วเลือกโฟลเดอร์นี้'>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-[11px] bg-secondary border border-border rounded-lg px-2.5 py-2 truncate text-foreground">{extPath || '…'}</code>
+                <Button variant="outline" size="sm" onClick={onCopy} disabled={!extPath}>
+                  <Copy size={13} /> ก๊อป
+                </Button>
+              </div>
+              <p className="text-muted-foreground text-[11px] mt-1">หรือลากโฟลเดอร์ที่เผยใน Finder มาวางบนหน้า chrome://extensions ตรง ๆ</p>
+            </ExtSub>
+          </ol>
+
+          <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-secondary/50 border border-border px-3 py-2">
+            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              <Loader2 size={13} className="animate-spin" /> กำลังรอตรวจจับส่วนเสริม…
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => onRefresh?.()} className="text-muted-foreground">
+              <RefreshCw size={13} /> เช็คอีกครั้ง
+            </Button>
+          </div>
+        </>
+      )}
+    </StepBody>
+  )
+}
+
+function ExtSub({ n, title, children }) {
+  return (
+    <li className="flex gap-2.5">
+      <span className="mt-[1px] w-5 h-5 rounded-full bg-accent-wash text-accent text-[11px] font-bold flex items-center justify-center shrink-0">{n}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-foreground text-[13px] font-medium mb-1.5">{title}</p>
+        {children}
+      </div>
+    </li>
   )
 }
 
