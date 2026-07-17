@@ -14,6 +14,14 @@ if [ -x ".venv/bin/python" ]; then PY=".venv/bin/python"; else PY="$(command -v 
 [ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null
 [ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)" 2>/dev/null
 
+# เครื่องมือแบบ No-Admin (จาก ติดตั้ง-mac-noadmin.command) — วางไว้ใน $HOME/.vgap/bin
+# prepend เข้า PATH ให้โปรแกรมหา adb/scrcpy/ffmpeg เจอ (รองรับทั้ง brew และ no-admin)
+if [ -d "$HOME/.vgap/bin" ]; then
+  export PATH="$HOME/.vgap/bin:$PATH"
+  [ -x "$HOME/.vgap/bin/adb" ] && export VGAP_ADB="$HOME/.vgap/bin/adb"
+  [ -f "$HOME/.vgap/bin/scrcpy-server" ] && export VGAP_SCRCPY_SERVER="$HOME/.vgap/bin/scrcpy-server"
+fi
+
 export VGAP_OPEN_BROWSER=1
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
