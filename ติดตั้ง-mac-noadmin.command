@@ -18,7 +18,7 @@ ROOT="$(pwd)"
 
 VGAP_HOME="$HOME/.vgap"
 BIN="$VGAP_HOME/bin"
-SCRCPY_VER="4.1"
+SCRCPY_VER="4.0"   # ★ ต้องตรงกับ SCRCPY_VERSION ในโค้ด (scrcpy_control.py) + Windows build — client/server ต้อง version เดียวกัน ไม่งั้น server abort → โพสต์ (touch/caption) ล้ม
 
 say(){ printf "\n\033[1;36m== %s ==\033[0m\n" "$1"; }
 ok(){ printf "\033[1;32m  ✓ %s\033[0m\n" "$1"; }
