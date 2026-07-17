@@ -1,5 +1,7 @@
 import './globals.css'
 import { Inter, IBM_Plex_Sans_Thai } from 'next/font/google'
+import { ToastProvider } from '@/components/ui/Toast'
+import { PWA } from '@/components/ui/PWA'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -16,9 +18,14 @@ const thai = IBM_Plex_Sans_Thai({
 export const metadata = {
   title: 'VDO Gen Auto Pilot',
   description: 'ระบบโพสต์คลิปอัตโนมัติหลายแพลตฟอร์ม — near-zero-touch',
+  manifest: '/manifest.webmanifest',
   icons: {
     apple: '/favicon.png',
   },
+}
+
+export const viewport = {
+  themeColor: '#16131c',
 }
 
 export default function RootLayout({ children }) {
@@ -26,7 +33,10 @@ export default function RootLayout({ children }) {
     <html lang="th" data-theme="dark"
           className={`h-full ${inter.variable} ${thai.variable}`}>
       <body className="h-full bg-base text-ink antialiased">
-        {children}
+        <ToastProvider>
+          {children}
+          <PWA />
+        </ToastProvider>
       </body>
     </html>
   )

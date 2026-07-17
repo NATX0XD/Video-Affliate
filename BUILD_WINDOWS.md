@@ -124,4 +124,8 @@ URL ใน package.json ต้องชี้ไป "โฟลเดอร์" �
 ## หมายเหตุ
 - ตัวติดตั้งจะใหญ่ ~150-250MB (รวม Python runtime + scrcpy + ffmpeg) — ปกติ
 - ไอคอนตอนนี้เป็น **placeholder** (`electron\assets\icon.ico`) เปลี่ยนได้โดยรัน `python electron\assets\make_icon.py` ใหม่ หรือเอา .ico ตัวจริงมาทับ
-- build Mac (.dmg) ทำแยกด้วย `npm run build:mac` บนเครื่อง Mac (วาง binary ฉบับ mac ใน `bin\` ก่อน)
+- build Mac (.dmg) — **ใช้ `build-dmg.command`** บนเครื่อง Mac (ดับเบิลคลิก หรือ `bash build-dmg.command`)
+  เป็นทางส่งมอบจริงฝั่ง Mac: หุ้ม payload (เว็บ+สคริปต์) เป็น `.dmg` ไฟล์เดียวด้วย `hdiutil` → ผู้ใช้ดับเบิลคลิก
+  แล้วรัน `ติดตั้ง-mac-noadmin.command` (ไม่ต้อง code-signing / ไม่ต้อง electron / ไม่ต้อง PyInstaller)
+  > `electron/package.json` มี target `dmg` (electron-builder) ค้างไว้เป็นแนวทางในอนาคตเท่านั้น —
+  > **ยังไม่ใช่ทางส่งมอบ** เพราะต้องมี mac binaries ใน `electron/bin` + backend PyInstaller ก่อน ถึงจะได้ .app ที่ใช้ได้

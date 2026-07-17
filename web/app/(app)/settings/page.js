@@ -5,8 +5,11 @@ import { api }    from '@/lib/api'
 import { Input }  from '@/components/ui/input'
 import { Label }  from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { CaptionBuilder } from '@/components/ui/CaptionBuilder'
-import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound } from 'lucide-react'
+import { useToast } from '@/components/ui/Toast'
+import { termTh, termHint, MSG } from '@/lib/copy'
+import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound, Wrench, RefreshCw } from 'lucide-react'
 
 // ── helpers ───────────────────────────────────────────────────────
 
@@ -20,12 +23,15 @@ function Section({ title, subtitle }) {
   )
 }
 
-function Field({ label, value, onChange, type = 'text', placeholder = '', suffix }) {
+function Field({ label, value, onChange, type = 'text', placeholder = '', suffix, info }) {
   const [show, setShow] = useState(false)
   const secret = type === 'password'
   return (
     <div className="flex flex-col gap-1.5">
-      <Label className="text-muted-foreground text-xs">{label}</Label>
+      <div className="flex items-center gap-1.5">
+        <Label className="text-muted-foreground text-xs">{label}</Label>
+        {info && <InfoTooltip text={info} />}
+      </div>
       <div className="relative">
         <Input
           type={secret && !show ? 'password' : 'text'}
@@ -46,7 +52,7 @@ function Field({ label, value, onChange, type = 'text', placeholder = '', suffix
   )
 }
 
-function Row({ icon: Icon, title, desc, children, delay = 0 }) {
+function Row({ icon: Icon, title, desc, children, delay = 0, info }) {
   return (
     <motion.div
       className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-5 lg:gap-10 py-7 border-b border-border last:border-0"
@@ -59,7 +65,9 @@ function Row({ icon: Icon, title, desc, children, delay = 0 }) {
           <Icon size={17} className="text-accent" />
         </div>
         <div className="min-w-0">
-          <h3 className="text-foreground font-semibold text-[15px] leading-tight">{title}</h3>
+          <h3 className="text-foreground font-semibold text-[15px] leading-tight flex items-center gap-1.5">
+            {title}{info && <InfoTooltip text={info} />}
+          </h3>
           <p className="text-muted-foreground text-xs mt-1.5 leading-relaxed">{desc}</p>
         </div>
       </div>
@@ -71,14 +79,41 @@ function Row({ icon: Icon, title, desc, children, delay = 0 }) {
 // ── Page ─────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
+  const toast = useToast()
   const [cfg, setCfg]     = useState({})
   const [saved, setSaved] = useState(false)
   const [platforms, setPlatforms] = useState([])
   const [apiKey, setApiKey] = useState('')
+  const [adapterVer, setAdapterVer]   = useState('')
+  const [adapterBusy, setAdapterBusy] = useState(false)
   const keySet = cfg.google_api_key === '********'   // public_load ส่ง mask มาถ้าตั้ง key แล้ว
 
   useEffect(() => { api.getSettings().then(setCfg).catch(() => {}) }, [])
   useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
+  useEffect(() => { api.flowAdapter().then(d => setAdapterVer(d.version || '')).catch(() => {}) }, [])
+
+  // อัปเดตตัวเชื่อม Google Flow (ดึงรุ่นใหม่จาก desktop → toast ผล: ใหม่/ล่าสุด/ล้มเหลว)
+  const updateAdapter = async () => {
+    if (adapterBusy) return
+    setAdapterBusy(true)
+    try {
+      const res = await api.updateFlowAdapter()
+      if (res.ok) {
+        if (res.version && res.version !== adapterVer) {
+          setAdapterVer(res.version)
+          toast.success(`อัปเดตตัวเชื่อมแล้ว — เวอร์ชัน ${res.version}`)
+        } else {
+          toast.info('ตัวเชื่อมเป็นรุ่นล่าสุดอยู่แล้ว')
+        }
+      } else {
+        toast.error(res.error || 'อัปเดตตัวเชื่อมไม่สำเร็จ — ลองใหม่อีกครั้ง')
+      }
+    } catch {
+      toast.error('อัปเดตตัวเชื่อมไม่สำเร็จ — ลองใหม่อีกครั้ง')
+    } finally {
+      setAdapterBusy(false)
+    }
+  }
 
   const set = key => val => setCfg(prev => ({ ...prev, [key]: val }))
 
@@ -101,9 +136,14 @@ export default function SettingsPage() {
   const save = async () => {
     const payload = { ...cfg }
     if (apiKey.trim()) payload.google_api_key = apiKey.trim()   // ส่งเฉพาะตอนกรอกใหม่ (ไม่ทับด้วย mask)
-    await api.saveSettings(payload)
-    setApiKey('')
-    setSaved(true); setTimeout(() => setSaved(false), 2000)
+    try {
+      await api.saveSettings(payload)
+      setApiKey('')
+      setSaved(true); setTimeout(() => setSaved(false), 2000)
+      toast.success(MSG.saveOk)
+    } catch {
+      toast.error(MSG.saveFail)   // (api.js เด้ง toast ออฟไลน์ให้แล้ว — อันนี้เสริมบริบท "บันทึก")
+    }
   }
 
   return (
@@ -130,20 +170,42 @@ export default function SettingsPage() {
           </Row>
 
           {/* ══ AI (Gemini) ═══════════════════════════════ */}
-          <Section title="AI (Gemini)" subtitle="คีย์สำหรับให้ AI เขียนพรอมต์/แคปชัน — ขอฟรีที่ aistudio.google.com/apikey" />
+          <Section title="คีย์ AI (Gemini)" subtitle="คีย์สำหรับให้ AI ช่วยเขียนคำสั่ง/แคปชัน — ขอฟรีที่ aistudio.google.com/apikey" />
           <Row icon={KeyRound} delay={30}
-               title="Google API Key"
-               desc="ส่วนขยายใช้คีย์นี้เรียก Gemini เขียนพรอมต์คลิป — เก็บในเครื่องเท่านั้น (.env) ไม่ส่งออกนอกเครื่อง">
-            <Field label="Google API Key (Gemini)" type="password"
+               title={termTh('google_api_key')}
+               info={termHint('google_api_key')}
+               desc="ส่วนเสริมเบราว์เซอร์ใช้คีย์นี้ให้ AI ช่วยคิดคำสั่งสร้างคลิป — เก็บในเครื่องเท่านั้น ไม่ส่งออกนอกเครื่อง">
+            <Field label={termTh('google_api_key')} type="password"
+                   info={termHint('google_api_key')}
                    value={apiKey} onChange={setApiKey}
                    placeholder={keySet ? 'ตั้งไว้แล้ว ✓ — กรอกใหม่เพื่อเปลี่ยน' : 'วางคีย์ที่นี่ (ขึ้นต้น AIza…)'} />
+          </Row>
+
+          {/* ══ ตัวเชื่อม Google Flow ═════════════════════ */}
+          <Section title="ตัวเชื่อม Google Flow" subtitle="ตัวช่วยให้ระบบทำงานกับหน้า Google Flow ได้ — อัปเดตเมื่อ Flow เปลี่ยนหน้าตา" />
+          <Row icon={Wrench} delay={35}
+               title="อัปเดตตัวเชื่อม"
+               info="ตัวเชื่อมช่วยให้ระบบกดปุ่มบนหน้า Google Flow ได้ถูกที่ — ถ้าวันไหน Google Flow เปลี่ยนหน้าตาจนสร้างวิดีโอไม่ได้ ให้กดปุ่มนี้เพื่อดึงตัวเชื่อมรุ่นใหม่มาแก้ให้"
+               desc="ปกติไม่ต้องแตะ — ใช้เฉพาะตอน Google Flow เปลี่ยนหน้าตาแล้วสร้างวิดีโอไม่ได้ ให้กดปุ่มนี้เพื่ออัปเดตตัวเชื่อมรุ่นใหม่">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-muted-foreground text-xs">เวอร์ชันปัจจุบัน</span>
+                <span className="text-foreground text-sm font-semibold">{adapterVer || '—'}</span>
+              </div>
+              <button onClick={updateAdapter} disabled={adapterBusy}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border border-border bg-secondary text-foreground transition-all hover:bg-secondary/70 active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none">
+                <RefreshCw size={14} className={adapterBusy ? 'animate-spin' : ''} />
+                {adapterBusy ? 'กำลังอัปเดต…' : 'อัปเดตตัวเชื่อม'}
+              </button>
+            </div>
           </Row>
 
           {/* ══ การโพสต์ ══════════════════════════════════ */}
           <Section title="การโพสต์" subtitle="เลือกแพลตฟอร์มปลายทางสำหรับโพสต์แต่ละคลิป" />
           <Row icon={Share2} delay={40}
-               title="แพลตฟอร์มที่โพสต์"
-               desc="คลิป 1 อันโพสต์ได้หลายที่พร้อมกัน — แพลตฟอร์มที่ยัง 'ต้องจูน' ควรทดสอบ Dry Run ก่อน">
+               title={termTh('platform')}
+               info={termHint('dry_run')}
+               desc="คลิป 1 อันโพสต์ได้หลายที่พร้อมกัน — แพลตฟอร์มที่ยัง 'ต้องจูน' ควรลองแบบทดสอบ (ไม่โพสต์จริง) ก่อน">
             <div className="flex flex-col gap-1">
               {platforms.map(p => {
                 const on = selPlatforms.includes(p.key) && p.ready

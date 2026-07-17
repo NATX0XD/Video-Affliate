@@ -1,11 +1,13 @@
 'use client'
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { Sidebar  } from '@/components/layout/Sidebar'
 import { Topbar   } from '@/components/layout/Topbar'
 import { GenProgress } from '@/components/GenProgress'
 import { Onboarding } from '@/components/Onboarding'
 import LicenseActivation from '@/components/LicenseActivation'
 import { useStatus } from '@/hooks/useStatus'
+import { useToast } from '@/components/ui/Toast'
+import { MSG } from '@/lib/copy'
 import { api } from '@/lib/api'
 import { usePathname } from 'next/navigation'
 
@@ -14,6 +16,7 @@ export const useApp = () => useContext(AppCtx)
 
 const TITLES = {
   '/dashboard': 'ค็อกพิต',
+  '/pipeline':  'ไปป์ไลน์',
   '/reports':   'รายงาน',
   '/jobs':      'งาน',
   '/posts':     'ผลการโพสต์',
@@ -24,13 +27,26 @@ const TITLES = {
 }
 
 export default function AppLayout({ children }) {
-  const { state, patch } = useStatus()
+  const { state, patch, refresh } = useStatus()
   const path   = usePathname()
   const title  = TITLES[path] ?? 'VDO Gen Auto Pilot'
   const online = state.devices.filter(d => d.status === 'device').length
 
   const [navOpen, setNavOpen] = useState(false)
   useEffect(() => { setNavOpen(false) }, [path])   // ปิด drawer เมื่อเปลี่ยนหน้า
+
+  // แจ้งเตือนเมื่อการเชื่อมต่อโปรแกรมหลัก (WebSocket) หลุด/กลับมา
+  const toast = useToast()
+  const wsState = useRef(false)   // false=ยังไม่เคยต่อ · true=ต่ออยู่ · 'lost'=หลุด
+  useEffect(() => {
+    if (state.ws_connected) {
+      if (wsState.current === 'lost') toast.success(MSG.wsBack)
+      wsState.current = true
+    } else if (wsState.current === true) {
+      wsState.current = 'lost'
+      toast.error(MSG.wsLost)
+    }
+  }, [state.ws_connected, toast])
 
   // gate 1: license check (disabled ระหว่าง dev — เปิดก่อน release)
   const [license, setLicense] = useState({ checked: true, ok: true })
@@ -62,7 +78,13 @@ export default function AppLayout({ children }) {
     )
   }
   if (!setup.configured) {
-    return <Onboarding onDone={() => setSetup({ checked: true, configured: true })} />
+    return (
+      <Onboarding
+        status={state}
+        onRefresh={refresh}
+        onDone={() => setSetup({ checked: true, configured: true })}
+      />
+    )
   }
 
   return (

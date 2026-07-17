@@ -142,6 +142,40 @@ async function apiBase() {
   return `http://localhost:${_portCache}`;
 }
 
+// ── mirror สินค้าไป desktop (G3) — additive อย่างเดียว ─────────────────────
+// แปลง product ทรงซ้อน (basic_info/commission/links/images) จาก scraper → flat dict
+// ที่ตาราง products ใน SQLite รับ (name/price/commission/image_url/cart_link/source).
+// dedup ฝั่ง desktop ใช้ cart_link → ใช้ affiliate_link ก่อน ไม่มีค่อย product_url (คงที่ต่อสินค้า).
+function mapProductForDesktop(p) {
+  const bi = (p && p.basic_info) || {};
+  const links = (p && p.links) || {};
+  const rate = p && p.commission && p.commission.rate != null ? p.commission.rate : '';
+  return {
+    name: bi.name || '',
+    price: bi.price != null ? String(bi.price) : '',
+    commission: rate === '' ? '' : String(rate),
+    image_url: (p && p.images && p.images[0]) || '',
+    cart_link: links.affiliate_link || links.product_url || '',
+    source: 'shopee',
+  };
+}
+// ยิงไป POST {apiBase}/api/products แบบ fire-and-forget — เงียบเสมอถ้า desktop ปิด
+// (chrome.storage ยังเป็นแหล่งข้อมูลหลัก ไม่พังถ้ายิงไม่ได้). service worker fetch localhost ได้ตรง.
+async function postProductsToDesktop(products) {
+  if (!products || !products.length) return;
+  try {
+    const base = await apiBase();
+    await fetch(`${base}/api/products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ products: products.map(mapProductForDesktop) }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) {
+    // desktop อาจไม่เปิด/พอร์ตไม่ตรง — ไม่รบกวน flow เดิม (products ยังอยู่ครบใน chrome.storage)
+  }
+}
+
 // ── broadcast ไปหน้า extension (sidepanel/dashboard) แบบไม่พ่น error ──
 // ถ้าไม่มีหน้าไหนเปิดรับ sendMessage จะ reject "Receiving end does not exist"
 // ซึ่ง try/catch จับไม่ได้ (เป็น promise) — ใช้ callback + แตะ lastError แทน
@@ -382,9 +416,15 @@ ${mute ? '- โหมดเสียง: ไม่มีเสียงพูด
     if (m) parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
   }
   const model = cfg.prompt_model || 'gemini-2.0-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cfg.google_api_key)}`;
+  // เรียก Gemini ผ่าน proxy ของ desktop — key ไม่หลุดออกนอกเครื่อง (desktop ถือ GOOGLE_API_KEY เอง)
+  // ไม่มี token = desktop รุ่นเก่าที่ไม่มี proxy → error ชัดเลย ไม่ยิง key ดิบเงียบ (เลิกใช้ key ดิบแล้ว)
+  if (!cfg.token) throw new Error('desktop รุ่นนี้ยังไม่รองรับ AI proxy — อัปเดตโปรแกรมหลักในเครื่องก่อน');
+  const url = `${await apiBase()}/api/ai/gemini`;
+  const reqHeaders = { 'Content-Type': 'application/json', 'X-VGAP-Token': cfg.token };
   // responseMimeType=json บังคับ valid JSON · thinkingBudget 0 = ปิดคิดในใจรุ่น 2.5 (กันโทเคนหมด คำตอบโดนตัด)
+  // proxy รับ {model,contents,generationConfig} แล้วส่งต่อ Gemini → คืน JSON รูปเดิม (candidates/usageMetadata/error)
   const reqBody = JSON.stringify({
+    model,
     contents: [{ parts }],
     generationConfig: { temperature: 1.0, maxOutputTokens: 2048, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
   });
@@ -393,7 +433,7 @@ ${mute ? '- โหมดเสียง: ไม่มีเสียงพูด
   let res = null, lastErr = '';
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: reqBody, signal: AbortSignal.timeout(60000) }).then((r) => r.json());
+      res = await fetch(url, { method: 'POST', headers: reqHeaders, body: reqBody, signal: AbortSignal.timeout(60000) }).then((r) => r.json());
     } catch (e) { res = { error: { message: String((e && e.message) || e) } }; }   // network/timeout → ถือเป็น transient
     if (!res || !res.error) break;                                                  // สำเร็จ → ออกลูป
     lastErr = res.error.message || res.error.status || 'unknown error';
@@ -504,7 +544,7 @@ async function buildFlowPrompt(product, dry = false, i2v = false) {
   if (dry) plog('โหมดทดสอบ → จะลองเรียก Gemini สร้าง JSON จริง (ไม่กดส่ง Flow, ไม่เสียเครดิต Flow)');
   if (cfg.prompt_mode === 'template') { plog('โหมด template (ตั้งใน desktop) → ใช้ paragraph ไม่ใช่ JSON'); return dflt; }
   // โหมด AI: เรียก Gemini เอง (ถ้าพลาด → fallback สไตล์)
-  if (!cfg.google_api_key) { plog('ไม่มี API key → ใช้ paragraph (ตั้ง key ใน desktop ก่อนถึงได้ JSON)'); return dflt; }
+  if (!cfg.google_api_key_set) { plog('ไม่มี API key → ใช้ paragraph (ตั้ง key ใน desktop ก่อนถึงได้ JSON)'); return dflt; }
   // เครดิต/โควต้าหมดตั้งแต่ชิ้นก่อนในรอบนี้ → ข้ามการยิง Gemini เลย (ไม่งั้นทั้งคิวจะพังรัวๆ เปลืองเวลา + spam error)
   // โหมดทดสอบ (dry) = ผู้ใช้กดดู JSON เอง → ข้ามธงบล็อกเสมอ ลองยิง Gemini จริงทุกครั้ง (ไม่งั้น flag ค้างจะทำให้เห็นแต่ paragraph)
   if (!dry) {
@@ -581,6 +621,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const merged = [...existing, ...fresh];
       chrome.storage.local.set({ products: merged }, () => {
         notifyPages({ action: 'products_updated', added: fresh.length, total: merged.length });
+        postProductsToDesktop(fresh);   // G3: mirror สินค้าใหม่ไป SQLite ควบคู่ (ไม่ await ไม่บล็อก, เก็บ storage เหมือนเดิม)
         sendResponse({ ok: true, added: fresh.length, total: merged.length, enriched });
       });
     });
@@ -738,6 +779,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       setTimeout(attempt, wait);
     };
 
+    // สำเร็จ → แนบ mime/ขนาดไฟล์ (จาก chrome.downloads) ให้ flow.js เช็คว่าเป็นวิดีโอจริง (defensive)
+    // additive อย่างเดียว — ไม่เปลี่ยนพฤติกรรมดาวน์โหลด (ok/downloadId/filename ยังเหมือนเดิม)
+    const finishOk = (id) => {
+      chrome.downloads.search({ id }, (items) => {
+        const it = (items && items[0]) || {};
+        const fileSize = (it.fileSize != null && it.fileSize >= 0) ? it.fileSize
+          : ((it.totalBytes != null && it.totalBytes >= 0) ? it.totalBytes : null);
+        done({ ok: true, downloadId: id, filename, mime: it.mime || '', fileSize, totalBytes: it.totalBytes });
+      });
+    };
+
     const watch = (id, onInterrupt) => {
       let handled = false;
       const finish = (fn) => {
@@ -748,7 +800,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       };
       const onChange = (delta) => {
         if (delta.id !== id || !delta.state) return;
-        if (delta.state.current === 'complete') finish(() => done({ ok: true, downloadId: id, filename }));
+        if (delta.state.current === 'complete') finish(() => finishOk(id));
         else if (delta.state.current === 'interrupted') finish(() => onInterrupt(id));
       };
       chrome.downloads.onChanged.addListener(onChange);
@@ -756,7 +808,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       chrome.downloads.search({ id }, (items) => {
         const it = items && items[0];
         if (!it) return;
-        if (it.state === 'complete') finish(() => done({ ok: true, downloadId: id, filename }));
+        if (it.state === 'complete') finish(() => finishOk(id));
         else if (it.state === 'interrupted') finish(() => onInterrupt(id));
       });
     };

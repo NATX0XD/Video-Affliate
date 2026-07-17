@@ -8,6 +8,15 @@ Set-Location $root
 Write-Host "=== get latest code ===" -ForegroundColor Cyan
 $before = (git rev-parse HEAD)
 git fetch origin
+
+# กันข้อมูลผู้ใช้หาย: reset --hard ลบ desktop\settings.json ที่ผู้ใช้แก้ไว้ (พอเวอร์ชันใหม่
+# เปลี่ยนเป็น untracked+gitignore) ก่อน config.py จะได้ย้าย → เซฟ settings.json ไป ~/.vgap ก่อน reset.
+$vgap = Join-Path $HOME '.vgap'
+New-Item -ItemType Directory -Force -Path $vgap | Out-Null
+if ((Test-Path 'desktop\settings.json') -and -not (Test-Path (Join-Path $vgap 'settings.json'))) {
+  Copy-Item 'desktop\settings.json' (Join-Path $vgap 'settings.json')
+}
+
 git reset --hard origin/main          # ชัวร์กว่า git pull (ไม่ต้องตั้ง branch tracking)
 $after  = (git rev-parse HEAD)
 

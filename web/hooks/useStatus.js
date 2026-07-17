@@ -11,6 +11,7 @@ const DEFAULT = {
   queueItems: [],
   currentItem: null,
   genProgress: null,
+  extension: { connected: false, last_ping_ts: 0 },   // สัญญาณส่วนเสริม (P2.1) — onboarding เช็ค "เชื่อมแล้ว"
 }
 
 export function useStatus() {
@@ -45,7 +46,8 @@ export function useStatus() {
 
       case 'gen_progress':
         patch({ genProgress: {
-          pid: msg.pid, stage: msg.stage, detail: msg.detail,
+          jobId: msg.jobId ?? msg.pid, pid: msg.jobId ?? msg.pid,
+          stage: msg.stage, detail: msg.detail, pct: msg.pct ?? null,
           error: msg.stage === 'error' ? msg.detail : null, ts: Date.now(),
         }})
         break
@@ -75,22 +77,23 @@ export function useStatus() {
 
   useWebSocket(handleMsg)
 
+  // ดึงสถานะครั้งเดียว (ใช้ทั้ง poll และปุ่ม "เช็คอีกครั้ง"/"สแกน" ใน onboarding)
+  const refresh = useCallback(() => api.status().then(d => {
+    patch({
+      devices: d.devices, queue: d.queue, done: d.done, errors: d.errors,
+      pilot_running: d.pilot_running,
+      jobs: d.jobs || DEFAULT.jobs,
+      budget: d.budget ?? null,
+      extension: d.extension || DEFAULT.extension,
+    })
+  }).catch(() => {}), [patch])
+
   // โหลดสถานะ + poll เป็นระยะ (jobs/budget/devices ไม่ได้มาทาง WS ทุกตัว)
   useEffect(() => {
-    let alive = true
-    const pull = () => api.status().then(d => {
-      if (!alive) return
-      patch({
-        devices: d.devices, queue: d.queue, done: d.done, errors: d.errors,
-        pilot_running: d.pilot_running,
-        jobs: d.jobs || DEFAULT.jobs,
-        budget: d.budget ?? null,
-      })
-    }).catch(() => {})
-    pull()
-    const id = setInterval(pull, 5000)
-    return () => { alive = false; clearInterval(id) }
-  }, [patch])
+    refresh()
+    const id = setInterval(refresh, 5000)
+    return () => clearInterval(id)
+  }, [refresh])
 
-  return { state, patch }
+  return { state, patch, refresh }
 }

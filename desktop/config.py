@@ -7,12 +7,43 @@ from pathlib import Path
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 
 # ข้อมูลที่ต้อง "เขียน + คงอยู่ข้ามการเปิด-ปิด/อัปเดต" (settings/.env/db/คลิป)
-# frozen one-file exe: __file__ อยู่ใน temp ที่ถูกลบทุกครั้งเปิด → ต้องใช้โฟลเดอร์ผู้ใช้ ไม่งั้นข้อมูลหายหมด
-# dev: ใช้โฟลเดอร์ desktop เดิม (พฤติกรรมไม่เปลี่ยน)
-if getattr(sys, "frozen", False):
-    DATA_ROOT = Path(os.environ.get("VGAP_DATA_DIR") or (Path.home() / ".vgap"))
-else:
-    DATA_ROOT = Path(__file__).parent
+# เก็บนอก repo เสมอ (ทุกโหมด) → update.ps1 (git reset --hard) ลบข้อมูลผู้ใช้ไม่ได้.
+#   VGAP_DATA_DIR ถ้าตั้งไว้ ไม่งั้น = ~/.vgap
+DATA_ROOT = Path(os.environ.get("VGAP_DATA_DIR") or (Path.home() / ".vgap"))
+
+
+def _migrate_legacy_data(new_root: Path):
+    """ผู้ใช้เดิม (โหมด source) เคยเก็บ settings.json/.env/data ไว้ใน desktop/ ซึ่งถูก
+    update.ps1 (git reset --hard) ลบทับได้ → ก็อปมา new_root ครั้งเดียว กันของหาย.
+    ก็อป (ไม่ย้าย) เพื่อไม่ทำลายของเดิม; ทำเฉพาะไอเท็มที่ปลายทางยังไม่มี."""
+    if getattr(sys, "frozen", False):
+        return
+    old_root = Path(__file__).parent
+    try:
+        if old_root.resolve() == new_root.resolve():
+            return
+    except Exception:
+        return
+    try:
+        new_root.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return
+    import shutil
+    for name in ("settings.json", ".env", "data"):
+        src, dst = old_root / name, new_root / name
+        try:
+            if dst.exists() or not src.exists():
+                continue
+            if src.is_dir():
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+        except Exception:
+            pass
+
+
+_migrate_legacy_data(DATA_ROOT)
+
 try:
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
 except Exception:
@@ -83,6 +114,7 @@ DEFAULT = {
     "gemini_cost_per_1k": 0,     # ต้นทุน Gemini ต่อ 1,000 token (บาท) — ประเมินค่า Gemini (J)
     "hot_folder": str(PENDING_DIR),
     "shop_name": "",
+    "flow_email": "",            # อีเมล Google ที่ใช้ล็อกอิน Flow ในเบราว์เซอร์ (แสดงให้ผู้ใช้ยืนยัน)
     # Video generation settings
     "age_group": "ทุกวัย",
     "personality": "สนุกสนาน",
@@ -98,6 +130,8 @@ DEFAULT = {
     "vdo_model": "veo-2.0-generate-001",
     "prompt_model": "gemini-2.0-flash",
     "generate_audio": False,
+    # Flow adapter — URL ของไฟล์ override selector/behavior ของ Google Flow (ว่าง = ใช้ bundled เท่านั้น)
+    "flow_adapter_url": "",
     # Avatar review (D-ID)
     "did_api_key": "",
     "avatar_url": "https://create-images-results.d-id.com/DefaultPresenters/Noelle_f/image.png",
@@ -132,11 +166,49 @@ def public_load() -> dict:
     return cfg
 
 def save(cfg: dict):
-    # Never persist secrets into settings.json — they belong in .env
-    sanitized = {k: v for k, v in cfg.items() if k not in ENV_KEYS}
+    # Allowlist: keep only known settings (DEFAULT ∪ ENV_KEYS) — drop foreign keys so a
+    # malformed/hostile payload can't inject unknown fields. Secrets (ENV_KEYS) never get
+    # persisted into settings.json — they belong in .env.
+    allowed = set(DEFAULT) | set(ENV_KEYS)
+    sanitized = {k: v for k, v in cfg.items() if k in allowed and k not in ENV_KEYS}
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(sanitized, f, ensure_ascii=False, indent=2)
+
+
+# ── Flow adapter (ชั้น override selector/behavior ของ Google Flow) ──────────────
+# bundled default = override ว่าง → flow.js ใช้ค่า/selector เดิมทั้งหมด (พฤติกรรมคงเดิมเป๊ะ).
+# ถ้ามีไฟล์ cache (ดึงจาก remote) จะใช้แทน. helper นี้ไม่แตะ logic gen/credit ใน flow.js.
+FLOW_ADAPTER_FILE = DATA_ROOT / "flow-adapter.json"
+
+DEFAULT_FLOW_ADAPTER = {
+    "version": "bundled-1",
+    "source": "bundled",
+    "selectors": {},       # ว่าง = ไม่ override → ใช้ selector เดิมใน flow.js
+    "timings": {},         # ว่าง = ไม่ override → ใช้ค่า delay/timeout เดิม
+    "output_verify": {},   # ว่าง = defensive เท่านั้น (แจ้ง error, ไม่ retry เสียเครดิต)
+}
+
+def load_flow_adapter() -> dict:
+    """คืน adapter ปัจจุบัน: ไฟล์ cache (~/.vgap/flow-adapter.json) ถ้ามีและ valid,
+    ไม่งั้น bundled default. มี field 'version' เสมอ."""
+    if FLOW_ADAPTER_FILE.exists():
+        try:
+            with open(FLOW_ADAPTER_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                data.setdefault("version", "unknown")
+                data.setdefault("source", "cache")
+                return data
+        except Exception:
+            pass
+    return dict(DEFAULT_FLOW_ADAPTER)
+
+def save_flow_adapter(data: dict):
+    """เขียน adapter ที่ดึงจาก remote ลง cache (~/.vgap/flow-adapter.json)."""
+    FLOW_ADAPTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(FLOW_ADAPTER_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def set_secret(field: str, value: str):
     """Write/update/remove a secret in .env (field is a settings key, e.g.

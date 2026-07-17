@@ -7,6 +7,8 @@ import re
 from PIL import Image
 from typing import Optional, Callable
 
+from services.adb.adb_path import adb_bin
+
 STREAM_W = 540   # output width (half-res for performance)
 
 
@@ -73,7 +75,7 @@ class ScreenMirror:
     def _get_resolution(self) -> tuple[int, int]:
         try:
             r = subprocess.run(
-                ["adb", "-s", self._serial, "shell", "wm", "size"],
+                [adb_bin(self.log), "-s", self._serial, "shell", "wm", "size"],
                 capture_output=True, text=True, timeout=5
             )
             m = re.search(r"(\d+)x(\d+)", r.stdout)
@@ -100,7 +102,7 @@ class ScreenMirror:
         try:
             # Encode at target resolution on-device → no ffmpeg scale needed
             self._adb_proc = subprocess.Popen(
-                ["adb", "-s", self._serial, "exec-out",
+                [adb_bin(self.log), "-s", self._serial, "exec-out",
                  "screenrecord",
                  "--output-format=h264",
                  "--bit-rate=4000000",

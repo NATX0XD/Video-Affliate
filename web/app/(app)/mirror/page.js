@@ -4,8 +4,11 @@ import { useApp }           from '../layout'
 import { MirrorFullscreen } from '@/components/mirror/MirrorFullscreen'
 import { PageHeader }       from '@/components/layout/PageHeader'
 import { Button }           from '@/components/ui/Button'
+import { GatedButton }      from '@/components/ui/GatedButton'
 import { Input }            from '@/components/ui/input'
+import { InfoTooltip }      from '@/components/ui/InfoTooltip'
 import { api }              from '@/lib/api'
+import { termHint, MSG }    from '@/lib/copy'
 import { PLAT_META }        from '@/lib/platform-meta'
 import { deviceReadiness }  from '@/lib/device-readiness'
 import {
@@ -28,6 +31,7 @@ export default function MirrorFarmPage() {
 
   const devices = state.devices || []
   const online  = devices.filter(d => d.status === 'device')
+  const ready   = state.ws_connected   // ต้องเชื่อมต่อโปรแกรมหลักก่อน จึงสแกน/เชื่อมมือถือได้
 
   useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
 
@@ -71,12 +75,14 @@ export default function MirrorFarmPage() {
         subtitle={`${online.length} เครื่องออนไลน์ · ดูจอสดทุกเครื่องพร้อมกัน · คลิกเพื่อคุมเครื่อง`}
         action={
           <div className="flex items-center gap-2">
-            <Input value={ip} onChange={e => setIp(e.target.value)} onKeyDown={e => e.key === 'Enter' && connect()}
-                   placeholder="Wi-Fi: 192.168.x.x" className="w-40" />
-            <Button variant="outline" size="icon" onClick={connect}><Wifi size={15} /></Button>
-            <Button onClick={scan} disabled={scanning}>
+            <Input value={ip} onChange={e => setIp(e.target.value)} onKeyDown={e => e.key === 'Enter' && ready && connect()}
+                   placeholder="Wi-Fi: 192.168.x.x" disabled={!ready} className="w-40" />
+            <InfoTooltip text={termHint('wifi_adb')} />
+            <Button variant="outline" size="icon" onClick={connect} disabled={!ready}
+                    title={!ready ? MSG.needDesktop : undefined}><Wifi size={15} /></Button>
+            <GatedButton ready={ready} reason={MSG.needDesktop} onClick={scan} disabled={scanning}>
               <RefreshCw size={14} className={scanning ? 'animate-spin' : ''} strokeWidth={2.5} /> สแกน
-            </Button>
+            </GatedButton>
           </div>
         }
       />

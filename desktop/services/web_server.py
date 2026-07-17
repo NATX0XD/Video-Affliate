@@ -6,11 +6,12 @@ import asyncio
 import io
 import json
 import re
+import secrets
 import threading
 import time
 from typing import Optional, Callable
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 import uvicorn
@@ -94,6 +95,12 @@ class WebServer:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._started_at: Optional[float] = None   # uptime (A1.8)
+        self._last_ext_ping: float = 0.0           # เวลาที่ extension ติดต่อล่าสุด (P2.1) — onboarding เช็ค "เชื่อมแล้ว"
+
+        # Shared session token — สร้างใหม่ทุกครั้งที่เปิดโปรแกรม (in-memory เท่านั้น ไม่เขียนดิสก์).
+        # extension ขอ token นี้ผ่าน /api/flow/config แล้วแนบใน header เวลาเรียก proxy sensitive
+        # (แทนการรับ google_api_key ดิบ → key ไม่หลุดออกนอกเครื่อง).
+        self.api_token: str = secrets.token_urlsafe(24)
 
         self.app = self._build_app()
 
@@ -102,9 +109,11 @@ class WebServer:
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="VDO Gen Auto Pilot API")
 
+        # CORS: จำกัดเฉพาะหน้าเว็บ local (localhost/127.0.0.1 :3000/:3001) + extension
+        # (chrome-extension://) — กันหน้าเว็บอื่นในเครื่องอ่าน API/ยิง proxy ได้ (เดิม "*" = ใครก็อ่านได้)
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
+            allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1):(3000|3001)|chrome-extension://.*)$",
             allow_credentials=False,
             allow_methods=["*"],
             allow_headers=["*"],
@@ -126,6 +135,7 @@ class WebServer:
                     devices.append({
                         "serial":  d.serial,
                         "model":   d.model,
+                        "brand":   getattr(d, "brand", ""),   # ยี่ห้อ (E)
                         "android": d.android,
                         "battery": d.battery,
                         "temp":    d.temp,            # °C อุณหภูมิแบต (E)
@@ -148,6 +158,7 @@ class WebServer:
                                      self.mirrors[d.serial].is_running,
                     })
             running = bool(self.autopilot and self.autopilot.enabled)
+            ext = self._extension_state()
             if self.db:
                 by = self.db.stats()["by_status"]
                 queue = (by.get(QUEUED, 0) + by.get(GENERATING, 0) +
@@ -158,8 +169,10 @@ class WebServer:
                     "done":          by.get(POSTED, 0),
                     "errors":        by.get(ERROR, 0),
                     "pilot_running": running,
+                    "extension":     ext,               # {connected, last_ping_ts} (P2.1)
                     "jobs":          self.db.stats(),   # breakdown ละเอียดสำหรับค็อกพิต
                     "budget":        self.budget.snapshot() if self.budget else None,
+                    "token":         self.api_token,    # ให้หน้าเว็บ/extension แนบเวลาเรียก proxy
                 }
             return {
                 "devices":    devices,
@@ -167,6 +180,8 @@ class WebServer:
                 "done":       0,
                 "errors":     0,
                 "pilot_running": running,
+                "extension":  ext,
+                "token":      self.api_token,
             }
 
         @app.post("/api/scan")
@@ -175,11 +190,28 @@ class WebServer:
                 return {"devices": []}
             devs = self.adb.scan()
             result = [{"serial": d.serial, "model": d.model,
+                       "brand": getattr(d, "brand", ""),
                        "android": d.android, "battery": d.battery,
                        "temp": d.temp, "charging": d.charging,
                        "status": d.status} for d in devs]
             self.ws.broadcast_sync({"type": "devices", "devices": result})
             return {"devices": result}
+
+        @app.get("/api/devices")
+        def list_devices():
+            """รายการมือถือที่ต่ออยู่ตอนนี้ + รุ่น/ยี่ห้อ — ให้หน้าเว็บดูว่าเจอเครื่องอะไรบ้าง."""
+            devs = []
+            if self.adb:
+                for d in self.adb.devices.values():
+                    devs.append({
+                        "serial":  d.serial,
+                        "model":   d.model,
+                        "brand":   getattr(d, "brand", ""),
+                        "android": d.android,
+                        "battery": d.battery,
+                        "status":  d.status,
+                    })
+            return {"devices": devs}
 
         @app.post("/api/devices/{serial}/label")
         async def set_device_label(serial: str, body: dict):
@@ -254,12 +286,74 @@ class WebServer:
 
         @app.post("/api/wifi_connect")
         async def wifi_connect(body: dict):
-            if self.adb:
-                threading.Thread(
-                    target=lambda: self.adb.connect_wifi(body.get("ip", "")),
-                    daemon=True
-                ).start()
-            return {"ok": True}
+            # เชื่อม Wi-Fi แบบคืนผลจริง (เลิก fire-and-forget) — onboarding รู้ผลทันที
+            if not self.adb:
+                return {"ok": False, "error": "ระบบยังไม่พร้อม"}
+            host = (body.get("ip") or body.get("host") or "").strip()
+            if not host:
+                return {"ok": False, "error": "กรอกที่อยู่ (IP) ของมือถือก่อน"}
+            ok, msg = self.adb.connect_wifi(host)
+            if ok:
+                self.adb.scan()   # อัปเดตรายชื่อเครื่องทันที
+            return {"ok": ok, "message": msg,
+                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+
+        @app.post("/api/adb/tcpip")
+        async def adb_tcpip(body: dict):
+            """เปิดโหมดเชื่อมมือถือผ่าน Wi-Fi — สั่งบนเครื่องที่เสียบสาย USB อยู่ (ต้องรู้ serial)."""
+            if not self.adb:
+                return {"ok": False, "error": "ระบบยังไม่พร้อม"}
+            serial = (body.get("serial") or "").strip()
+            if not serial:
+                return {"ok": False, "error": "ยังไม่รู้ว่าจะสั่งเครื่องไหน — เสียบสาย USB ก่อน"}
+            port = int(body.get("port", 5555) or 5555)
+            ok, msg = self.adb.tcpip(serial, port)
+            return {"ok": ok, "message": msg,
+                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+
+        @app.post("/api/adb/pair")
+        async def adb_pair(body: dict):
+            """จับคู่มือถือแบบไร้สาย (Android 11 ขึ้นไป) — host:port + รหัส 6 หลักที่มือถือแสดง."""
+            if not self.adb:
+                return {"ok": False, "error": "ระบบยังไม่พร้อม"}
+            host = (body.get("host") or "").strip()
+            port = body.get("port")
+            code = str(body.get("code") or "").strip()
+            if not host or not port or not code:
+                return {"ok": False, "error": "กรอกให้ครบ: ที่อยู่ (host), พอร์ต และรหัสจับคู่ 6 หลัก"}
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "พอร์ตต้องเป็นตัวเลข"}
+            ok, msg = self.adb.pair(host, port, code)
+            return {"ok": ok, "message": msg,
+                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+
+        @app.post("/api/adb/connect")
+        async def adb_connect(body: dict):
+            """เชื่อมมือถือผ่าน Wi-Fi (คืนผลจริง สำเร็จ/ไม่สำเร็จ) — รับ host หรือ ip."""
+            if not self.adb:
+                return {"ok": False, "error": "ระบบยังไม่พร้อม"}
+            host = (body.get("host") or body.get("ip") or "").strip()
+            if not host:
+                return {"ok": False, "error": "กรอกที่อยู่ (IP) ของมือถือก่อน"}
+            port = int(body.get("port", 5555) or 5555)
+            ok, msg = self.adb.connect_wifi(host, port)
+            if ok:
+                self.adb.scan()
+            return {"ok": ok, "message": msg,
+                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+
+        @app.post("/api/adb/test")
+        async def adb_test(body: dict):
+            """ตรวจว่ามือถือพร้อมใช้งานจริงไหม (สั่งงานได้ + ถ่ายภาพหน้าจอได้)."""
+            if not self.adb:
+                return {"ok": False, "ready": False, "error": "ระบบยังไม่พร้อม"}
+            serial = (body.get("serial") or "").strip()
+            if not serial:
+                return {"ok": False, "ready": False, "error": "ยังไม่ได้เลือกเครื่อง"}
+            res = self.adb.test_ready(serial)
+            return {"ok": res["ready"], **res}
 
         @app.post("/api/pilot/start")
         async def pilot_start(body: dict):
@@ -446,26 +540,53 @@ class WebServer:
 
         @app.get("/api/setup")
         def setup_status():
-            shop = self.db.get_config("shop_name", "") if self.db else ""
-            return {"configured": bool(shop), "shop_name": shop or ""}
+            import config as cfg
+            s = cfg.load()
+            shop = (self.db.get_config("shop_name", "") if self.db else "") or s.get("shop_name", "")
+            done = (self.db.get_config("setup_done", "") == "1") if self.db else bool(shop)
+            return {
+                "configured":          bool(done),
+                "shop_name":           shop or "",
+                "flow_email":          s.get("flow_email", ""),
+                "platforms":           s.get("platforms", []),
+                "review_mode":         s.get("review_mode", "auto"),
+                "google_api_key_set":  bool(s.get("google_api_key")),
+            }
 
         @app.post("/api/setup")
         async def setup_save(body: dict):
+            """บันทึกค่าตั้งต้นทั้งหมดในครั้งเดียว: ชื่อร้าน + Google API key + อีเมล Flow
+            + แพลตฟอร์ม/โหมดรีวิว (ถ้าส่งมา) แล้ว mark setup_done."""
             import config as cfg
             shop = (body.get("shop_name") or "").strip()
             if not shop:
                 return {"ok": False, "error": "กรุณาใส่ชื่อร้าน"}
-            # เก็บลง DB (แหล่งความจริงของสถานะ setup)
+
+            # โหลดค่าปัจจุบัน แล้วเติมค่าจาก onboarding ลง settings.json (worker อ่านจากนี่)
+            s = cfg.load()
+            s["shop_name"] = shop
+            if "flow_email" in body:
+                s["flow_email"] = (body.get("flow_email") or "").strip()
+            if isinstance(body.get("platforms"), list):
+                s["platforms"] = [p for p in body["platforms"] if p]
+            if body.get("review_mode") in ("auto", "hold"):
+                s["review_mode"] = body["review_mode"]
+            cfg.save(s)   # ตัด secrets ออกก่อนเขียนไฟล์เสมอ
+
+            # Google API key → .env (ข้ามค่า mask กันทับ key เดิม)
+            key = (body.get("google_api_key") or "").strip()
+            if key and key != cfg.MASK:
+                cfg.set_secret("google_api_key", key)
+
+            # DB = แหล่งความจริงของสถานะ setup
             if self.db:
                 self.db.set_config("shop_name", shop)
+                if "flow_email" in body:
+                    self.db.set_config("flow_email", s.get("flow_email", ""))
                 self.db.set_config("setup_done", "1")
-            # mirror เข้า settings.json ให้ worker ใช้
-            s = cfg.load(); s["shop_name"] = shop; cfg.save(s)
-            key = (body.get("google_api_key") or "").strip()
-            if key:
-                cfg.set_secret("google_api_key", key)
+
             self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")
-            return {"ok": True, "shop_name": shop}
+            return {"ok": True, "shop_name": shop, "setup_done": True}
 
         # ── License ──
 
@@ -658,17 +779,53 @@ class WebServer:
             # AutoPoster/AutoPilot อ่าน cfg.load() สดทุกครั้ง — ไม่ต้อง push เข้า worker
             return {"ok": True}
 
+        @app.post("/api/settings/test-key")
+        async def test_google_key(body: dict):
+            """ทดสอบ Google API key ว่าใช้งานได้จริงไหม — ยิงคำขอเบาสุด (list models) ไป Gemini.
+            รับ key จาก body ถ้าเป็นค่าจริง ไม่งั้นใช้ key ที่บันทึกไว้. ไม่ทำให้เซิร์ฟเวอร์ล่ม."""
+            import config as cfg
+            import httpx
+            key = (body.get("google_api_key") or "").strip()
+            if not key or key == cfg.MASK:
+                key = (cfg.load().get("google_api_key") or "").strip()
+            if not key:
+                return {"ok": False, "error": "ยังไม่ได้ใส่รหัส Google API key"}
+            url = "https://generativelanguage.googleapis.com/v1beta/models"
+            try:
+                r = httpx.get(url, params={"key": key, "pageSize": 1}, timeout=12)
+            except httpx.TimeoutException:
+                return {"ok": False, "error": "เชื่อมต่อ Google ไม่ทัน (หมดเวลา) — ลองใหม่อีกครั้ง"}
+            except Exception as e:
+                return {"ok": False, "error": f"เชื่อมต่ออินเทอร์เน็ตไม่ได้: {e}"}
+            if r.status_code == 200:
+                return {"ok": True}
+            detail = ""
+            try:
+                detail = ((r.json() or {}).get("error", {}) or {}).get("message", "")
+            except Exception:
+                detail = (r.text or "")[:200]
+            if r.status_code in (400, 403):
+                msg = "รหัส Google API key ไม่ถูกต้อง หรือยังไม่ได้เปิดสิทธิ์ใช้งาน Gemini"
+            elif r.status_code == 429:
+                msg = "ใช้งานเกินโควตาชั่วคราว — รอสักครู่แล้วลองใหม่"
+            else:
+                msg = f"ทดสอบไม่สำเร็จ (รหัส {r.status_code})"
+            return {"ok": False, "error": msg, "detail": detail}
+
         # ── Google Flow pipeline (extension สร้างคลิป + เขียน prompt เองในเบราว์เซอร์) ──
 
         @app.get("/api/flow/config")
         def flow_config():
-            """ส่งค่าที่ extension ใช้เขียน prompt เอง — local-only (key ออกเฉพาะ localhost).
-            extension คุมคิวสินค้า + เขียน prompt (template/AI) เอง desktop แค่รับคลิปที่ /api/flow/video."""
+            """ส่งค่าที่ extension ใช้เขียน prompt เอง — local-only.
+            เลิกส่ง google_api_key ดิบแล้ว (กันรั่ว) → ส่ง token + flag ว่ามี key แทน.
+            extension เรียก Gemini ผ่าน proxy POST /api/ai/gemini (แนบ token) ให้ desktop ถือ key เอง."""
+            self._touch_extension()
             import config as cfg
             s = cfg.load()
             return {
                 "ok": True,
-                "google_api_key":    s.get("google_api_key", ""),   # real key (extension เรียก Gemini เอง)
+                "token":              self.api_token,               # แนบใน header เวลาเรียก proxy
+                "google_api_key_set": bool(s.get("google_api_key")),# มี key แล้วไหม (ไม่ส่งค่าดิบ)
                 "prompt_mode":       s.get("prompt_mode", "ai"),
                 "prompt_template":   s.get("prompt_template", ""),
                 "prompt_style_note": s.get("prompt_style_note", ""),
@@ -679,6 +836,116 @@ class WebServer:
                 "personality":       s.get("personality", "สนุกสนาน"),
                 "budget":            self.budget.snapshot() if self.budget else None,
             }
+
+        # ── AI proxy: เรียก Gemini ฝั่ง server (key ไม่หลุดออกนอกเครื่อง) ──
+        # extension แนบ token (จาก /api/flow/config) ใน header X-VGAP-Token → desktop ถือ GOOGLE_API_KEY เอง.
+        # รองรับทั้ง passthrough (contents/generationConfig — คงพฤติกรรมเดิมของ extension เป๊ะ)
+        # และแบบง่าย (prompt). คืน JSON รูปเดียวกับ Gemini (candidates/usageMetadata/error) ไม่แปลง.
+        @app.post("/api/ai/gemini")
+        async def ai_gemini(body: dict, request: Request):
+            self._touch_extension()
+            tok = (request.headers.get("x-vgap-token")
+                   or request.headers.get("authorization", "").removeprefix("Bearer ").strip())
+            if not tok or not secrets.compare_digest(tok, self.api_token):
+                return JSONResponse({"error": {"message": "unauthorized"}}, status_code=401)
+            import config as cfg
+            import httpx
+            key = (cfg.load().get("google_api_key") or "").strip()
+            if not key:
+                return JSONResponse(
+                    {"error": {"message": "ยังไม่ได้ใส่รหัส Google API key ใน desktop"}},
+                    status_code=400)
+            model = (body.get("model") or cfg.load().get("prompt_model")
+                     or "gemini-2.0-flash").strip()
+            import re as _re
+            if not _re.fullmatch(r"[A-Za-z0-9._\-]{1,64}", model):
+                return JSONResponse({"error": {"message": "ชื่อโมเดลไม่ถูกต้อง"}}, status_code=400)
+            # contents ตรงจาก extension (รองรับรูป/JSON mode) ถ้าไม่มีค่อยห่อจาก prompt เดี่ยว
+            if isinstance(body.get("contents"), list):
+                payload = {"contents": body["contents"]}
+            else:
+                prompt = (body.get("prompt") or "").strip()
+                if not prompt:
+                    return JSONResponse({"error": {"message": "ไม่มี prompt"}}, status_code=400)
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            if isinstance(body.get("generationConfig"), dict):
+                payload["generationConfig"] = body["generationConfig"]
+            if isinstance(body.get("systemInstruction"), dict):
+                payload["systemInstruction"] = body["systemInstruction"]
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                   f"{model}:generateContent")
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    r = await client.post(url, params={"key": key}, json=payload)
+            except httpx.TimeoutException:
+                return JSONResponse(
+                    {"error": {"message": "เชื่อมต่อ Gemini ไม่ทัน (หมดเวลา) — ลองใหม่อีกครั้ง"}},
+                    status_code=504)
+            except Exception as e:
+                return JSONResponse(
+                    {"error": {"message": f"เรียก Gemini ไม่สำเร็จ: {e}"}}, status_code=502)
+            try:
+                data = r.json()
+            except Exception:
+                data = {"error": {"message": (r.text or "")[:300]}}
+            return JSONResponse(data, status_code=r.status_code)
+
+        # ── Flow adapter: ชั้น override selector/behavior ของ Google Flow ──
+        # GET = adapter ปัจจุบัน (bundled default หรือ remote ล่าสุด, มี version).
+        # POST update = ดึงจาก flow_adapter_url → validate → cache ~/.vgap/flow-adapter.json.
+        # remote ล้ม → error อ่านง่าย + คงตัวเดิม (ไม่ทับ). ไม่แตะ logic gen/credit ใน flow.js.
+        @app.get("/api/flow/adapter")
+        def flow_adapter():
+            self._touch_extension()
+            import config as cfg
+            a = cfg.load_flow_adapter()
+            return {"ok": True, "adapter": a, "version": a.get("version", "")}
+
+        @app.post("/api/flow/adapter/update")
+        async def flow_adapter_update(body: dict = None):
+            import config as cfg
+            import httpx
+            cur_ver = cfg.load_flow_adapter().get("version", "")
+            # ใช้เฉพาะ URL ที่ตั้งไว้ในตั้งค่า (flow_adapter_url) เท่านั้น
+            # กัน SSRF: ไม่รับ url ที่ client ส่งมาเอง (จะยิงไปที่ไหนก็ได้)
+            url = (cfg.load().get("flow_adapter_url", "") or "").strip()
+            if not url:
+                return JSONResponse(
+                    {"ok": False, "error": "ยังไม่ได้ตั้ง URL ของ adapter (flow_adapter_url) ในตั้งค่า",
+                     "version": cur_ver}, status_code=400)
+            try:
+                r = httpx.get(url, timeout=15, follow_redirects=True)
+            except httpx.TimeoutException:
+                return JSONResponse(
+                    {"ok": False, "error": "ดึง adapter ไม่ทัน (หมดเวลา) — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=504)
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False, "error": f"ดึง adapter ไม่ได้: {e} — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=502)
+            if r.status_code != 200:
+                return JSONResponse(
+                    {"ok": False, "error": f"ปลายทางตอบรหัส {r.status_code} — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=502)
+            try:
+                data = r.json()
+            except Exception:
+                return JSONResponse(
+                    {"ok": False, "error": "ไฟล์ adapter ไม่ใช่ JSON ที่ถูกต้อง — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=422)
+            if not isinstance(data, dict) or "version" not in data:
+                return JSONResponse(
+                    {"ok": False, "error": "adapter ต้องเป็น object และต้องมี field 'version' — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=422)
+            data.setdefault("source", "remote")
+            try:
+                cfg.save_flow_adapter(data)
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False, "error": f"บันทึก adapter ไม่ได้: {e}", "version": cur_ver},
+                    status_code=500)
+            self.emit_log(f"[FLOW] อัปเดต adapter → version {data.get('version')}")
+            return {"ok": True, "version": data.get("version", ""), "adapter": data}
 
         @app.get("/api/usage")
         def usage_overview():
@@ -801,6 +1068,7 @@ class WebServer:
         @app.post("/api/flow/usage")
         async def flow_usage(body: dict):
             """extension รายงานการใช้ Gemini ตอนเขียน prompt (J) → ลง usage ledger."""
+            self._touch_extension()
             tokens = int(body.get("tokens", 0) or 0)
             qty    = int(body.get("qty", 1) or 1)
             kind   = body.get("kind", "prompt")
@@ -812,6 +1080,7 @@ class WebServer:
         async def flow_video(body: dict):
             """รับวิดีโอที่ extension สร้างเสร็จ → เซฟลง pending + sidecar(link) พร้อมโพสต์.
             รองรับหลายคลิป (files[]) → ต่อด้วย ffmpeg เป็นไฟล์เดียว (เช่น 2×10วิ = 20วิ)."""
+            self._touch_extension()
             import config as cfg, base64, json, shutil, subprocess, time as _t
             from pathlib import Path
 
@@ -921,11 +1190,28 @@ class WebServer:
 
         @app.get("/api/flow/status")
         def flow_status():
+            self._touch_extension()
             q = self.db.count(QUEUED)
             out = {"ok": True, "queued": q}
             if self.budget:
                 out["budget"] = self.budget.snapshot()
             return out
+
+        @app.post("/api/flow/progress")
+        async def flow_progress(body: dict):
+            """extension รายงานความคืบหน้าการสร้างคลิป → broadcast WS ให้หน้าเว็บโชว์ step checklist.
+            stage มาตรฐาน: prompt | submit | rendering | downloading | done | error"""
+            self._touch_extension()
+            job_id = body.get("jobId")
+            self.ws.broadcast_sync({
+                "type":   "gen_progress",
+                "stage":  (body.get("stage") or "").strip(),
+                "detail": body.get("detail", ""),
+                "pct":    body.get("pct"),
+                "jobId":  job_id,
+                "pid":    job_id,   # useStatus route อ่าน msg.pid — คงความเข้ากันได้
+            })
+            return {"ok": True}
 
         # ── Logs + diagnostics (A1.8) ──
 
@@ -964,6 +1250,64 @@ class WebServer:
                 "last_error": self.db.last_error() if self.db else None,
             }
 
+        # ── Products (G3): แคตตาล็อกสินค้าที่ดูดมา → web เห็นครบ (เพิ่มควบคู่ ไม่แตะ flow) ──
+
+        @app.post("/api/products")
+        async def add_products(body: dict):
+            """extension ดูดสินค้า → push เข้า DB. รองรับทั้งรายการเดียวและหลายรายการ (products[]).
+            เก็บใน SQLite เท่านั้น — ไม่ยุ่งกับ flow gen/คิวใน extension."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "error": "db not ready"}
+            items = body.get("products")
+            if not isinstance(items, list):
+                items = [body]                      # รายการเดียว = ตัว body เอง
+            ids = []
+            for p in items:
+                if not isinstance(p, dict):
+                    continue
+                try:
+                    ids.append(self.db.add_product(p))
+                except Exception as e:
+                    self.emit_log(f"[PRODUCTS] เพิ่มไม่สำเร็จ: {e}", level="warn")
+            self.emit_log(f"[PRODUCTS] รับสินค้า {len(ids)} รายการ")
+            return {"ok": True, "ids": ids, "count": len(ids)}
+
+        @app.get("/api/products")
+        def list_products(status: str = None, limit: int = 500, offset: int = 0):
+            """รายการสินค้าในแคตตาล็อก (ล่าสุดก่อน)."""
+            if not self.db:
+                return {"products": []}
+            return {"products": self.db.list_products(status, limit, offset)}
+
+        # ── Queue (โครงคิวงานบน DB สำหรับอนาคต — วาง endpoint + เก็บใน DB เท่านั้น) ──
+
+        @app.post("/api/queue/push")
+        async def queue_push(body: dict):
+            """วางงานลงคิวบน DB (payload อิสระ). รอบนี้ยังไม่บังคับ extension ใช้."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "error": "db not ready"}
+            payload = body.get("payload") if isinstance(body.get("payload"), dict) else body
+            qid = self.db.queue_push(payload or {}, int(body.get("priority", 0) or 0))
+            return {"ok": True, "id": qid}
+
+        @app.get("/api/queue/next")
+        def queue_next():
+            """ดูงานถัดไปในคิว (peek ไม่ claim)."""
+            if not self.db:
+                return {"ok": False, "item": None}
+            return {"ok": True, "item": self.db.queue_next()}
+
+        @app.post("/api/queue/claim")
+        async def queue_claim(body: dict = None):
+            """คว้างานถัดไปแบบ atomic (flip → claimed)."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "item": None}
+            worker = (body or {}).get("worker", "") if isinstance(body, dict) else ""
+            return {"ok": True, "item": self.db.queue_claim(worker)}
+
         # ── Snapshot (pre-capture cache — responds instantly) ──
 
         @app.get("/snapshot/{serial}")
@@ -998,6 +1342,7 @@ class WebServer:
         @app.get("/debug/snapshot/{serial}")
         async def debug_snapshot(serial: str):
             import os, sys, tempfile, subprocess as sp
+            from services.adb.adb_path import adb_bin
             results: dict = {"serial": serial, "adb_ready": bool(self.adb),
                              "python": sys.executable}
             if not self.adb:
@@ -1008,7 +1353,7 @@ class WebServer:
             results["screencap_msg"] = msg
             if ok:
                 local_png = os.path.join(tempfile.gettempdir(), f"vgap_diag_{serial}.png")
-                r = sp.run(["adb", "-s", serial, "pull", "/sdcard/screen_web.png",
+                r = sp.run([adb_bin(self.adb.log), "-s", serial, "pull", "/sdcard/screen_web.png",
                              local_png], capture_output=True, timeout=12)
                 results["pull_ok"]     = r.returncode == 0
                 results["pull_stderr"] = r.stderr.decode(errors="ignore").strip()
@@ -1138,6 +1483,19 @@ class WebServer:
             from services.adb.mirror import ScreenMirror
             m = ScreenMirror(self.adb)
             self.mirrors[serial] = m
+
+    # ── Extension presence (P2.1) ─────────────────────────────
+
+    EXT_ONLINE_WINDOW = 90   # วินาที — ถ้า extension ติดต่อภายในนี้ ถือว่า "เชื่อมอยู่"
+
+    def _touch_extension(self):
+        """extension เพิ่งติดต่อเข้ามา (เรียก /api/flow/*) — จำเวลาไว้ให้ onboarding เช็ค 'เชื่อมแล้ว'."""
+        self._last_ext_ping = time.time()
+
+    def _extension_state(self) -> dict:
+        ts = self._last_ext_ping
+        connected = bool(ts and (time.time() - ts) < self.EXT_ONLINE_WINDOW)
+        return {"connected": connected, "last_ping_ts": int(ts) if ts else 0}
 
     # ── Broadcast helpers (call from threads) ─────────────────
 
