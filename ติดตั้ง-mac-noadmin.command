@@ -140,5 +140,7 @@ cat <<EOF
     3) เช็ก:  "$BIN/adb" devices   (ต้องเห็นเครื่อง)
 
 EOF
-echo "กด Enter เพื่อปิดหน้าต่างนี้"
-read -r _
+if [ -z "${VGAP_NO_PAUSE:-}" ]; then
+  echo "กด Enter เพื่อปิดหน้าต่างนี้"
+  read -r _ || true
+fi

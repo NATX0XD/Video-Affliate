@@ -1,0 +1,20 @@
+#!/bin/bash
+# ============================================================
+#  installer — Contents/MacOS executable ของ Install VDO Gen Auto Pilot.app
+#  เปิด Terminal แล้วรัน bootstrap.sh (ให้ผู้ใช้เห็น progress การติดตั้ง)
+#  รองรับ path ที่มีช่องว่าง (ชื่อ .app มีช่องว่าง) ด้วย quoted form
+# ============================================================
+DIR="$(cd "$(dirname "$0")" && pwd)"
+BOOT="$DIR/../Resources/bootstrap.sh"
+chmod +x "$BOOT" 2>/dev/null
+# เปิด Terminal รัน bootstrap (ให้ผู้ใช้เห็น progress). ถ้าสั่ง Terminal ไม่ได้
+# (ปฏิเสธสิทธิ์ Automation หรือเหตุอื่น) อย่าออกเงียบ ๆ — เด้ง dialog บอกวิธีแก้
+osascript >/dev/null 2>/tmp/vgap_installer.err <<OSA
+tell application "Terminal"
+  activate
+  do script "/bin/bash " & quoted form of "$BOOT"
+end tell
+OSA
+if [ $? -ne 0 ]; then
+  osascript -e 'display dialog "เปิดตัวติดตั้งไม่สำเร็จ — ต้องอนุญาตให้ควบคุม Terminal ก่อน. ไปที่ System Settings > Privacy & Security > Automation แล้วเปิดสิทธิ์ให้ \"Install VDO Gen Auto Pilot\" ควบคุม Terminal จากนั้นเปิดแอปนี้ใหม่ (หรือคลิกขวาที่แอป แล้วเลือก Open)" buttons {"OK"} default button 1 with icon caution with title "Install VDO Gen Auto Pilot"' >/dev/null 2>&1
+fi
