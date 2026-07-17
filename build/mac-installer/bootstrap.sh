@@ -24,6 +24,63 @@ fail(){ err "$1"; echo; echo "วิธีแก้: $2"; hold; exit 1; }
 TARBALL="https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz"
 # แตกออกมาจะได้ prefix โฟลเดอร์ "Video-Affliate-main/" → ตัดทิ้งด้วย --strip-components=1
 APP_DIR="$HOME/Applications/VDO-Gen-AutoPilot"
+LAUNCHER_NAME="VDO Gen Auto Pilot"
+
+# สร้าง launcher .app (เปิดเว็บแอปแบบหน้าต่างแอป/PWA ผ่าน Chrome --app) ที่ตำแหน่ง $1
+make_launcher_app(){
+  local dest="$1"
+  rm -rf "$dest"
+  mkdir -p "$dest/Contents/MacOS" "$dest/Contents/Resources"
+  cat > "$dest/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>${LAUNCHER_NAME}</string>
+  <key>CFBundleDisplayName</key><string>${LAUNCHER_NAME}</string>
+  <key>CFBundleIdentifier</key><string>com.natx.vgap.app</string>
+  <key>CFBundleExecutable</key><string>launch</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleIconFile</key><string>icon</string>
+  <key>LSMinimumSystemVersion</key><string>10.13</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+PLIST
+  cat > "$dest/Contents/MacOS/launch" <<LAUNCH
+#!/bin/bash
+osascript -e 'tell application "Terminal" to activate' -e 'tell application "Terminal" to do script "/bin/bash " & quoted form of "$APP_DIR/เปิดโปรแกรม-mac.command"'
+LAUNCH
+  chmod +x "$dest/Contents/MacOS/launch"
+  # icon (non-fatal)
+  local isrc="$APP_DIR/web/public/icons/icon-512.png"
+  if [ -f "$isrc" ] && command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
+    local iset="$dest/Contents/Resources/icon.iconset"; mkdir -p "$iset"; local iok=1
+    for pair in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" "128 128x128" "256 128x128@2x" "256 256x256" "512 256x256@2x" "512 512x512" "1024 512x512@2x"; do
+      set -- $pair; sips -z "$1" "$1" "$isrc" --out "$iset/icon_$2.png" >/dev/null 2>&1 || iok=0
+    done
+    [ "$iok" = 1 ] && iconutil -c icns "$iset" -o "$dest/Contents/Resources/icon.icns" >/dev/null 2>&1
+    rm -rf "$iset"
+  fi
+  xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
+  codesign --force -s - "$dest" >/dev/null 2>&1 || true
+}
+
+# ปิด Terminal + eject/ลบตัวติดตั้ง (.dmg) ให้เอง — ทำ detached หลัง bash จบ
+self_cleanup(){
+  local boot="$1" vol="" dmg=""
+  if [[ "$boot" == /Volumes/* ]]; then
+    vol="/Volumes/$(printf '%s' "$boot" | cut -d/ -f3)"
+    dmg=$(hdiutil info 2>/dev/null | awk -v v="$vol" '/image-path/{ip=$3} index($0,v){print ip; exit}')
+  fi
+  nohup bash -c "
+    sleep 4
+    [ -n \"$vol\" ] && hdiutil detach \"$vol\" -force >/dev/null 2>&1
+    [ -n \"$dmg\" ] && rm -f \"$dmg\"
+    osascript -e 'tell application \"Terminal\" to close (first window) saving no' >/dev/null 2>&1
+  " >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
 
 # ---- header ----
 clear 2>/dev/null || true
@@ -74,18 +131,25 @@ xattr -dr com.apple.quarantine "$APP_DIR" 2>/dev/null || true
 chmod +x "$APP_DIR"/*.command 2>/dev/null || true
 ok "พร้อมรันสคริปต์ในโฟลเดอร์"
 
-# ---- [4/4] เรียกตัวติดตั้ง deps ที่มากับ repo (ห้าม reimplement) ----
-say "[4/4] ติดตั้งเครื่องมือ (venv + adb/scrcpy/ffmpeg ลง ~/.vgap/bin)"
+# ---- [4/5] เรียกตัวติดตั้ง deps ที่มากับ repo (ห้าม reimplement) ----
+say "[4/5] ติดตั้งเครื่องมือ (venv + adb/scrcpy/ffmpeg ลง ~/.vgap/bin)"
 DEPS="$APP_DIR/ติดตั้ง-mac-noadmin.command"
 [ -f "$DEPS" ] \
   || fail "ไม่พบตัวติดตั้งเครื่องมือในโค้ดที่โหลดมา: $DEPS" \
           "โค้ดอาจโหลดมาไม่ครบ — ดับเบิลคลิกตัวติดตั้งใหม่อีกครั้ง"
-# เรียกตรง ๆ ให้ผู้ใช้เห็น progress; VGAP_NO_PAUSE=1 กันตัว deps หยุดรอ Enter ซ้ำ
-# (bootstrap มี hold ปิดท้ายเองแล้ว) และกัน read เจอ EOF ไปทริก set -e ใน deps
+# VGAP_NO_PAUSE=1 กัน deps หยุดรอ Enter + กัน read EOF ทริก set -e
 if ! VGAP_NO_PAUSE=1 bash "$DEPS"; then
   fail "ติดตั้งเครื่องมือไม่สำเร็จ" \
        "ต่อเน็ตให้เสถียรแล้วดับเบิลคลิกตัวติดตั้งใหม่ หรือส่งรูป error ในหน้าต่างให้ทีมงาน"
 fi
+
+# ---- [5/5] สร้างแอป (หน้าต่างแอป/PWA ของเว็บแอป) ที่ Applications + Desktop ----
+say "[5/5] สร้างแอป \"$LAUNCHER_NAME\" (เปิดเว็บแอปแบบหน้าต่างแอป/PWA)"
+make_launcher_app "$HOME/Applications/$LAUNCHER_NAME.app"
+make_launcher_app "$HOME/Desktop/$LAUNCHER_NAME.app" 2>/dev/null || true
+# ลบทางลัด .command ซ้ำที่ deps สร้าง (ใช้ .app แทน)
+rm -f "$HOME/Desktop/เปิด VDO Gen Auto Pilot.command" 2>/dev/null || true
+ok "แอปพร้อมแล้วที่ ~/Applications และ Desktop"
 
 # ---- เสร็จ ----
 say "ติดตั้งเสร็จแล้ว"
@@ -95,11 +159,14 @@ cat <<EOF
 
   โค้ดโปรแกรมอยู่ที่:  $APP_DIR
 
-  วิธีเปิดโปรแกรม:
-    • ดับเบิลคลิกทางลัด "เปิด VDO Gen Auto Pilot" บนหน้าจอ Desktop
-    • หรือดับเบิลคลิก  เปิดโปรแกรม-mac.command  ในโฟลเดอร์ด้านบน
+  เปิดโปรแกรม: ดับเบิลคลิกแอป "$LAUNCHER_NAME"
+    • บนหน้าจอ Desktop  หรือใน  Applications
+    • เปิดเป็น "หน้าต่างแอป" (เหมือนแอปจริง ไม่มีแถบเบราว์เซอร์)
 
-  อยากอัปเดตเป็นเวอร์ชันล่าสุดภายหลัง: เปิดตัวติดตั้งนี้ซ้ำได้เลย
+  อัปเดตภายหลัง: เปิดตัวติดตั้งนี้ซ้ำได้เลย
   (ข้อมูล/ตั้งค่าของคุณอยู่ใน ~/.vgap จะไม่ถูกลบ)
 EOF
-hold
+echo
+echo "  เสร็จแล้ว — หน้าต่างนี้จะปิดเอง และเก็บตัวติดตั้งให้อัตโนมัติในไม่กี่วินาที..."
+self_cleanup "$0"
+exit 0
