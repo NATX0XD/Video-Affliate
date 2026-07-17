@@ -812,6 +812,17 @@ class WebServer:
                 msg = f"ทดสอบไม่สำเร็จ (รหัส {r.status_code})"
             return {"ok": False, "error": msg, "detail": detail}
 
+        # ── ส่วนขยาย (onboarding): path โฟลเดอร์ + เปิด chrome://extensions ให้ผู้ใช้ ──
+        @app.get("/api/ext/path")
+        def ext_path():
+            from pathlib import Path
+            p = Path(__file__).resolve().parents[2] / "extension"
+            return {"ok": True, "path": str(p), "exists": p.exists()}
+
+        @app.post("/api/ext/open")
+        def ext_open():
+            return self._open_extensions_page()
+
         # ── Google Flow pipeline (extension สร้างคลิป + เขียน prompt เองในเบราว์เซอร์) ──
 
         @app.get("/api/flow/config")
@@ -1487,6 +1498,38 @@ class WebServer:
     # ── Extension presence (P2.1) ─────────────────────────────
 
     EXT_ONLINE_WINDOW = 90   # วินาที — ถ้า extension ติดต่อภายในนี้ ถือว่า "เชื่อมอยู่"
+
+    def _open_extensions_page(self) -> dict:
+        """เปิด chrome://extensions + เผยโฟลเดอร์ extension ใน Finder/Explorer ให้ Load unpacked ง่าย."""
+        import sys, os, shutil, subprocess
+        from pathlib import Path
+        ext = Path(__file__).resolve().parents[2] / "extension"
+        if sys.platform == "darwin":
+            cands = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                     shutil.which("google-chrome"), shutil.which("chromium")]
+        elif os.name == "nt":
+            pf  = os.environ.get("ProgramFiles",      r"C:\Program Files")
+            pfx = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+            cands = [pf + r"\Google\Chrome\Application\chrome.exe",
+                     pfx + r"\Google\Chrome\Application\chrome.exe", shutil.which("chrome")]
+        else:
+            cands = [shutil.which("google-chrome"), shutil.which("chromium"), shutil.which("chromium-browser")]
+        chrome = next((c for c in cands if c and os.path.exists(c)), None)
+        opened = False
+        if chrome:
+            try:
+                subprocess.Popen([chrome, "chrome://extensions", "--new-window"]); opened = True
+            except Exception:
+                opened = False
+        try:                                      # เผยโฟลเดอร์ให้ลาก/เลือก
+            if sys.platform == "darwin": subprocess.Popen(["open", "-R", str(ext)])
+            elif os.name == "nt":        subprocess.Popen(["explorer", str(ext)])
+            else:                        subprocess.Popen(["xdg-open", str(ext)])
+        except Exception:
+            pass
+        return {"ok": True, "opened_chrome": opened, "path": str(ext),
+                "hint": "" if opened else "หา Chrome ไม่เจอ — เปิด chrome://extensions เองแล้ว Load unpacked โฟลเดอร์ที่เผยไว้"}
 
     def _touch_extension(self):
         """extension เพิ่งติดต่อเข้ามา (เรียก /api/flow/*) — จำเวลาไว้ให้ onboarding เช็ค 'เชื่อมแล้ว'."""

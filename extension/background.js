@@ -1,6 +1,14 @@
 // คลิกไอคอน extension → เปิด Side Panel ติดขวา (ศูนย์ควบคุม)
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
+// แจ้ง desktop ว่า extension ออนไลน์ทันทีหลังโหลด → onboarding เห็น "ต่อแล้ว" อัตโนมัติ
+// (ping /api/flow/config = _touch_extension ฝั่ง desktop; เงียบถ้า desktop ปิด)
+function pingDesktop() {
+  try { fetch('http://localhost:3001/api/flow/config', { signal: AbortSignal.timeout(4000) }).catch(() => {}); } catch {}
+}
+chrome.runtime.onInstalled?.addListener(pingDesktop);
+chrome.runtime.onStartup?.addListener(pingDesktop);
+
 // ── หมุนบัญชี Flow (authuser) ─────────────────────────────────────────────
 // เติม/แทนที่ ?authuser=N ใน URL ของ labs.google เพื่อเปิด Flow ด้วยบัญชี Google ที่ระบุ
 function withAuthuser(url, au) {

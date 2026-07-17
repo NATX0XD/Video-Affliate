@@ -81,6 +81,9 @@ export const api = {
   queuePush:       (body)     => req('POST', '/api/queue/push', body),
   queueNext:       ()         => req('GET',  '/api/queue/next'),
   queueClaim:      (body = {}) => req('POST', '/api/queue/claim', body),
+  // ส่วนขยาย (onboarding): path โฟลเดอร์ extension + สั่ง desktop เปิด chrome://extensions
+  extPath:         ()         => req('GET',  '/api/ext/path'),
+  openExtPage:     ()         => req('POST', '/api/ext/open'),
   // ตัวเชื่อม Google Flow (adapter override layer) — โชว์เวอร์ชัน + อัปเดตเมื่อ Flow เปลี่ยนหน้าตา
   flowAdapter:       ()       => req('GET', '/api/flow/adapter'),
   // อ่าน body เอง (แม้ status ไม่ 200) เพื่อเอา error ภาษาไทย + version มาโชว์ toast เองที่หน้า
