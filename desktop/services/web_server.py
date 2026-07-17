@@ -1,0 +1,1547 @@
+"""
+FastAPI web server — REST + WebSocket + MJPEG stream
+Replaces the old HTTPServer-based APIServer for web UI integration
+"""
+import asyncio
+import io
+import json
+import re
+import secrets
+import threading
+import time
+from typing import Optional, Callable
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse, Response
+import uvicorn
+
+from services.db import QUEUED, GENERATING, GENERATED, POSTING, POSTED, ERROR
+
+
+# ── Log classification (A1.8) ─────────────────────────────────
+
+_ERR_KW  = ("✗", "ไม่สำเร็จ", "พลาด", "ล้มเหลว", "ผิดพลาด", "ส่งไม่ได้", "error", "failed")
+_OK_KW   = ("✓", "สำเร็จ", "เสร็จ", "ครบแล้ว")
+_WARN_KW = ("⚠", "เตือน", "งบ", "หยุด", "ข้าม")
+
+def _classify_level(msg: str) -> str:
+    m = msg or ""
+    if any(k in m for k in _ERR_KW):  return "error"
+    if any(k in m for k in _OK_KW):   return "success"
+    if any(k in m for k in _WARN_KW): return "warn"
+    return "info"
+
+def _source_of(msg: str) -> str:
+    m = re.search(r"\[([^\]]+)\]", msg or "")
+    return m.group(1) if m else ""
+
+
+# ── WebSocket broadcast manager ───────────────────────────────
+
+class WSManager:
+    def __init__(self):
+        self._clients: list[WebSocket] = []
+        self._lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        async with self._lock:
+            self._clients.append(ws)
+
+    async def disconnect(self, ws: WebSocket):
+        async with self._lock:
+            self._clients = [c for c in self._clients if c is not ws]
+
+    async def broadcast(self, data: dict):
+        msg = json.dumps(data)
+        dead = []
+        for ws in list(self._clients):
+            try:
+                await ws.send_text(msg)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            await self.disconnect(ws)
+
+    def broadcast_sync(self, data: dict):
+        """Thread-safe broadcast from sync code."""
+        loop = self._loop
+        if loop and loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.broadcast(data), loop)
+
+
+# ── Main server class ─────────────────────────────────────────
+
+class WebServer:
+    def __init__(self, port: int = 8000):
+        self.port   = port
+        self.log: Callable = print
+        self.ws     = WSManager()
+
+        # Injected by main.py after creation
+        self.adb    = None
+        self.db     = None        # JobStore (A1.2) — persistent flow queue
+        self.budget = None        # BudgetGuard (A1.4)
+        self.autopilot = None     # AutoPilot loop (auto-post)
+        self._budget_blocked = False   # throttle log เตือนงบเต็ม
+        self.mirrors: dict = {}   # serial → ScreenMirror
+
+        # Pre-capture cache: background thread continuously screenshots each device
+        # so /snapshot requests respond immediately (<10ms) with the latest frame
+        self._snap_cache: dict = {}   # serial → {'jpeg': bytes|None, 'active': bool, 'lock': Lock}
+
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._started_at: Optional[float] = None   # uptime (A1.8)
+        self._last_ext_ping: float = 0.0           # เวลาที่ extension ติดต่อล่าสุด (P2.1) — onboarding เช็ค "เชื่อมแล้ว"
+
+        # Shared session token — สร้างใหม่ทุกครั้งที่เปิดโปรแกรม (in-memory เท่านั้น ไม่เขียนดิสก์).
+        # extension ขอ token นี้ผ่าน /api/flow/config แล้วแนบใน header เวลาเรียก proxy sensitive
+        # (แทนการรับ google_api_key ดิบ → key ไม่หลุดออกนอกเครื่อง).
+        self.api_token: str = secrets.token_urlsafe(24)
+
+        self.app = self._build_app()
+
+    # ── App builder ───────────────────────────────────────────
+
+    def _build_app(self) -> FastAPI:
+        app = FastAPI(title="VDO Gen Auto Pilot API")
+
+        # CORS: จำกัดเฉพาะหน้าเว็บ local (localhost/127.0.0.1 :3000/:3001) + extension
+        # (chrome-extension://) — กันหน้าเว็บอื่นในเครื่องอ่าน API/ยิง proxy ได้ (เดิม "*" = ใครก็อ่านได้)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origin_regex=r"^(https?://(localhost|127\.0\.0\.1):(3000|3001)|chrome-extension://.*)$",
+            allow_credentials=False,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        # ── REST endpoints ──
+
+        @app.get("/api/status")
+        def status():
+            devices = []
+            if self.adb:
+                import time as _t
+                now = _t.time()
+                for d in self.adb.devices.values():
+                    cooling = bool(d.cooldown_reason)
+                    activity = ("offline"  if d.status != "device" else
+                                "cooldown" if cooling else
+                                "posting"  if d.posting else "idle")
+                    devices.append({
+                        "serial":  d.serial,
+                        "model":   d.model,
+                        "brand":   getattr(d, "brand", ""),   # ยี่ห้อ (E)
+                        "android": d.android,
+                        "battery": d.battery,
+                        "temp":    d.temp,            # °C อุณหภูมิแบต (E)
+                        "charging": d.charging,       # กำลังชาร์จ (E)
+                        "ram_total": d.ram_total,     # MB (E)
+                        "ram_used":  d.ram_used,      # MB (E)
+                        "storage_total": d.storage_total,  # GB (E)
+                        "storage_free":  d.storage_free,   # GB (E)
+                        "net":     d.net,             # wifi|mobile|offline (E)
+                        "status":  d.status,
+                        "activity": activity,         # idle|posting|cooldown|offline (E)
+                        "cooldown": cooling,
+                        "cooldown_reason": d.cooldown_reason,   # hot|battery
+                        "cooldown_remaining": (max(0, int(d.cooldown_until - now))
+                                               if d.cooldown_reason == "hot" else 0),
+                        "label":   (self.db.get_config(f"dev_label:{d.serial}", "") if self.db else ""),
+                        "platforms": ([p for p in (self.db.get_config(f"dev_platforms:{d.serial}", "") or "").split(",") if p]
+                                      if self.db else []),
+                        "streaming": d.serial in self.mirrors and
+                                     self.mirrors[d.serial].is_running,
+                    })
+            running = bool(self.autopilot and self.autopilot.enabled)
+            ext = self._extension_state()
+            if self.db:
+                by = self.db.stats()["by_status"]
+                queue = (by.get(QUEUED, 0) + by.get(GENERATING, 0) +
+                         by.get(GENERATED, 0) + by.get(POSTING, 0))  # งานที่ยังไม่จบ
+                return {
+                    "devices":       devices,
+                    "queue":         queue,
+                    "done":          by.get(POSTED, 0),
+                    "errors":        by.get(ERROR, 0),
+                    "pilot_running": running,
+                    "extension":     ext,               # {connected, last_ping_ts} (P2.1)
+                    "jobs":          self.db.stats(),   # breakdown ละเอียดสำหรับค็อกพิต
+                    "budget":        self.budget.snapshot() if self.budget else None,
+                    "token":         self.api_token,    # ให้หน้าเว็บ/extension แนบเวลาเรียก proxy
+                }
+            return {
+                "devices":    devices,
+                "queue":      0,
+                "done":       0,
+                "errors":     0,
+                "pilot_running": running,
+                "extension":  ext,
+                "token":      self.api_token,
+            }
+
+        @app.post("/api/scan")
+        def scan():
+            if not self.adb:
+                return {"devices": []}
+            devs = self.adb.scan()
+            result = [{"serial": d.serial, "model": d.model,
+                       "brand": getattr(d, "brand", ""),
+                       "android": d.android, "battery": d.battery,
+                       "temp": d.temp, "charging": d.charging,
+                       "status": d.status} for d in devs]
+            self.ws.broadcast_sync({"type": "devices", "devices": result})
+            return {"devices": result}
+
+        @app.get("/api/devices")
+        def list_devices():
+            """รายการมือถือที่ต่ออยู่ตอนนี้ + รุ่น/ยี่ห้อ — ให้หน้าเว็บดูว่าเจอเครื่องอะไรบ้าง."""
+            devs = []
+            if self.adb:
+                for d in self.adb.devices.values():
+                    devs.append({
+                        "serial":  d.serial,
+                        "model":   d.model,
+                        "brand":   getattr(d, "brand", ""),
+                        "android": d.android,
+                        "battery": d.battery,
+                        "status":  d.status,
+                    })
+            return {"devices": devs}
+
+        @app.post("/api/devices/{serial}/label")
+        async def set_device_label(serial: str, body: dict):
+            if self.db:
+                self.db.set_config(f"dev_label:{serial}", (body.get("label") or "").strip())
+            return {"ok": True}
+
+        @app.post("/api/devices/{serial}/platforms")
+        async def set_device_platforms(serial: str, body: dict):
+            if self.db:
+                plats = [p for p in (body.get("platforms") or []) if p]
+                self.db.set_config(f"dev_platforms:{serial}", ",".join(plats))
+            return {"ok": True}
+
+        @app.post("/api/mirror/start/{serial}")
+        def mirror_start(serial: str):
+            self._ensure_mirror(serial)
+            m = self.mirrors.get(serial)
+            if m and not m.is_running:
+                m.start(serial)
+            self.ws.broadcast_sync({"type": "mirror_state", "serial": serial, "running": True})
+            return {"ok": True}
+
+        @app.post("/api/mirror/stop/{serial}")
+        def mirror_stop(serial: str):
+            m = self.mirrors.get(serial)
+            if m:
+                m.stop()
+            self._stop_snap_loop(serial)
+            self.ws.broadcast_sync({"type": "mirror_state", "serial": serial, "running": False})
+            return {"ok": True}
+
+        @app.post("/api/mirror/start_all")
+        def mirror_start_all():
+            if not self.adb:
+                return {"ok": False}
+            for d in list(self.adb.devices.values()):
+                if d.status == "device":
+                    self._ensure_mirror(d.serial)
+                    m = self.mirrors.get(d.serial)
+                    if m and not m.is_running:
+                        m.start(d.serial)
+            return {"ok": True}
+
+        @app.post("/api/mirror/stop_all")
+        def mirror_stop_all():
+            for m in list(self.mirrors.values()):
+                m.stop()
+            return {"ok": True}
+
+        @app.post("/api/adb/tap/{serial}")
+        async def adb_tap(serial: str, body: dict):
+            if self.adb:
+                self.adb.tap(serial, body.get("x", 0), body.get("y", 0))
+            return {"ok": True}
+
+        @app.post("/api/adb/swipe/{serial}")
+        async def adb_swipe(serial: str, body: dict):
+            if self.adb:
+                self.adb._adb("shell", "input", "swipe",
+                               str(body["x1"]), str(body["y1"]),
+                               str(body["x2"]), str(body["y2"]),
+                               str(body.get("ms", 300)), serial=serial)
+            return {"ok": True}
+
+        @app.post("/api/adb/key/{serial}")
+        async def adb_key(serial: str, body: dict):
+            if self.adb:
+                self.adb._adb("shell", "input", "keyevent",
+                               body.get("code", "KEYCODE_HOME"), serial=serial)
+            return {"ok": True}
+
+        @app.post("/api/wifi_connect")
+        async def wifi_connect(body: dict):
+            # เชื่อม Wi-Fi แบบคืนผลจริง (เลิก fire-and-forget) — onboarding รู้ผลทันที
+            if not self.adb:
+                return {"ok": False, "error": "ระบบยังไม่พร้อม"}
+            host = (body.get("ip") or body.get("host") or "").strip()
+            if not host:
+                return {"ok": False, "error": "กรอกที่อยู่ (IP) ของมือถือก่อน"}
+            ok, msg = self.adb.connect_wifi(host)
+            if ok:
+                self.adb.scan()   # อัปเดตรายชื่อเครื่องทันที
+            return {"ok": ok, "message": msg,
+                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+
+        @app.post("/api/adb/tcpip")
+        async def adb_tcpip(body: dict):
+            """เปิดโหมดเชื่อมมือถือผ่าน Wi-Fi — สั่งบนเครื่องที่เสียบสาย USB อยู่ (ต้องรู้ serial)."""
+            if not self.adb:
+                return {"ok": False, "error": "ระบบยังไม่พร้อม"}
+            serial = (body.get("serial") or "").strip()
+            if not serial:
+                return {"ok": False, "error": "ยังไม่รู้ว่าจะสั่งเครื่องไหน — เสียบสาย USB ก่อน"}
+            port = int(body.get("port", 5555) or 5555)
+            ok, msg = self.adb.tcpip(serial, port)
+            return {"ok": ok, "message": msg,
+                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+
+        @app.post("/api/adb/pair")
+        async def adb_pair(body: dict):
+            """จับคู่มือถือแบบไร้สาย (Android 11 ขึ้นไป) — host:port + รหัส 6 หลักที่มือถือแสดง."""
+            if not self.adb:
+                return {"ok": False, "error": "ระบบยังไม่พร้อม"}
+            host = (body.get("host") or "").strip()
+            port = body.get("port")
+            code = str(body.get("code") or "").strip()
+            if not host or not port or not code:
+                return {"ok": False, "error": "กรอกให้ครบ: ที่อยู่ (host), พอร์ต และรหัสจับคู่ 6 หลัก"}
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "พอร์ตต้องเป็นตัวเลข"}
+            ok, msg = self.adb.pair(host, port, code)
+            return {"ok": ok, "message": msg,
+                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+
+        @app.post("/api/adb/connect")
+        async def adb_connect(body: dict):
+            """เชื่อมมือถือผ่าน Wi-Fi (คืนผลจริง สำเร็จ/ไม่สำเร็จ) — รับ host หรือ ip."""
+            if not self.adb:
+                return {"ok": False, "error": "ระบบยังไม่พร้อม"}
+            host = (body.get("host") or body.get("ip") or "").strip()
+            if not host:
+                return {"ok": False, "error": "กรอกที่อยู่ (IP) ของมือถือก่อน"}
+            port = int(body.get("port", 5555) or 5555)
+            ok, msg = self.adb.connect_wifi(host, port)
+            if ok:
+                self.adb.scan()
+            return {"ok": ok, "message": msg,
+                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+
+        @app.post("/api/adb/test")
+        async def adb_test(body: dict):
+            """ตรวจว่ามือถือพร้อมใช้งานจริงไหม (สั่งงานได้ + ถ่ายภาพหน้าจอได้)."""
+            if not self.adb:
+                return {"ok": False, "ready": False, "error": "ระบบยังไม่พร้อม"}
+            serial = (body.get("serial") or "").strip()
+            if not serial:
+                return {"ok": False, "ready": False, "error": "ยังไม่ได้เลือกเครื่อง"}
+            res = self.adb.test_ready(serial)
+            return {"ok": res["ready"], **res}
+
+        @app.post("/api/pilot/start")
+        async def pilot_start(body: dict):
+            # เปิดโหมดโพสต์อัตโนมัติ (auto-post loop)
+            if self.autopilot:
+                self.autopilot.set_enabled(True)
+            return {"ok": True, "enabled": True}
+
+        @app.post("/api/pilot/stop")
+        async def pilot_stop():
+            if self.autopilot:
+                self.autopilot.set_enabled(False)
+            return {"ok": True, "enabled": False}
+
+        # ── Generated video library ──
+
+        @app.get("/api/videos")
+        def list_videos():
+            import config as cfg, json
+            from pathlib import Path
+
+            # DB เป็น source of truth: map สถานะ → โฟลเดอร์เดิมที่ frontend รู้จัก
+            if self.db:
+                status_folder = {GENERATED: "pending", POSTED: "done", ERROR: "error"}
+                vids = []
+                for st, folder in status_folder.items():
+                    for j in self.db.list(st, limit=9999):
+                        vp = j.get("video_path")
+                        if not vp:
+                            continue
+                        p = Path(vp)
+                        prod = j.get("product", {}) or {}
+                        bi   = prod.get("basic_info", {}) or {}
+                        vids.append({
+                            "id":     j["id"],
+                            "name":   p.name,
+                            "folder": folder,
+                            "size":   p.stat().st_size if p.exists() else 0,
+                            "mtime":  int(p.stat().st_mtime) if p.exists() else (j.get("updated_at") or 0),
+                            "url":    f"/video/{folder}/{p.name}",
+                            "product":    j.get("name") or bi.get("name", ""),
+                            "price":      bi.get("price", ""),
+                            "commission": (prod.get("commission", {}) or {}).get("rate", ""),
+                            "link":       (prod.get("links", {}) or {}).get("affiliate_link", ""),
+                            "cover":      prod.get("cover", ""),   # ← ปกคลิป (ไฟล์ในโฟลเดอร์เดียวกัน)
+                            "status":     st,
+                        })
+                vids.sort(key=lambda v: v["mtime"], reverse=True)
+                return {"videos": vids}
+
+            # ── legacy folder scan (db ไม่พร้อม) ──
+            vids = []
+            for label, d in [("pending", cfg.PENDING_DIR),
+                             ("done", cfg.DONE_DIR),
+                             ("error", cfg.ERROR_DIR)]:
+                if not d.exists():
+                    continue
+                for f in sorted(d.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True):
+                    meta = {}
+                    side = f.with_suffix(".json")
+                    if side.exists():
+                        try:
+                            meta = json.loads(side.read_text(encoding="utf-8"))
+                        except Exception:
+                            meta = {}
+                    vids.append({
+                        "name":   f.name,
+                        "folder": label,
+                        "size":   f.stat().st_size,
+                        "mtime":  int(f.stat().st_mtime),
+                        "url":    f"/video/{label}/{f.name}",
+                        "product":    meta.get("name", ""),
+                        "price":      meta.get("price", ""),
+                        "commission": meta.get("commission", ""),
+                        "link":       meta.get("link", ""),
+                        "status":     meta.get("status", ""),
+                    })
+            return {"videos": vids}
+
+        @app.post("/api/clips/upload")
+        async def upload_clip(file: UploadFile = File(...), name: str = Form(""),
+                              price: str = Form(""), link: str = Form(""), commission: str = Form("")):
+            """เพิ่มคลิปที่ทำเอง → เซฟลง pending + import เข้า DB เป็น generated (พร้อมโพสต์)."""
+            import config as cfg, time as _t, json as _json, re as _re
+            cfg.PENDING_DIR.mkdir(parents=True, exist_ok=True)
+            pid  = f"up{int(_t.time() * 1000)}"
+            base = _re.sub(r'[^A-Za-z0-9._-]', '_', (file.filename or 'clip.mp4').rsplit('/', 1)[-1])
+            if not base.lower().endswith('.mp4'):
+                base += '.mp4'
+            dest = cfg.PENDING_DIR / f"{pid}_{base}"
+            data = await file.read()
+            if not data:
+                return {"ok": False, "error": "ไฟล์ว่าง"}
+            dest.write_bytes(data)
+            sidecar = {
+                "video": dest.name, "product_id": pid,
+                "name": name, "price": price, "commission": commission, "link": link,
+                "engine": "upload", "created_at": int(_t.time()), "status": "ready",
+            }
+            dest.with_suffix(".json").write_text(
+                _json.dumps(sidecar, ensure_ascii=False, indent=2), encoding="utf-8")
+            if self.db:
+                self.db.import_clip({
+                    "product_id": pid,
+                    "basic_info": {"name": name, "price": price},
+                    "commission": {"rate": commission},
+                    "links": {"affiliate_link": link},
+                }, GENERATED, str(dest))
+            self.emit_log(f"[UPLOAD] เพิ่มคลิป {name or dest.name} → pending")
+            self.ws.broadcast_sync({"type": "flow_video", "pid": pid, "name": name})
+            return {"ok": True, "pid": pid, "name": dest.name}
+
+        @app.post("/api/clips/{jid}/meta")
+        async def update_clip_meta(jid: int, body: dict):
+            """แก้ข้อมูลคลิป (ชื่อ/ราคา/ค่าคอม/ลิงก์) — อัปเดต product_json ใน DB."""
+            import json as _json
+            if not self.db:
+                return {"ok": False}
+            j = self.db.get(jid)
+            if not j:
+                return {"ok": False, "error": "ไม่พบคลิป"}
+            prod = j.get("product", {}) or {}
+            if "name" in body:       prod.setdefault("basic_info", {})["name"]  = body["name"]
+            if "price" in body:      prod.setdefault("basic_info", {})["price"] = body["price"]
+            if "commission" in body: prod.setdefault("commission", {})["rate"]  = body["commission"]
+            if "link" in body:       prod.setdefault("links", {})["affiliate_link"] = body["link"]
+            self.db.update(jid,
+                           product_json=_json.dumps(prod, ensure_ascii=False),
+                           name=body.get("name", j["name"]),
+                           caption=body.get("name", j.get("caption", "")))
+            self.emit_log(f"[CLIP] แก้ข้อมูล: {body.get('name', j['name'])}")
+            return {"ok": True}
+
+        @app.post("/api/clips/{jid}/cover")
+        async def upload_clip_cover(jid: int, file: UploadFile = File(...)):
+            """เปลี่ยน/ตั้งปกคลิป — อัปโหลดรูปเอง → เซฟ <วิดีโอ>_cover.<ext> + อัปเดต product.cover."""
+            import json as _json
+            from pathlib import Path as _P
+            if not self.db:
+                return {"ok": False}
+            j = self.db.get(jid)
+            if not j or not j.get("video_path"):
+                return {"ok": False, "error": "ไม่พบคลิป"}
+            data = await file.read()
+            if not data:
+                return {"ok": False, "error": "ไฟล์ว่าง"}
+            ext = _P(file.filename or "").suffix.lower()
+            if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+                ext = ".jpg"
+            vp = _P(j["video_path"])
+            cover_path = vp.with_name(f"{vp.stem}_cover{ext}")
+            cover_path.write_bytes(data)
+            prod = j.get("product", {}) or {}
+            prod["cover"] = cover_path.name
+            self.db.update(jid, product_json=_json.dumps(prod, ensure_ascii=False))
+            self.emit_log(f"[CLIP] เปลี่ยนปก: {j['name']} → {cover_path.name}")
+            return {"ok": True, "cover": cover_path.name}
+
+        @app.get("/video/{folder}/{name}")
+        def serve_video(folder: str, name: str):
+            import config as cfg
+            dirs = {"pending": cfg.PENDING_DIR, "done": cfg.DONE_DIR, "error": cfg.ERROR_DIR}
+            d = dirs.get(folder)
+            # Prevent path traversal
+            if not d or "/" in name or "\\" in name or ".." in name:
+                return JSONResponse({"error": "bad path"}, status_code=400)
+            path = d / name
+            # fallback: ถ้าไม่เจอในโฟลเดอร์ที่ขอ ลองอีก 2 โฟลเดอร์ (กันไฟล์ย้าย/ปกค้าง → จอดำ)
+            if not path.exists():
+                for alt in (cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR):
+                    if (alt / name).exists():
+                        path = alt / name
+                        break
+            if not path.exists():
+                return JSONResponse({"error": "not found"}, status_code=404)
+            ext = path.suffix.lower()
+            mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                    ".webp": "image/webp"}.get(ext, "video/mp4")
+            from fastapi.responses import FileResponse
+            return FileResponse(str(path), media_type=mime,
+                                headers={"Access-Control-Allow-Origin": "*"})
+
+        # ── First-run setup (ชื่อร้าน เก็บลง DB) ──
+
+        @app.get("/api/setup")
+        def setup_status():
+            import config as cfg
+            s = cfg.load()
+            shop = (self.db.get_config("shop_name", "") if self.db else "") or s.get("shop_name", "")
+            done = (self.db.get_config("setup_done", "") == "1") if self.db else bool(shop)
+            return {
+                "configured":          bool(done),
+                "shop_name":           shop or "",
+                "flow_email":          s.get("flow_email", ""),
+                "platforms":           s.get("platforms", []),
+                "review_mode":         s.get("review_mode", "auto"),
+                "google_api_key_set":  bool(s.get("google_api_key")),
+            }
+
+        @app.post("/api/setup")
+        async def setup_save(body: dict):
+            """บันทึกค่าตั้งต้นทั้งหมดในครั้งเดียว: ชื่อร้าน + Google API key + อีเมล Flow
+            + แพลตฟอร์ม/โหมดรีวิว (ถ้าส่งมา) แล้ว mark setup_done."""
+            import config as cfg
+            shop = (body.get("shop_name") or "").strip()
+            if not shop:
+                return {"ok": False, "error": "กรุณาใส่ชื่อร้าน"}
+
+            # โหลดค่าปัจจุบัน แล้วเติมค่าจาก onboarding ลง settings.json (worker อ่านจากนี่)
+            s = cfg.load()
+            s["shop_name"] = shop
+            if "flow_email" in body:
+                s["flow_email"] = (body.get("flow_email") or "").strip()
+            if isinstance(body.get("platforms"), list):
+                s["platforms"] = [p for p in body["platforms"] if p]
+            if body.get("review_mode") in ("auto", "hold"):
+                s["review_mode"] = body["review_mode"]
+            cfg.save(s)   # ตัด secrets ออกก่อนเขียนไฟล์เสมอ
+
+            # Google API key → .env (ข้ามค่า mask กันทับ key เดิม)
+            key = (body.get("google_api_key") or "").strip()
+            if key and key != cfg.MASK:
+                cfg.set_secret("google_api_key", key)
+
+            # DB = แหล่งความจริงของสถานะ setup
+            if self.db:
+                self.db.set_config("shop_name", shop)
+                if "flow_email" in body:
+                    self.db.set_config("flow_email", s.get("flow_email", ""))
+                self.db.set_config("setup_done", "1")
+
+            self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")
+            return {"ok": True, "shop_name": shop, "setup_done": True}
+
+        # ── License ──
+
+        @app.get("/api/license/status")
+        def license_status():
+            from services.license import check
+            return check()
+
+        @app.get("/api/license/machine-id")
+        def license_machine_id():
+            from services.license import machine_id as mid
+            return {"machine_id": mid()}
+
+        @app.post("/api/license/activate")
+        async def license_activate(body: dict):
+            from services.license import activate
+            key = (body.get("key") or "").strip()
+            if not key:
+                return {"ok": False, "reason": "กรุณากรอก License Key"}
+            return activate(key)
+
+        # ── งาน/คิว (job tracker + รีวิว) ──
+
+        @app.get("/api/jobs")
+        def list_jobs():
+            import config as cfg
+            if not self.db:
+                return {"jobs": []}
+            from pathlib import Path as _P
+            FOLDER = {"generated": "pending", "posted": "done", "error": "error"}
+            out = []
+            for j in self.db.list(limit=500):
+                prod  = j.get("product", {}) or {}
+                bi    = prod.get("basic_info", {}) or {}
+                links = prod.get("links", {}) or {}
+                link  = links.get("affiliate_link") or links.get("product_url") or ""
+                vp    = j["video_path"] or ""
+                out.append({
+                    "id": j["id"], "name": j["name"] or bi.get("name", ""),
+                    "status": j["status"], "attempts": j["attempts"],
+                    "error": j["error"],
+                    "folder": FOLDER.get(j["status"], "pending"),  # โฟลเดอร์ของไฟล์ (สำหรับรูปย่อ)
+                    "file": _P(vp).name if vp else "",
+                    "cover": prod.get("cover", ""),    # ปกคลิป (ไฟล์ในโฟลเดอร์เดียวกับวิดีโอ)
+                    "price": bi.get("price", ""),
+                    "commission": (prod.get("commission", {}) or {}).get("rate", ""),
+                    "link": link,                      # ตะกร้า (affiliate short link)
+                    "created_at": j["created_at"], "updated_at": j["updated_at"],
+                })
+            return {"jobs": out, "review_mode": cfg.load().get("review_mode", "auto")}
+
+        @app.post("/api/videos/delete_nolink")
+        def delete_nolink():
+            """ลบคลิปที่ไม่มีลิงก์ตะกร้า (affiliate link ว่าง) — DB row + ไฟล์ mp4/json."""
+            from pathlib import Path as _P
+            deleted = 0
+            if self.db:
+                for st in (GENERATED, POSTED, ERROR):
+                    for j in self.db.list(st, limit=9999):
+                        prod = j.get("product", {}) or {}
+                        link = (prod.get("links", {}) or {}).get("affiliate_link", "")
+                        if (link or "").strip():
+                            continue
+                        vp = j.get("video_path")
+                        if vp and _P(vp).name == "test_video.mp4":
+                            continue   # กันลบไฟล์ทดสอบ
+                        self.db.delete(j["id"])
+                        if vp:
+                            try:
+                                p = _P(vp); p.unlink(missing_ok=True)
+                                p.with_suffix(".json").unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                        deleted += 1
+            else:
+                import config as cfg, json as _json
+                for d in (cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR):
+                    if not d.exists():
+                        continue
+                    for f in list(d.glob("*.mp4")):
+                        if f.name == "test_video.mp4":
+                            continue
+                        side = f.with_suffix(".json")
+                        meta = {}
+                        if side.exists():
+                            try: meta = _json.loads(side.read_text(encoding="utf-8"))
+                            except Exception: meta = {}
+                        if (meta.get("link") or "").strip():
+                            continue
+                        try:
+                            f.unlink(missing_ok=True); side.unlink(missing_ok=True); deleted += 1
+                        except Exception:
+                            pass
+            self.emit_log(f"[CLEANUP] ลบคลิปไม่มีลิงก์ตะกร้า {deleted} คลิป")
+            return {"ok": True, "deleted": deleted}
+
+        @app.delete("/api/jobs/{jid}")
+        def delete_job(jid: int):
+            if self.db:
+                j = self.db.delete(jid)
+                if j and j.get("video_path"):
+                    from pathlib import Path as _P
+                    try:
+                        p = _P(j["video_path"]); p.unlink(missing_ok=True)
+                        p.with_suffix(".json").unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            return {"ok": True}
+
+        @app.post("/api/jobs/{jid}/post")
+        def post_job(jid: int):
+            if self.autopilot:
+                return {"ok": self.autopilot.post_job_now(jid)}
+            return {"ok": False}
+
+        @app.post("/api/jobs/{jid}/dryrun")
+        def dry_post_job(jid: int):
+            """ทดสอบโพสต์ (dry) — รัน ADB flow ถึง caption ไม่โพสต์จริง ไม่เปลี่ยนสถานะ."""
+            if self.autopilot:
+                return {"ok": self.autopilot.dry_post_job(jid)}
+            return {"ok": False}
+
+        @app.get("/api/reports")
+        def reports():
+            if not self.db:
+                return {}
+            st = self.db.stats(); by = st["by_status"]
+            posted = by.get(POSTED, 0); err = by.get(ERROR, 0)
+            done_total = posted + err
+            return {
+                "totals": {
+                    "all":       st["total"],
+                    "posted":    posted,
+                    "error":     err,
+                    "generated": by.get(GENERATED, 0),
+                    "queued":    by.get(QUEUED, 0) + by.get(GENERATING, 0) + by.get(POSTING, 0),
+                },
+                "success_rate": round(posted / done_total * 100, 1) if done_total else 0,
+                "cost": {
+                    "total":      round(st["total_cost"], 2),
+                    "this_month": round(self.budget.spend_month(), 2) if self.budget else 0,
+                    "avg":        round(st["total_cost"] / posted, 2) if posted else 0,
+                },
+                "daily":            self.db.posts_by_day(14),
+                "errors":           self.db.error_list(15),
+                "budget":           self.budget.snapshot() if self.budget else None,
+                "usage_daily":      self.db.usage_by_day(14),
+                "platform_revenue": self.db.platform_revenue_by_day(14),
+                "platform_summary": self.db.platform_summary(),
+            }
+
+        @app.get("/api/platforms")
+        def list_platforms():
+            from services.platforms import PLATFORMS
+            stats = self.db.platform_summary() if self.db else {}
+            return {"platforms": [
+                {"key": k, "label": v["label"], "ready": v["ready"],
+                 "tuned": v.get("tuned", False),
+                 "stats": stats.get(k, {})}    # {today, month, success_rate, last_ts} (F)
+                for k, v in PLATFORMS.items()
+            ]}
+
+        @app.get("/api/post-results")
+        def post_results():
+            from services.platforms import PLATFORMS
+            summary = self.db.platform_summary() if self.db else {}
+            recent  = self.db.recent_platform_posts(100) if self.db else []
+            return {
+                "summary": {
+                    k: {"label": v["label"], **summary.get(k, {})}
+                    for k, v in PLATFORMS.items()
+                },
+                "recent": recent,
+            }
+
+        @app.get("/api/settings")
+        def get_settings():
+            import config as cfg
+            return cfg.public_load()   # secrets masked — never sent to browser
+
+        @app.post("/api/settings")
+        async def save_settings(body: dict):
+            import config as cfg
+            # ตั้ง Google API key ลง .env ถ้าผู้ใช้กรอกค่าจริง (ข้ามค่า mask ******** เพื่อไม่ทับ key เดิม)
+            key = (body.get("google_api_key") or "").strip()
+            if key and key != cfg.MASK:
+                cfg.set_secret("google_api_key", key)
+                self.emit_log("[SETTINGS] อัปเดต Google API key แล้ว")
+            cfg.save(body)             # strips secrets; masked values are ignored
+            # AutoPoster/AutoPilot อ่าน cfg.load() สดทุกครั้ง — ไม่ต้อง push เข้า worker
+            return {"ok": True}
+
+        @app.post("/api/settings/test-key")
+        async def test_google_key(body: dict):
+            """ทดสอบ Google API key ว่าใช้งานได้จริงไหม — ยิงคำขอเบาสุด (list models) ไป Gemini.
+            รับ key จาก body ถ้าเป็นค่าจริง ไม่งั้นใช้ key ที่บันทึกไว้. ไม่ทำให้เซิร์ฟเวอร์ล่ม."""
+            import config as cfg
+            import httpx
+            key = (body.get("google_api_key") or "").strip()
+            if not key or key == cfg.MASK:
+                key = (cfg.load().get("google_api_key") or "").strip()
+            if not key:
+                return {"ok": False, "error": "ยังไม่ได้ใส่รหัส Google API key"}
+            url = "https://generativelanguage.googleapis.com/v1beta/models"
+            try:
+                r = httpx.get(url, params={"key": key, "pageSize": 1}, timeout=12)
+            except httpx.TimeoutException:
+                return {"ok": False, "error": "เชื่อมต่อ Google ไม่ทัน (หมดเวลา) — ลองใหม่อีกครั้ง"}
+            except Exception as e:
+                return {"ok": False, "error": f"เชื่อมต่ออินเทอร์เน็ตไม่ได้: {e}"}
+            if r.status_code == 200:
+                return {"ok": True}
+            detail = ""
+            try:
+                detail = ((r.json() or {}).get("error", {}) or {}).get("message", "")
+            except Exception:
+                detail = (r.text or "")[:200]
+            if r.status_code in (400, 403):
+                msg = "รหัส Google API key ไม่ถูกต้อง หรือยังไม่ได้เปิดสิทธิ์ใช้งาน Gemini"
+            elif r.status_code == 429:
+                msg = "ใช้งานเกินโควตาชั่วคราว — รอสักครู่แล้วลองใหม่"
+            else:
+                msg = f"ทดสอบไม่สำเร็จ (รหัส {r.status_code})"
+            return {"ok": False, "error": msg, "detail": detail}
+
+        # ── Google Flow pipeline (extension สร้างคลิป + เขียน prompt เองในเบราว์เซอร์) ──
+
+        @app.get("/api/flow/config")
+        def flow_config():
+            """ส่งค่าที่ extension ใช้เขียน prompt เอง — local-only.
+            เลิกส่ง google_api_key ดิบแล้ว (กันรั่ว) → ส่ง token + flag ว่ามี key แทน.
+            extension เรียก Gemini ผ่าน proxy POST /api/ai/gemini (แนบ token) ให้ desktop ถือ key เอง."""
+            self._touch_extension()
+            import config as cfg
+            s = cfg.load()
+            return {
+                "ok": True,
+                "token":              self.api_token,               # แนบใน header เวลาเรียก proxy
+                "google_api_key_set": bool(s.get("google_api_key")),# มี key แล้วไหม (ไม่ส่งค่าดิบ)
+                "prompt_mode":       s.get("prompt_mode", "ai"),
+                "prompt_template":   s.get("prompt_template", ""),
+                "prompt_style_note": s.get("prompt_style_note", ""),
+                "prompt_model":      s.get("prompt_model", "gemini-2.0-flash"),
+                "duration":          s.get("duration", 8),
+                "shop_name":         s.get("shop_name", ""),
+                "background":        s.get("background", "สตูดิโอ"),
+                "personality":       s.get("personality", "สนุกสนาน"),
+                "budget":            self.budget.snapshot() if self.budget else None,
+            }
+
+        # ── AI proxy: เรียก Gemini ฝั่ง server (key ไม่หลุดออกนอกเครื่อง) ──
+        # extension แนบ token (จาก /api/flow/config) ใน header X-VGAP-Token → desktop ถือ GOOGLE_API_KEY เอง.
+        # รองรับทั้ง passthrough (contents/generationConfig — คงพฤติกรรมเดิมของ extension เป๊ะ)
+        # และแบบง่าย (prompt). คืน JSON รูปเดียวกับ Gemini (candidates/usageMetadata/error) ไม่แปลง.
+        @app.post("/api/ai/gemini")
+        async def ai_gemini(body: dict, request: Request):
+            self._touch_extension()
+            tok = (request.headers.get("x-vgap-token")
+                   or request.headers.get("authorization", "").removeprefix("Bearer ").strip())
+            if not tok or not secrets.compare_digest(tok, self.api_token):
+                return JSONResponse({"error": {"message": "unauthorized"}}, status_code=401)
+            import config as cfg
+            import httpx
+            key = (cfg.load().get("google_api_key") or "").strip()
+            if not key:
+                return JSONResponse(
+                    {"error": {"message": "ยังไม่ได้ใส่รหัส Google API key ใน desktop"}},
+                    status_code=400)
+            model = (body.get("model") or cfg.load().get("prompt_model")
+                     or "gemini-2.0-flash").strip()
+            import re as _re
+            if not _re.fullmatch(r"[A-Za-z0-9._\-]{1,64}", model):
+                return JSONResponse({"error": {"message": "ชื่อโมเดลไม่ถูกต้อง"}}, status_code=400)
+            # contents ตรงจาก extension (รองรับรูป/JSON mode) ถ้าไม่มีค่อยห่อจาก prompt เดี่ยว
+            if isinstance(body.get("contents"), list):
+                payload = {"contents": body["contents"]}
+            else:
+                prompt = (body.get("prompt") or "").strip()
+                if not prompt:
+                    return JSONResponse({"error": {"message": "ไม่มี prompt"}}, status_code=400)
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            if isinstance(body.get("generationConfig"), dict):
+                payload["generationConfig"] = body["generationConfig"]
+            if isinstance(body.get("systemInstruction"), dict):
+                payload["systemInstruction"] = body["systemInstruction"]
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                   f"{model}:generateContent")
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    r = await client.post(url, params={"key": key}, json=payload)
+            except httpx.TimeoutException:
+                return JSONResponse(
+                    {"error": {"message": "เชื่อมต่อ Gemini ไม่ทัน (หมดเวลา) — ลองใหม่อีกครั้ง"}},
+                    status_code=504)
+            except Exception as e:
+                return JSONResponse(
+                    {"error": {"message": f"เรียก Gemini ไม่สำเร็จ: {e}"}}, status_code=502)
+            try:
+                data = r.json()
+            except Exception:
+                data = {"error": {"message": (r.text or "")[:300]}}
+            return JSONResponse(data, status_code=r.status_code)
+
+        # ── Flow adapter: ชั้น override selector/behavior ของ Google Flow ──
+        # GET = adapter ปัจจุบัน (bundled default หรือ remote ล่าสุด, มี version).
+        # POST update = ดึงจาก flow_adapter_url → validate → cache ~/.vgap/flow-adapter.json.
+        # remote ล้ม → error อ่านง่าย + คงตัวเดิม (ไม่ทับ). ไม่แตะ logic gen/credit ใน flow.js.
+        @app.get("/api/flow/adapter")
+        def flow_adapter():
+            self._touch_extension()
+            import config as cfg
+            a = cfg.load_flow_adapter()
+            return {"ok": True, "adapter": a, "version": a.get("version", "")}
+
+        @app.post("/api/flow/adapter/update")
+        async def flow_adapter_update(body: dict = None):
+            import config as cfg
+            import httpx
+            cur_ver = cfg.load_flow_adapter().get("version", "")
+            # ใช้เฉพาะ URL ที่ตั้งไว้ในตั้งค่า (flow_adapter_url) เท่านั้น
+            # กัน SSRF: ไม่รับ url ที่ client ส่งมาเอง (จะยิงไปที่ไหนก็ได้)
+            url = (cfg.load().get("flow_adapter_url", "") or "").strip()
+            if not url:
+                return JSONResponse(
+                    {"ok": False, "error": "ยังไม่ได้ตั้ง URL ของ adapter (flow_adapter_url) ในตั้งค่า",
+                     "version": cur_ver}, status_code=400)
+            try:
+                r = httpx.get(url, timeout=15, follow_redirects=True)
+            except httpx.TimeoutException:
+                return JSONResponse(
+                    {"ok": False, "error": "ดึง adapter ไม่ทัน (หมดเวลา) — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=504)
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False, "error": f"ดึง adapter ไม่ได้: {e} — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=502)
+            if r.status_code != 200:
+                return JSONResponse(
+                    {"ok": False, "error": f"ปลายทางตอบรหัส {r.status_code} — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=502)
+            try:
+                data = r.json()
+            except Exception:
+                return JSONResponse(
+                    {"ok": False, "error": "ไฟล์ adapter ไม่ใช่ JSON ที่ถูกต้อง — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=422)
+            if not isinstance(data, dict) or "version" not in data:
+                return JSONResponse(
+                    {"ok": False, "error": "adapter ต้องเป็น object และต้องมี field 'version' — ใช้ตัวเดิมต่อ",
+                     "version": cur_ver}, status_code=422)
+            data.setdefault("source", "remote")
+            try:
+                cfg.save_flow_adapter(data)
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False, "error": f"บันทึก adapter ไม่ได้: {e}", "version": cur_ver},
+                    status_code=500)
+            self.emit_log(f"[FLOW] อัปเดต adapter → version {data.get('version')}")
+            return {"ok": True, "version": data.get("version", ""), "adapter": data}
+
+        @app.get("/api/usage")
+        def usage_overview():
+            """ข้อมูลภาพรวมหน้า dashboard: กราฟ 7 วัน + สรุปงบเดือนนี้ — local-only."""
+            import datetime as _dt
+            now = _dt.datetime.now()
+            month_start = int(_dt.datetime(now.year, now.month, 1).timestamp())
+            return {
+                "ok": True,
+                "daily":   self.db.usage_by_day(7),
+                "summary": self.db.usage_summary(month_start),
+                "budget":  self.budget.snapshot() if self.budget else None,
+            }
+
+        @app.get("/api/overview")
+        def overview():
+            """ข้อมูลรวมหน้า 'ภาพรวม' ใน dashboard — ของจริงล้วน ไม่มี dummy (local-only)."""
+            import time as _t
+            import datetime as _dt
+            from services.platforms import PLATFORMS
+            import config as cfg
+
+            now_ts      = _t.time()
+            n           = _dt.datetime.now()
+            day_start   = int(_dt.datetime(n.year, n.month, n.day).timestamp())
+            month_start = int(_dt.datetime(n.year, n.month, 1).timestamp())
+
+            # ── วันนี้ ──
+            posted_today = self.db.count_posted_today() if self.db else 0
+            by = self.db.stats()["by_status"] if self.db else {}
+            queued = (by.get(QUEUED, 0) + by.get(GENERATING, 0) +
+                      by.get(GENERATED, 0) + by.get(POSTING, 0))
+            # อัตราสำเร็จเฉพาะโพสต์ของ "วันนี้"
+            recent_all = self.db.recent_platform_posts(200) if self.db else []
+            today_posts = [r for r in recent_all if (r.get("ts") or 0) >= day_start]
+            ok_today = sum(1 for r in today_posts if r.get("ok"))
+            success_rate = round(ok_today / len(today_posts) * 100) if today_posts else None
+
+            # ── ระบบ ──
+            running = bool(self.autopilot and self.autopilot.enabled)
+            online = hot = cooldown = 0
+            for d in (self.adb.devices.values() if self.adb else []):
+                if d.status == "device":
+                    online += 1
+                if d.cooldown_reason == "hot":
+                    hot += 1
+                elif d.cooldown_reason:
+                    cooldown += 1
+
+            settings  = cfg.load()
+            enabled   = set(settings.get("platforms") or [])
+            psummary  = self.db.platform_summary() if self.db else {}
+            platforms = [
+                {"key": k, "label": v["label"],
+                 "enabled": k in enabled,
+                 "today": psummary.get(k, {}).get("today", 0)}
+                for k, v in PLATFORMS.items()
+            ]
+
+            # ── ต้องลงมือ (alerts) ──
+            alerts = []
+            errs = self.db.error_list(20) if self.db else []
+            if errs:
+                alerts.append({
+                    "level": "error", "icon": "alert",
+                    "title": f"{len(errs)} งานล้มเหลว",
+                    "detail": (errs[0].get("error") or errs[0].get("name") or "")[:80],
+                })
+            if hot:
+                alerts.append({
+                    "level": "warn", "icon": "thermo",
+                    "title": f"เครื่องร้อน {hot} เครื่อง",
+                    "detail": "ระบบพักเครื่องอัตโนมัติจนกว่าจะเย็นลง",
+                })
+            if cooldown:
+                alerts.append({
+                    "level": "info", "icon": "thermo",
+                    "title": f"พักเครื่อง {cooldown} เครื่อง",
+                    "detail": "แบตต่ำ/รอชาร์จ — จะกลับมาทำงานเองเมื่อพร้อม",
+                })
+            snap = self.budget.snapshot() if self.budget else None
+            if snap and snap.get("alert") == "over":
+                alerts.append({
+                    "level": "error", "icon": "alert",
+                    "title": "งบ AI เกินกำหนดแล้ว",
+                    "detail": f"ใช้ไป {snap.get('spent', 0):.0f}฿ จาก {snap.get('budget', 0):.0f}฿ เดือนนี้",
+                })
+            elif snap and snap.get("alert") == "warn":
+                alerts.append({
+                    "level": "warn", "icon": "alert",
+                    "title": "งบ AI ใกล้เต็ม",
+                    "detail": f"ใช้ไปแล้ว {snap.get('percent', 0)}% ของงบเดือนนี้",
+                })
+            if not online and not running:
+                alerts.append({
+                    "level": "info", "icon": "phone",
+                    "title": "ยังไม่พบเครื่องที่เชื่อมต่อ",
+                    "detail": "เสียบมือถือ/เปิด ADB เพื่อเริ่มโพสต์อัตโนมัติ",
+                })
+
+            return {
+                "ok": True,
+                "today": {"posted": posted_today, "success_rate": success_rate, "queued": queued},
+                "system": {
+                    "autopilot": running,
+                    "devices": {"online": online, "hot": hot, "cooldown": cooldown},
+                    "platforms": platforms,
+                },
+                "alerts": alerts,
+                "posts_daily": self.db.posts_by_day(7) if self.db else [],
+                "budget": snap,
+                "usage": self.db.usage_summary(month_start) if self.db else None,
+                "recent": [
+                    {"ts": r.get("ts"), "platform": r.get("platform"),
+                     "ok": bool(r.get("ok")), "name": r.get("job_name", "")}
+                    for r in (recent_all[:8])
+                ],
+            }
+
+        @app.post("/api/flow/usage")
+        async def flow_usage(body: dict):
+            """extension รายงานการใช้ Gemini ตอนเขียน prompt (J) → ลง usage ledger."""
+            self._touch_extension()
+            tokens = int(body.get("tokens", 0) or 0)
+            qty    = int(body.get("qty", 1) or 1)
+            kind   = body.get("kind", "prompt")
+            cost   = self.budget.gemini_cost(tokens) if self.budget else 0
+            self.db.add_usage("gemini", kind, qty=qty, tokens=tokens, cost=cost)
+            return {"ok": True}
+
+        @app.post("/api/flow/video")
+        async def flow_video(body: dict):
+            """รับวิดีโอที่ extension สร้างเสร็จ → เซฟลง pending + sidecar(link) พร้อมโพสต์.
+            รองรับหลายคลิป (files[]) → ต่อด้วย ffmpeg เป็นไฟล์เดียว (เช่น 2×10วิ = 20วิ)."""
+            self._touch_extension()
+            import config as cfg, base64, json, shutil, subprocess, time as _t
+            from pathlib import Path
+
+            pid = body.get("product_id") or f"flow{int(_t.time()*1000)}"
+            cfg.PENDING_DIR.mkdir(parents=True, exist_ok=True)
+            out_mp4 = cfg.PENDING_DIR / f"{pid}.mp4"
+            dl_dir = Path.home() / "Downloads" / "flow"
+
+            # รวมรายชื่อไฟล์ (รองรับทั้ง files[] ใหม่ และ filename เดี่ยวแบบเก่า)
+            files = body.get("files") or ([body["filename"]] if body.get("filename") else [])
+
+            if body.get("video_b64"):
+                raw = body["video_b64"].split(",", 1)[-1]
+                out_mp4.write_bytes(base64.b64decode(raw))
+            elif not files:
+                return {"ok": False, "error": "ไม่มีไฟล์วิดีโอ"}
+            else:
+                srcs = [dl_dir / f for f in files]
+                missing = [str(s) for s in srcs if not s.exists()]
+                if missing:
+                    return {"ok": False, "error": f"ไม่พบไฟล์: {missing}"}
+                if len(srcs) == 1:
+                    shutil.move(str(srcs[0]), str(out_mp4))   # ย้ายเข้าโปรเจ็กต์ (ลบตัวใน Downloads)
+                else:
+                    # ต่อหลายคลิปด้วย ffmpeg concat demuxer
+                    listf = cfg.PENDING_DIR / f"{pid}_list.txt"
+                    listf.write_text("".join(f"file '{s}'\n" for s in srcs), encoding="utf-8")
+                    r = subprocess.run(
+                        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
+                         "-c", "copy", str(out_mp4)],
+                        capture_output=True, timeout=120)
+                    if not out_mp4.exists():  # ถ้า copy ไม่ได้ (codec ต่าง) → re-encode
+                        r = subprocess.run(
+                            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
+                             "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p", str(out_mp4)],
+                            capture_output=True, timeout=300)
+                    listf.unlink(missing_ok=True)
+                    if not out_mp4.exists():
+                        return {"ok": False, "error": f"ต่อคลิปไม่สำเร็จ: {r.stderr.decode()[-200:]}"}
+                    for s in srcs:                       # ลบคลิปย่อยใน Downloads หลังต่อเสร็จ
+                        try: s.unlink()
+                        except Exception: pass
+                    self.emit_log(f"[FLOW] ต่อ {len(srcs)} คลิป → {out_mp4.name}")
+
+            # ปกคลิป = เฟรมแรกของวิดีโอ — ดึงด้วย ffmpeg เป็น <pid>_cover.jpg (ไม่ gen, ฟรี)
+            cover_name = ""
+            try:
+                cover_path = cfg.PENDING_DIR / f"{pid}_cover.jpg"
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(out_mp4), "-frames:v", "1", "-q:v", "2",
+                     str(cover_path)],
+                    capture_output=True, timeout=30)
+                if cover_path.exists() and cover_path.stat().st_size > 0:
+                    cover_name = cover_path.name
+                    self.emit_log(f"[FLOW] ปกคลิป = เฟรมแรก → {cover_name}")
+            except Exception as e:
+                self.emit_log(f"[FLOW] ดึงเฟรมแรกเป็นปกไม่สำเร็จ: {e}")
+
+            sidecar = {
+                "video":      out_mp4.name,
+                "product_id": pid,
+                "name":       body.get("name", ""),
+                "price":      body.get("price", ""),
+                "sold_count": body.get("sold", ""),
+                "commission": body.get("commission", ""),
+                "link":       body.get("link", ""),   # ← ตะกร้า (affiliate/product_url)
+                "cover":      cover_name,             # ← ปกคลิป (ไฟล์ในโฟลเดอร์เดียวกัน)
+                "engine":     "flow",
+                "created_at": int(_t.time()),
+                "status":     "ready",
+            }
+            out_mp4.with_suffix(".json").write_text(
+                json.dumps(sidecar, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            # อัปเดต DB: งานนี้สร้างคลิปเสร็จแล้ว → generated (พร้อมโพสต์) + บันทึกต้นทุน
+            if self.db:
+                job = self.db.get_by_product(pid)
+                if job:
+                    jid = job["id"]
+                    prod = job.get("product", {}) or {}
+                    prod["cover"] = cover_name
+                    self.db.update(jid, status=GENERATED, video_path=str(out_mp4),
+                                   caption=sidecar["name"],
+                                   product_json=json.dumps(prod, ensure_ascii=False))
+                else:
+                    # extension คุมคิวเอง → คลิปมาตรง สร้าง record ใหม่เป็น generated
+                    jid = self.db.import_clip({
+                        "product_id": pid,
+                        "basic_info": {"name": sidecar["name"], "price": sidecar["price"],
+                                       "sold_count": sidecar["sold_count"]},
+                        "commission": {"rate": sidecar["commission"]},
+                        "links": {"affiliate_link": sidecar["link"]},
+                        "cover": cover_name,
+                    }, GENERATED, str(out_mp4))
+                # บันทึกการใช้ Flow (J): 1 คลิป Flow = qty คลิปย่อยที่ต่อกัน
+                qty = max(1, len(files) if files else 1)
+                cost = (self.budget.cost_per_clip() * qty) if self.budget else 0
+                if jid:
+                    self.db.add_usage("flow", "clip", qty=qty, cost=cost, job_id=jid)
+                    if cost:
+                        self.db.add_cost(jid, cost)   # ต้นทุนต่อ job (โชว์ในรายการงาน)
+
+            self.emit_log(f"[FLOW] รับวิดีโอ {pid} → pending (link={'มี' if sidecar['link'] else 'ไม่มี!'})")
+            self.ws.broadcast_sync({"type": "flow_video", "pid": pid, "name": sidecar["name"]})
+            ready = self.db.count(GENERATED)   # คลิปพร้อมโพสต์
+            return {"ok": True, "pid": pid, "ready": ready}
+
+        @app.get("/api/flow/status")
+        def flow_status():
+            self._touch_extension()
+            q = self.db.count(QUEUED)
+            out = {"ok": True, "queued": q}
+            if self.budget:
+                out["budget"] = self.budget.snapshot()
+            return out
+
+        @app.post("/api/flow/progress")
+        async def flow_progress(body: dict):
+            """extension รายงานความคืบหน้าการสร้างคลิป → broadcast WS ให้หน้าเว็บโชว์ step checklist.
+            stage มาตรฐาน: prompt | submit | rendering | downloading | done | error"""
+            self._touch_extension()
+            job_id = body.get("jobId")
+            self.ws.broadcast_sync({
+                "type":   "gen_progress",
+                "stage":  (body.get("stage") or "").strip(),
+                "detail": body.get("detail", ""),
+                "pct":    body.get("pct"),
+                "jobId":  job_id,
+                "pid":    job_id,   # useStatus route อ่าน msg.pid — คงความเข้ากันได้
+            })
+            return {"ok": True}
+
+        # ── Logs + diagnostics (A1.8) ──
+
+        @app.get("/api/logs")
+        def get_logs(level: str = None, source: str = None,
+                     limit: int = 200, since_id: int = 0):
+            if not self.db:
+                return {"logs": [], "stats": {}}
+            return {"logs":  self.db.list_logs(level, source, limit, since_id),
+                    "stats": self.db.log_stats()}
+
+        @app.post("/api/logs/clear")
+        def clear_logs():
+            if self.db:
+                self.db.clear_logs()
+            return {"ok": True}
+
+        @app.get("/api/diagnostics")
+        def diagnostics():
+            devices = []
+            if self.adb:
+                for d in self.adb.devices.values():
+                    devices.append({"serial": d.serial, "model": d.model,
+                                    "status": d.status, "battery": d.battery})
+            return {
+                "ok":         True,
+                "db":         str(getattr(self.db, "path", "")) if self.db else None,
+                "uptime_sec": int(time.time() - self._started_at) if self._started_at else 0,
+                "devices":    devices,
+                "workers": {
+                    "autopilot": bool(self.autopilot and self.autopilot.enabled),
+                },
+                "jobs":       self.db.stats() if self.db else None,
+                "budget":     self.budget.snapshot() if self.budget else None,
+                "logs":       self.db.log_stats() if self.db else {},
+                "last_error": self.db.last_error() if self.db else None,
+            }
+
+        # ── Products (G3): แคตตาล็อกสินค้าที่ดูดมา → web เห็นครบ (เพิ่มควบคู่ ไม่แตะ flow) ──
+
+        @app.post("/api/products")
+        async def add_products(body: dict):
+            """extension ดูดสินค้า → push เข้า DB. รองรับทั้งรายการเดียวและหลายรายการ (products[]).
+            เก็บใน SQLite เท่านั้น — ไม่ยุ่งกับ flow gen/คิวใน extension."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "error": "db not ready"}
+            items = body.get("products")
+            if not isinstance(items, list):
+                items = [body]                      # รายการเดียว = ตัว body เอง
+            ids = []
+            for p in items:
+                if not isinstance(p, dict):
+                    continue
+                try:
+                    ids.append(self.db.add_product(p))
+                except Exception as e:
+                    self.emit_log(f"[PRODUCTS] เพิ่มไม่สำเร็จ: {e}", level="warn")
+            self.emit_log(f"[PRODUCTS] รับสินค้า {len(ids)} รายการ")
+            return {"ok": True, "ids": ids, "count": len(ids)}
+
+        @app.get("/api/products")
+        def list_products(status: str = None, limit: int = 500, offset: int = 0):
+            """รายการสินค้าในแคตตาล็อก (ล่าสุดก่อน)."""
+            if not self.db:
+                return {"products": []}
+            return {"products": self.db.list_products(status, limit, offset)}
+
+        # ── Queue (โครงคิวงานบน DB สำหรับอนาคต — วาง endpoint + เก็บใน DB เท่านั้น) ──
+
+        @app.post("/api/queue/push")
+        async def queue_push(body: dict):
+            """วางงานลงคิวบน DB (payload อิสระ). รอบนี้ยังไม่บังคับ extension ใช้."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "error": "db not ready"}
+            payload = body.get("payload") if isinstance(body.get("payload"), dict) else body
+            qid = self.db.queue_push(payload or {}, int(body.get("priority", 0) or 0))
+            return {"ok": True, "id": qid}
+
+        @app.get("/api/queue/next")
+        def queue_next():
+            """ดูงานถัดไปในคิว (peek ไม่ claim)."""
+            if not self.db:
+                return {"ok": False, "item": None}
+            return {"ok": True, "item": self.db.queue_next()}
+
+        @app.post("/api/queue/claim")
+        async def queue_claim(body: dict = None):
+            """คว้างานถัดไปแบบ atomic (flip → claimed)."""
+            self._touch_extension()
+            if not self.db:
+                return {"ok": False, "item": None}
+            worker = (body or {}).get("worker", "") if isinstance(body, dict) else ""
+            return {"ok": True, "item": self.db.queue_claim(worker)}
+
+        # ── Snapshot (pre-capture cache — responds instantly) ──
+
+        @app.get("/snapshot/{serial}")
+        async def snapshot(serial: str):
+            if not self.adb:
+                return JSONResponse({"error": "no adb"}, status_code=503)
+            self._ensure_snap_loop(serial)
+            state = self._snap_cache.get(serial)
+            if state:
+                with state['lock']:
+                    data = state['jpeg']
+                if data:
+                    return Response(
+                        content=data, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-cache, no-store",
+                                 "Access-Control-Allow-Origin": "*"}
+                    )
+            # First request — wait for initial frame
+            loop_ev = asyncio.get_running_loop()
+            data = await loop_ev.run_in_executor(None, self.adb.fast_screenshot, serial)
+            if not data:
+                return JSONResponse({"error": "screenshot failed — check System Log"}, status_code=503)
+            if serial in self._snap_cache:
+                with self._snap_cache[serial]['lock']:
+                    self._snap_cache[serial]['jpeg'] = data
+            return Response(
+                content=data, media_type="image/jpeg",
+                headers={"Cache-Control": "no-cache, no-store",
+                         "Access-Control-Allow-Origin": "*"}
+            )
+
+        @app.get("/debug/snapshot/{serial}")
+        async def debug_snapshot(serial: str):
+            import os, sys, tempfile, subprocess as sp
+            from services.adb.adb_path import adb_bin
+            results: dict = {"serial": serial, "adb_ready": bool(self.adb),
+                             "python": sys.executable}
+            if not self.adb:
+                return JSONResponse(results)
+            ok, msg = self.adb._adb("shell", "screencap", "-p", "/sdcard/screen_web.png",
+                                     serial=serial, timeout=12)
+            results["screencap_ok"]  = ok
+            results["screencap_msg"] = msg
+            if ok:
+                local_png = os.path.join(tempfile.gettempdir(), f"vgap_diag_{serial}.png")
+                r = sp.run([adb_bin(self.adb.log), "-s", serial, "pull", "/sdcard/screen_web.png",
+                             local_png], capture_output=True, timeout=12)
+                results["pull_ok"]     = r.returncode == 0
+                results["pull_stderr"] = r.stderr.decode(errors="ignore").strip()
+                if r.returncode == 0:
+                    results["file_bytes"] = os.path.getsize(local_png)
+                    try:
+                        from PIL import Image
+                        import io as _io
+                        with Image.open(local_png) as img:
+                            mode = img.mode
+                            if img.mode in ("RGBA", "LA", "P"):
+                                img = img.convert("RGB")
+                            img2 = img.resize((540, int(img.height * 540 / img.width)),
+                                              Image.LANCZOS)
+                            buf = _io.BytesIO()
+                            img2.save(buf, format="JPEG", quality=80)
+                            results["pil_ok"]       = True
+                            results["pil_mode"]     = mode
+                            results["jpeg_bytes"]   = len(buf.getvalue())
+                    except Exception as e:
+                        results["pil_ok"]    = False
+                        results["pil_error"] = str(e)
+            return JSONResponse(results)
+
+        # ── MJPEG stream ──
+
+        @app.get("/stream/{serial}")
+        async def stream(serial: str):
+            self._ensure_mirror(serial)
+            m = self.mirrors.get(serial)
+            if m and not m.is_running:
+                m.start(serial)
+
+            async def generate():
+                import queue as Q
+                loop = asyncio.get_running_loop()
+                while True:
+                    try:
+                        # Block until next frame arrives (up to 500ms)
+                        frame = await loop.run_in_executor(
+                            None, lambda: m._frame_queue.get(timeout=0.5)
+                        )
+                        yield (b"--frame\r\n"
+                               b"Content-Type: image/jpeg\r\n\r\n" +
+                               frame + b"\r\n")
+                    except (Q.Empty, Exception):
+                        if not (m and m.is_running):
+                            break
+
+            return StreamingResponse(
+                generate(),
+                media_type="multipart/x-mixed-replace; boundary=frame",
+                headers={"Cache-Control": "no-cache",
+                         "Access-Control-Allow-Origin": "*"}
+            )
+
+        # ── WebSocket ──
+
+        @app.websocket("/ws")
+        async def websocket_endpoint(ws: WebSocket):
+            await self.ws.connect(ws)
+            try:
+                while True:
+                    data = await ws.receive_text()
+                    msg = json.loads(data)
+                    await self._handle_ws_message(msg, ws)
+            except WebSocketDisconnect:
+                await self.ws.disconnect(ws)
+            except Exception:
+                await self.ws.disconnect(ws)
+
+        # ── เสิร์ฟหน้าเว็บ (Next static export) จาก server เดียวกัน → เปิด http://localhost:PORT ใช้ได้ครบจบ ──
+        # mount ท้ายสุด → /api, /video, /stream, /snapshot, /ws มาก่อนเสมอ ที่เหลือ fallback เป็นไฟล์เว็บ
+        try:
+            import sys as _sys
+            from pathlib import Path as _P
+            # หา web/out: โหมดพกพา (frozen exe) = ข้างไฟล์ .exe · โหมด source = ราก repo
+            _cands = []
+            if getattr(_sys, "frozen", False):
+                _cands.append(_P(_sys.executable).resolve().parent / "web" / "out")
+            _cands.append(_P(__file__).resolve().parents[2] / "web" / "out")
+            web_out = next((c for c in _cands if (c / "index.html").exists()), _cands[-1])
+            if web_out.is_dir() and (web_out / "index.html").exists():
+                from fastapi.staticfiles import StaticFiles
+                app.mount("/", StaticFiles(directory=str(web_out), html=True), name="web")
+                print(f"[web] เสิร์ฟหน้าเว็บจาก {web_out} → http://localhost:{self.port}")
+            else:
+                print(f"[web] ยังไม่มี web/out (ยังไม่ได้ build หน้าเว็บ) — เปิดได้เฉพาะ API · "
+                      f"build ครั้งเดียวด้วย: cd web && npm run build")
+        except Exception as _e:
+            print(f"[web] mount หน้าเว็บไม่สำเร็จ: {_e}")
+
+        return app
+
+    async def _handle_ws_message(self, msg: dict, ws: WebSocket):
+        t = msg.get("type")
+        if t == "ping":
+            await ws.send_text(json.dumps({"type": "pong"}))
+
+    # ── Pre-capture loop ──────────────────────────────────────
+
+    def _ensure_snap_loop(self, serial: str):
+        """Start a background thread that continuously screenshots the device."""
+        if serial in self._snap_cache and self._snap_cache[serial]['active']:
+            return
+        state = {'jpeg': None, 'active': True, 'lock': threading.Lock()}
+        self._snap_cache[serial] = state
+
+        def _loop():
+            while state['active'] and self.adb:
+                jpeg = self.adb.fast_screenshot(serial)
+                if jpeg:
+                    with state['lock']:
+                        state['jpeg'] = jpeg
+
+        threading.Thread(target=_loop, daemon=True, name=f"snap-{serial}").start()
+
+    def _stop_snap_loop(self, serial: str):
+        state = self._snap_cache.pop(serial, None)
+        if state:
+            state['active'] = False
+
+    # ── Mirror management ─────────────────────────────────────
+
+    def _ensure_mirror(self, serial: str):
+        if serial not in self.mirrors and self.adb:
+            from services.adb.mirror import ScreenMirror
+            m = ScreenMirror(self.adb)
+            self.mirrors[serial] = m
+
+    # ── Extension presence (P2.1) ─────────────────────────────
+
+    EXT_ONLINE_WINDOW = 90   # วินาที — ถ้า extension ติดต่อภายในนี้ ถือว่า "เชื่อมอยู่"
+
+    def _touch_extension(self):
+        """extension เพิ่งติดต่อเข้ามา (เรียก /api/flow/*) — จำเวลาไว้ให้ onboarding เช็ค 'เชื่อมแล้ว'."""
+        self._last_ext_ping = time.time()
+
+    def _extension_state(self) -> dict:
+        ts = self._last_ext_ping
+        connected = bool(ts and (time.time() - ts) < self.EXT_ONLINE_WINDOW)
+        return {"connected": connected, "last_ping_ts": int(ts) if ts else 0}
+
+    # ── Broadcast helpers (call from threads) ─────────────────
+
+    def emit_log(self, msg: str, level: str = None, source: str = None):
+        lvl = level or _classify_level(msg)
+        src = source if source is not None else _source_of(msg)
+        if self.db:
+            try:
+                self.db.add_log(msg, lvl, src)        # เก็บถาวร (A1.8)
+            except Exception:
+                pass
+        self.ws.broadcast_sync({"type": "log", "msg": msg, "level": lvl, "source": src})
+
+    def emit_devices(self, devices: list):
+        self.ws.broadcast_sync({"type": "devices", "devices": devices})
+
+    def emit_stats(self, done: int, errors: int, queue: int):
+        self.ws.broadcast_sync({
+            "type": "stats", "done": done, "errors": errors, "queue": queue
+        })
+
+    def emit_worker_status(self, pid: str, status: str):
+        self.ws.broadcast_sync({"type": "worker_status", "pid": pid, "status": status})
+
+    # ── Start/Stop ────────────────────────────────────────────
+
+    def start(self):
+        self._started_at = time.time()
+
+        async def _run():
+            self._loop = asyncio.get_running_loop()
+            self.ws._loop = self._loop
+            config = uvicorn.Config(
+                self.app, host="0.0.0.0", port=self.port,
+                log_level="error"
+            )
+            server = uvicorn.Server(config)
+            await server.serve()
+
+        self._thread = threading.Thread(
+            target=lambda: asyncio.run(_run()),
+            daemon=True, name="WebServer"
+        )
+        self._thread.start()
+        self.log(f"[WEB] Server → http://localhost:{self.port}")
+        self.log(f"[WEB] Next.js UI → http://localhost:3000")
+
+    def stop(self):
+        pass

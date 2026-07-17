@@ -1,0 +1,79 @@
+{
+  "manifest_version": 3,
+  "name": "Shopee VDO Gen",
+  "version": "3.24.0",
+  "description": "Auto Pilot System — ศูนย์ควบคุม Side Panel ดูดสินค้า + สร้างคลิป Flow อัตโนมัติ (extension เขียน prompt เอง)",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads",
+    "tabs",
+    "sidePanel",
+    "debugger"
+  ],
+  "host_permissions": [
+    "https://shopee.co.th/*",
+    "https://affiliate.shopee.co.th/*",
+    "https://labs.google/*",
+    "https://accounts.google.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "http://localhost/*"
+  ],
+  "action": {
+    "default_title": "Shopee VDO Gen — เปิดศูนย์ควบคุม"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://shopee.co.th/*",
+        "https://affiliate.shopee.co.th/*"
+      ],
+      "js": [
+        "content/util.js",
+        "content/scraper.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://labs.google/*"
+      ],
+      "js": [
+        "content/util.js",
+        "content/flow.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://accounts.google.com/*"
+      ],
+      "js": [
+        "content/gauth.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "flow-adapter.json"
+      ],
+      "matches": [
+        "https://labs.google/*"
+      ]
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtwF4xrxZ+sWxrnqqba/YoolILDwD+Q+Zsnz5Q6L08geN3MNj7MFSKg66nFmr7GWRCmWGbp2ivW+pboZ7In2G8l3+XBVHArsL7FghLJubMUGz/lyeu2DNTbD9w6RjW2GrrEbAUe1ePOxK2nxZM4TMhc7VD0pPankktRceHiCntA7BpMsQdEI24nwrVjJaj8o+WCSJgHs6k4mOYvAUqQVYJP+0mtwZhdpASLeTF9/EwZcBva0ZT6AAULY4bCADBxrfAYxrJ0v/DBnskFZ1VvpwFXFp+y/DurDxmZMLEPhmehs0f470k+FNDUd+V690z5wm3l1hgBfJxIc6T2tKKhxQmQIDAQAB"
+}

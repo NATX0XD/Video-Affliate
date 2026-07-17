@@ -1,0 +1,20 @@
+{
+  "version": "bundled-ext-1",
+  "source": "bundled",
+  "_note": "Override layer สำหรับ selector/behavior ของ Google Flow (labs.google). ค่าใน 'selectors' ว่าง = ใช้ค่า hardcode เดิมใน flow.js (พฤติกรรมเหมือนเดิม 100%). ถ้า Flow เปลี่ยน UI แล้ว selector เดิมพัง ให้ใส่ค่าใหม่ใต้ 'selectors' โดยใช้ key ตาม 'selectors_reference' (แก้ไฟล์นี้ หรืออัปเดตผ่าน desktop /api/flow/adapter ได้ ไม่ต้องแก้โค้ด). output_verify = ตรวจไฟล์ผลลัพธ์แบบ defensive เท่านั้น (แจ้ง error ถ้าได้ภาพนิ่งแทนวิดีโอ, ไม่ retry เสียเครดิตซ้ำ).",
+  "selectors": {},
+  "selectors_reference": {
+    "clickable": "button,[role=\"button\"],a,[tabindex]",
+    "textbox": "[role=\"textbox\"]",
+    "contenteditable": "[contenteditable=\"true\"]",
+    "fileInput": "input[type=\"file\"]",
+    "placeholder": "[class*=\"laceholder\"],[data-placeholder]",
+    "video": "video"
+  },
+  "timings": {},
+  "output_verify": {
+    "min_bytes": 51200,
+    "reject_image_mime": true,
+    "require_video_mime": false
+  }
+}

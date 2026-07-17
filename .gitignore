@@ -1,0 +1,47 @@
+# ── Secrets & keys ──
+.env
+.env.*
+!.env.example
+**/.env.local
+keys/
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Node / Next.js ──
+node_modules/
+.next/
+/out/
+*.tsbuildinfo
+# หมายเหตุ: web/out (หน้าเว็บที่ build แล้ว) ตั้งใจ track เข้า git
+# เพื่อให้ผู้ใช้โหลดจาก GitHub แล้วรันได้เลยโดยไม่ต้องลง Node/build
+# ⚠ ถ้าแก้โค้ดใน web/ ต้อง `npm run build` แล้ว commit web/out ใหม่ด้วย
+
+# ── User data (ห้าม track — git reset --hard จะลบทับของผู้ใช้) ──
+# ของจริงย้ายไป ~/.vgap แล้ว (config.py) แต่กันไฟล์เดิมในเครื่องผู้ใช้ถูก track ซ้ำ
+desktop/settings.json
+
+# ── Generated data / outputs ──
+desktop/data/output/
+desktop/data/products/
+desktop/data/*.png
+desktop/data/app.db*
+
+# ── Archive: git backup ของ web เดิม (ไม่ต้อง track) ──
+_archive/web-git-backup/
+
+# ── Build output (ไฟล์ติดตั้ง .dmg/.exe หนัก — build ใหม่ได้เสมอ ไม่ต้อง track) ──
+dist/
+portable-build/
+*.dmg
+*.exe
+*.blockmap
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# local venv
+desktop/.venv/

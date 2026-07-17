@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VDO Gen Auto Pilot</title>
+<style>
+/* ── base ──────────────────────────────────────────────────────────────
+   เดิมใช้ Tailwind จาก cdn.tailwindcss.com — MV3 ห้ามสคริปต์ remote ใน
+   หน้า extension (CSP extension_pages รับแค่ 'self') ทำให้โหลดไม่ขึ้น
+   จึงแปลงเป็น CSS ล้วนทั้งหน้า (ดีไซน์เดิมทุกจุด) ── */
+@font-face{font-family:'IBM Plex Sans Thai';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/ibm-plex-sans-thai-400-thai.woff2') format('woff2');unicode-range:U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;}
+@font-face{font-family:'IBM Plex Sans Thai';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/ibm-plex-sans-thai-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'IBM Plex Sans Thai';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/ibm-plex-sans-thai-500-thai.woff2') format('woff2');unicode-range:U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;}
+@font-face{font-family:'IBM Plex Sans Thai';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/ibm-plex-sans-thai-500-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'IBM Plex Sans Thai';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/ibm-plex-sans-thai-600-thai.woff2') format('woff2');unicode-range:U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;}
+@font-face{font-family:'IBM Plex Sans Thai';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/ibm-plex-sans-thai-600-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'IBM Plex Sans Thai';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/ibm-plex-sans-thai-700-thai.woff2') format('woff2');unicode-range:U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;}
+@font-face{font-family:'IBM Plex Sans Thai';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/ibm-plex-sans-thai-700-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'Trirong';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/trirong-600-thai.woff2') format('woff2');unicode-range:U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;}
+@font-face{font-family:'Trirong';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/trirong-600-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+@font-face{font-family:'Trirong';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/trirong-700-thai.woff2') format('woff2');unicode-range:U+02D7,U+0303,U+0331,U+0E01-0E5B,U+200C-200D,U+25CC;}
+@font-face{font-family:'Trirong';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/trirong-700-latin.woff2') format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#faf7f0; --bg2:#fffdf8; --card:#fffdf8; --secondary:#f1ebdf;
+  --accent:#1f5c3d; --orange:#e8743b; --muted:#6e6557; --faint:#a89e8c; --fg:#1a1814;
+  --line:rgba(26,24,20,.12); --line-soft:rgba(26,24,20,.07);
+  --serif:'Trirong',Georgia,'Times New Roman',serif;
+  --sans:'IBM Plex Sans Thai','SF Pro Text',system-ui,-apple-system,sans-serif;
+}
+html,body{height:100%;overflow:hidden}
+body{
+  background:var(--bg) radial-gradient(ellipse 80% 45% at 50% 0%, rgba(31,92,61,.05), transparent);
+  color:var(--fg); font-family:var(--sans);
+  font-size:13px; letter-spacing:.1px; -webkit-font-smoothing:antialiased; display:flex; flex-direction:column;
+}
+button{font-family:inherit;border:0;background:none;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:disabled{cursor:default}
+button:not(:disabled):active{transform:scale(.97)}
+img{display:block}
+svg{display:block}
+
+/* .dot states */
+.dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; transition:all .4s; background:#cabea8; }
+.dot.on  { background:var(--accent); box-shadow:0 0 7px rgba(31,92,61,.5); }
+.dot.warn{ background:var(--orange); }
+
+/* ── LOCK ── */
+#view-lock{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:32px 20px;position:relative;overflow:hidden}
+.lock-glow{position:absolute;top:-60px;left:50%;transform:translateX(-50%);width:320px;height:320px;
+  border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(31,92,61,.22),transparent 70%)}
+.lock-logo{height:64px;object-fit:contain;margin-bottom:20px;filter:drop-shadow(0 6px 24px rgba(31,92,61,.5))}
+.lock-brand{font-size:9.5px;font-weight:700;letter-spacing:3px;color:var(--accent);text-transform:uppercase;margin-bottom:8px}
+.lock-title{font-family:var(--serif);font-size:25px;font-weight:700;letter-spacing:-.3px;margin-bottom:6px}
+.lock-sub{font-size:12px;color:var(--muted);margin-bottom:28px;text-align:center;line-height:1.6;max-width:260px}
+.lock-card{width:100%;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:20px;
+  display:flex;flex-direction:column;gap:12px;
+  box-shadow:0 18px 44px rgba(26,24,20,.12)}
+.lic-msg{display:none;font-size:11.5px;padding:10px 12px;border-radius:12px;font-weight:500;line-height:1.5}
+.lic-msg.ok{background:rgba(31,92,61,.10);color:var(--accent)}
+.lic-msg.err{background:rgba(178,58,46,.10);color:#b23a2e}
+.lic-msg.info{background:rgba(44,110,127,.10);color:#2c6e7f}
+.lock-label{font-size:10px;color:var(--muted);font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px}
+#licKey{width:100%;background:var(--secondary);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;font-size:13px;font-family:ui-monospace,monospace;letter-spacing:2px;color:var(--fg);
+  outline:none;transition:border-color .15s, box-shadow .15s}
+#licKey::placeholder{color:var(--faint);letter-spacing:normal;font-family:'SF Pro Text',system-ui,sans-serif}
+#licKey:focus{border-color:rgba(31,92,61,.5);box-shadow:0 0 0 3px rgba(31,92,61,.1)}
+#licBtn{width:100%;padding:14px 0;border-radius:13px;font-size:14px;font-weight:700;color:#fff;letter-spacing:.2px;
+  background:var(--orange);box-shadow:0 3px 14px rgba(232,116,59,.32);
+  transition:box-shadow .15s, background .15s, opacity .15s}
+#licBtn:not(:disabled):hover{background:#d35f28;box-shadow:0 6px 22px rgba(232,116,59,.42)}
+#licBtn:disabled{opacity:.3}
+
+/* ── MAIN layout ── */
+#view-main{flex:1;display:none;flex-direction:column;overflow:hidden;position:relative}
+.topbar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line-soft);flex-shrink:0}
+.topbar-left{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.topbar-logo{height:22px;object-fit:contain}
+.topbar-sep{width:1px;height:14px;background:var(--line);margin:0 2px}
+#openDash{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);transition:background .15s,color .15s}
+#openDash:hover{background:var(--secondary);color:var(--fg)}
+.shop-chip{display:flex;align-items:center;gap:6px;min-width:0;max-width:130px;flex:1;
+  padding:4px 10px;background:var(--secondary);border:1px solid var(--line);border-radius:999px}
+.shop-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;
+  box-shadow:0 0 6px rgba(31,92,61,.9)}
+#shopName{font-size:11px;color:var(--muted);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conn{display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:auto}
+#dLbl{font-size:10.5px;color:var(--muted);white-space:nowrap}
+
+/* ── ENGINE ── */
+.eng-area{flex:1;min-height:0;position:relative;overflow:hidden}
+#engWrap{position:absolute;inset:0}
+.fill-abs{position:absolute;inset:0;pointer-events:none}
+.eng-svg{position:absolute;width:min(88%,280px);height:min(88%,280px);top:50%;left:50%;transform:translate(-50%,-50%)}
+
+/* SVG ring colors */
+.rng1,.rng2,.rng3 { transition:stroke .7s; }
+.rng1 { stroke:rgba(31,92,61,.30); }
+.rng2 { stroke:rgba(31,92,61,.18); }
+.rng3 { stroke:rgba(31,92,61,.11); }
+.tick-min { stroke:rgba(31,92,61,.18); transition:stroke .7s; }
+.tick-maj { stroke:rgba(31,92,61,.42); transition:stroke .7s; }
+#engProg  { stroke:#1f5c3d; stroke-dasharray:766.5; stroke-dashoffset:766.5;
+  transition:stroke-dashoffset 1.5s cubic-bezier(.4,0,.2,1), filter .7s; }
+
+/* Running state */
+#engWrap.running .rng1 { stroke:rgba(31,92,61,.75); filter:drop-shadow(0 0 3px rgba(31,92,61,.5)); }
+#engWrap.running .rng2 { stroke:rgba(31,92,61,.50); }
+#engWrap.running .rng3 { stroke:rgba(31,92,61,.32); }
+#engWrap.running .tick-maj { stroke:rgba(31,92,61,.85); filter:drop-shadow(0 0 2px rgba(31,92,61,.7)); }
+#engWrap.running #engProg  { filter:drop-shadow(0 0 7px rgba(31,92,61,.95)); }
+
+/* Background glow */
+.eng-bg { position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(ellipse 65% 55% at 50% 52%, rgba(31,92,61,.07), transparent);
+  transition:background 1s ease; }
+#engWrap.running .eng-bg { background:radial-gradient(ellipse 65% 55% at 50% 52%, rgba(31,92,61,.26), transparent); }
+
+/* Center orb */
+.eng-orb { position:absolute; width:90px; height:90px; top:50%; left:50%;
+  transform:translate(-50%,-50%); border-radius:50%; pointer-events:none;
+  background:radial-gradient(circle, rgba(31,92,61,.11), transparent 70%); transition:all .8s; }
+#engWrap.running .eng-orb { width:140px; height:140px;
+  background:radial-gradient(circle, rgba(31,92,61,.6), rgba(31,92,61,.2) 40%, transparent 70%);
+  animation:orb-p 2.4s ease-in-out infinite; }
+
+/* Icon ring */
+.eng-icon-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:84px;height:84px;
+  border-radius:50%;display:flex;align-items:center;justify-content:center;
+  border:1.5px solid #c4b9a3; transition:border-color .7s, box-shadow .7s}
+#engWrap.running .eng-icon-ring {
+  border-color:rgba(31,92,61,.6);
+  box-shadow:0 0 0 6px rgba(31,92,61,.07), 0 0 28px rgba(31,92,61,.2); }
+.eng-icon { width:42px;height:42px;color:#c4b9a3; transition:color .7s, filter .7s; }
+#engWrap.running .eng-icon { color:#1f5c3d;
+  filter:drop-shadow(0 0 12px rgba(31,92,61,.95));
+  animation:icon-p 2.5s ease-in-out infinite; }
+
+/* Status pill */
+.eng-pill{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;
+  padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg2);
+  white-space:nowrap;top:calc(50% - 84px);height:26px;transition:background .5s, border-color .5s}
+#engWrap.running .eng-pill { background:rgba(31,92,61,.1) !important; border-color:rgba(31,92,61,.25) !important; }
+.eng-pill-dot { width:5px; height:5px; border-radius:50%; background:#c4b9a3;
+  flex-shrink:0; transition:all .5s; }
+#engWrap.running .eng-pill-dot { background:#1f5c3d;
+  box-shadow:0 0 8px rgba(31,92,61,1); animation:pdot 2s ease-in-out infinite; }
+.eng-pill-txt { color:#c4b9a3; transition:color .5s;
+  font-size:9.5px;font-weight:700;letter-spacing:3.5px;font-family:ui-monospace,monospace;text-transform:uppercase }
+#engWrap.running .eng-pill-txt { color:#1f5c3d; animation:sf 3s ease-in-out infinite; }
+
+/* Count / label */
+.eng-count{position:absolute;left:50%;transform:translateX(-50%);top:calc(50% + 58px);
+  font-family:var(--serif);font-size:40px;font-weight:700;letter-spacing:-1px;line-height:1;
+  color:transparent; opacity:0; transition:color .5s, opacity .4s}
+.eng-count.show { color:var(--fg); opacity:1; }
+.eng-lbl{position:absolute;left:50%;transform:translateX(-50%);top:calc(50% + 98px);
+  font-size:9.5px;font-weight:700;letter-spacing:3px;text-transform:uppercase;
+  font-family:ui-monospace,monospace;color:transparent;transition:color .5s}
+.eng-lbl.active { color:var(--muted); }
+
+/* Sonar rings */
+.sonar-r { position:absolute; top:50%; left:50%; width:70px; height:70px;
+  border-radius:50%; transform:translate(-50%,-50%);
+  border:1px solid rgba(31,92,61,.45); animation:sonar-sb 5.5s ease-out infinite; }
+.sonar-r:nth-child(2) { animation-delay:1.83s; }
+.sonar-r:nth-child(3) { animation-delay:3.66s; }
+#engWrap.running .sonar-r { border-color:rgba(31,92,61,.7); border-width:1.5px;
+  animation:sonar-run 2s ease-out infinite; }
+#engWrap.running .sonar-r:nth-child(2) { animation-delay:.67s; }
+#engWrap.running .sonar-r:nth-child(3) { animation-delay:1.34s; }
+
+/* ── BOTTOM ── */
+.bottom{flex-shrink:0;display:flex;flex-direction:column;gap:8px;padding:10px 12px 16px;
+  border-top:1px solid var(--line-soft)}
+.stats{display:flex;background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.stat-cell{flex:1;padding:10px 0;text-align:center}
+.stat-v{font-family:var(--serif);font-size:27px;font-weight:700;letter-spacing:-.5px;line-height:1}
+.stat-v.sky{color:#2c6e7f}.stat-v.green{color:var(--accent)}.stat-v.rose{color:#b23a2e}
+.stat-l{font-size:8px;color:var(--muted);margin-top:4px;letter-spacing:2px;text-transform:uppercase;font-weight:600}
+.stat-sep{width:1px;background:var(--line);margin:14px 0}
+
+/* CTA */
+.cta-wrap{position:relative}
+.cta-wrap::before { content:''; position:absolute; inset:-2px;
+  border-radius:calc(14px + 2px);
+  background:conic-gradient(from 0turn,transparent 55%,rgba(31,92,61,.5),transparent);
+  opacity:0; transition:opacity .4s; z-index:-1; filter:blur(4px); }
+.cta-wrap.running::before { opacity:1; animation:sb 3s linear infinite; }
+.btn-cta{position:relative;width:100%;padding:14px 0;border-radius:14px;font-weight:700;font-size:14px;
+  letter-spacing:.5px;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:8px;
+  transition:box-shadow .2s,background .2s,color .2s}
+.btn-cta:disabled{opacity:.55}
+.btn-cta.start{color:#fff;background:var(--orange);
+  box-shadow:0 4px 18px rgba(232,116,59,.32)}
+.btn-cta.start:not(:disabled):hover{background:#d35f28;box-shadow:0 7px 26px rgba(232,116,59,.44)}
+.btn-cta.stop{color:#b23a2e;background:rgba(178,58,46,.08);border:1px solid rgba(178,58,46,.3)}
+.btn-cta.stop:not(:disabled):hover{background:rgba(178,58,46,.16)}
+.btn-cta::after { content:''; position:absolute; top:0; left:-100%; width:50%; height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.12),transparent); pointer-events:none; }
+.btn-cta:not(:disabled):hover::after { animation:shim .5s ease forwards; }
+
+/* Quick links */
+.quick{display:flex;gap:6px}
+.qbtn{flex:1;height:40px;display:flex;align-items:center;justify-content:center;gap:6px;
+  font-size:11.5px;font-weight:600;color:var(--muted);background:var(--card);
+  border:1px solid var(--line);border-radius:12px;
+  transition:color .15s,background .15s,border-color .15s}
+.qbtn:hover{color:var(--fg);background:var(--secondary);border-color:var(--line)}
+
+/* ── now doing (สถานะคิวสด จาก flow_queue_state) ── */
+.now-row{display:none;align-items:center;gap:7px;padding:7px 10px;
+  background:rgba(31,92,61,.08);border:1px solid rgba(31,92,61,.22);border-radius:10px}
+.now-row.on{display:flex}
+.now-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0;
+  box-shadow:0 0 7px rgba(31,92,61,.9);animation:pdot 2s ease-in-out infinite}
+.now-txt{font-size:11px;color:var(--accent);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* ── resume bar (คิวค้างจากรอบก่อน) ── */
+.sp-resume{display:none;align-items:center;gap:8px;padding:9px 10px;
+  background:rgba(176,122,30,.08);border:1px solid rgba(176,122,30,.25);border-radius:12px}
+.sp-resume.on{display:flex}
+.sp-resume-txt{flex:1;min-width:0;font-size:11px;color:#8a6516;font-weight:500;line-height:1.45}
+.sp-rs-btn{flex-shrink:0;font-size:11px;font-weight:700;padding:7px 11px;border-radius:9px;transition:all .15s}
+.sp-rs-btn.go{color:#fff;background:var(--accent)}
+.sp-rs-btn.go:hover{background:#17492f}
+.sp-rs-btn.ghost{color:var(--muted);border:1px solid var(--line)}
+.sp-rs-btn.ghost:hover{color:var(--fg);background:var(--secondary)}
+/* Gemini ชนโควต้าฟรี */
+.sp-warn{display:none;align-items:flex-start;gap:9px;padding:10px 11px;
+  background:rgba(178,58,46,.09);border:1px solid rgba(178,58,46,.32);border-radius:12px}
+.sp-warn.on{display:flex}
+.sp-warn .sw-ic{flex-shrink:0;color:#b23a2e;margin-top:1px}
+.sp-warn .sw-tx{flex:1;min-width:0;font-size:11px;line-height:1.5;color:var(--fg)}
+.sp-warn .sw-tx b{display:block;font-size:12px;color:#b23a2e;margin-bottom:1px}
+.sp-warn .sw-tx a{color:#b23a2e;font-weight:700;text-decoration:underline}
+.sp-warn .sw-x{flex-shrink:0;color:var(--faint);cursor:pointer;padding:2px}
+.sp-warn .sw-x:hover{color:#b23a2e}
+
+/* ── dry-run toggle ── */
+.drytog{display:flex;align-items:center;justify-content:center;gap:7px;font-size:11.5px;font-weight:600;
+  cursor:pointer;color:#8a6516;background:rgba(176,122,30,.08);
+  border:1px solid rgba(176,122,30,.22);padding:8px 12px;border-radius:11px;user-select:none}
+.drytog input{accent-color:#b07a1e;width:13px;height:13px;cursor:pointer}
+
+/* ── error cell + panel ── */
+#errCell{cursor:pointer;transition:background .15s;position:relative}
+#errCell:hover{background:rgba(178,58,46,.06)}
+.errdot{display:none;position:absolute;top:7px;right:14px;width:6px;height:6px;border-radius:50%;
+  background:#b23a2e;box-shadow:0 0 6px rgba(178,58,46,.5)}
+.errdot.on{display:block}
+.err-panel{display:none;position:absolute;left:8px;right:8px;bottom:8px;max-height:62%;z-index:50;
+  flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:16px;
+  box-shadow:0 -12px 40px rgba(26,24,20,.16);overflow:hidden}
+.err-panel.on{display:flex}
+.err-hd{display:flex;align-items:center;gap:8px;padding:11px 12px;font-size:12px;font-weight:700;
+  border-bottom:1px solid var(--line-soft);flex-shrink:0}
+.err-hd .grow{flex:1}
+.err-x{width:26px;height:26px;border-radius:8px;color:var(--muted);
+  display:flex;align-items:center;justify-content:center;font-size:13px}
+.err-x:hover{background:var(--secondary);color:var(--fg)}
+.err-list{overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.err-item{background:var(--card);border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px}
+.err-meta{display:flex;gap:8px;font-size:9.5px;color:var(--faint);margin-bottom:3px;font-family:ui-monospace,monospace}
+.err-meta .tag{color:#b23a2e;font-weight:700}
+.err-msg{font-size:11px;color:#4a4136;line-height:1.5;word-break:break-word}
+.err-empty{text-align:center;color:var(--muted);font-size:11.5px;padding:18px 0}
+
+/* ── engine pre-flight wizard ── */
+.wz{display:none;position:absolute;inset:0;z-index:60;flex-direction:column;background:var(--bg)}
+.wz.on{display:flex;animation:wzin .2s ease}
+@keyframes wzin{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.wz-hd{display:flex;align-items:flex-start;gap:10px;padding:14px 16px 4px;flex-shrink:0}
+.wz-hd .grow{flex:1;min-width:0}
+.wz-over{font-size:9.5px;color:var(--accent);font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px}
+.wz-title{font-family:var(--serif);font-size:20px;font-weight:700;letter-spacing:-.2px}
+.wz-desc{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.5}
+.wz-dots{display:flex;gap:5px;padding:12px 16px;flex-shrink:0}
+.wz-dot{height:3px;flex:1;border-radius:99px;background:var(--secondary);transition:background .3s}
+.wz-dot.on{background:var(--accent)}
+.wz-body{flex:1;overflow-y:auto;padding:4px 16px 16px}
+.wz-step{display:none;flex-direction:column;gap:14px}
+.wz-step.on{display:flex;animation:wzin .18s ease}
+.wz-sec{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--muted);
+  font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-top:2px}
+.wz-sec::after{content:'';flex:1;height:1px;background:var(--line-soft)}
+.wz-field label{display:block;font-size:11px;color:var(--muted);font-weight:600;margin-bottom:6px}
+.wz-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.wz select,.wz input[type="text"],.wz input[type="number"],.wz input[type="time"]{
+  width:100%;background:var(--secondary);border:1px solid var(--line);border-radius:11px;
+  color:var(--fg);padding:11px 12px;font-size:13px;outline:none;font-family:inherit;transition:border-color .15s}
+.wz select:focus,.wz input:focus{border-color:rgba(31,92,61,.5)}
+.wz select option{background:var(--secondary)}
+
+/* option cards — ตัวเลือกหลัก เลือกอันเดียว การ์ดใหญ่กดง่าย */
+.cards{display:flex;flex-direction:column;gap:8px}
+.cards .chip{display:flex;align-items:center;gap:11px;padding:12px 13px;border-radius:14px;
+  background:var(--card);border:1.5px solid var(--line);cursor:pointer;transition:all .15s;user-select:none}
+.cards .chip:hover{border-color:rgba(31,92,61,.35)}
+.cards .chip.on{border-color:var(--accent);background:rgba(31,92,61,.08)}
+.cards .chip .ic{flex-shrink:0;width:34px;height:34px;border-radius:10px;background:var(--secondary);
+  display:flex;align-items:center;justify-content:center;color:var(--muted);transition:all .15s}
+.cards .chip.on .ic{background:rgba(31,92,61,.18);color:var(--accent)}
+.cards .chip .tx{flex:1;min-width:0}
+.cards .chip .t1{display:block;font-size:12.5px;font-weight:700}
+.cards .chip .t2{display:block;font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.45}
+.cards .chip .ck{flex-shrink:0;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);
+  display:flex;align-items:center;justify-content:center;color:#fff;transition:all .15s}
+.cards .chip .ck svg{opacity:0;transition:opacity .15s}
+.cards .chip.on .ck{background:var(--accent);border-color:var(--accent)}
+.cards .chip.on .ck svg{opacity:1}
+
+/* pill chips — เลือกได้หลายอัน */
+.chips{display:flex;gap:7px;flex-wrap:wrap}
+.chips .chip{font-size:12px;font-weight:600;color:var(--muted);background:var(--card);
+  border:1.5px solid var(--line);padding:9px 14px;border-radius:999px;cursor:pointer;
+  transition:all .15s;user-select:none}
+.chips .chip:hover{color:var(--fg);border-color:rgba(31,92,61,.35)}
+.chips .chip.on{color:#fff;background:var(--accent);border-color:var(--accent);
+  box-shadow:0 3px 12px rgba(31,92,61,.35)}
+
+/* character gallery */
+.char-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.char-card{position:relative;background:var(--card);border:1.5px solid var(--line);border-radius:16px;
+  overflow:hidden;cursor:pointer;transition:all .15s;padding-bottom:10px;text-align:center}
+.char-card:hover{border-color:rgba(31,92,61,.4);transform:translateY(-1px)}
+.char-card.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset,0 6px 18px rgba(31,92,61,.2)}
+.char-face{aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;margin-bottom:8px;
+  background-size:cover;background-position:center;overflow:hidden}
+.char-face img{width:74%;height:90%;object-fit:contain;transition:transform .15s}
+.char-card:hover .char-face img{transform:scale(1.06)}
+.char-face.special{background:var(--secondary)}
+.char-face.special svg{width:24px;height:24px;color:var(--muted);opacity:1}
+.char-card.on .char-face.special svg{color:var(--accent)}
+.char-name{font-size:12.5px;font-weight:700}
+.char-tag{font-size:10px;color:var(--muted);margin-top:2px}
+.char-ck{position:absolute;top:7px;right:7px;width:20px;height:20px;border-radius:50%;
+  background:var(--accent);color:#fff;display:none;align-items:center;justify-content:center;
+  box-shadow:0 2px 8px rgba(26,24,20,.22)}
+.char-card.on .char-ck{display:flex}
+
+/* photo slots */
+.photo-row{display:flex;gap:9px}
+.photo-slot{flex:1;aspect-ratio:1;border-radius:14px;border:1.5px dashed var(--line);
+  background-color:var(--card);background-size:cover;background-position:center;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  cursor:pointer;position:relative;transition:all .15s}
+.photo-slot:hover{border-color:rgba(31,92,61,.5);background-color:var(--secondary)}
+.photo-slot .ph-ic{color:var(--faint)}
+.photo-slot .ph-lb{font-size:9.5px;color:var(--faint);font-weight:600}
+.photo-slot.has{border-style:solid}
+.photo-slot.has .ph-ic,.photo-slot.has .ph-lb{display:none}
+.photo-x{position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;
+  background:#b23a2e;color:#fff;font-size:12px;font-weight:700;display:none;align-items:center;
+  justify-content:center;line-height:1;box-shadow:0 2px 8px rgba(26,24,20,.3)}
+.photo-slot.has .photo-x{display:flex}
+
+.wz-note{display:flex;gap:8px;font-size:11px;color:var(--muted);line-height:1.6;background:var(--card);
+  border:1px solid var(--line-soft);border-radius:12px;padding:10px 12px}
+.wz-note svg{flex-shrink:0;margin-top:2px;color:#b07a1e}
+.wz-check{display:flex;align-items:center;gap:9px;font-size:12.5px;cursor:pointer;user-select:none;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 12px;transition:border-color .15s}
+.wz-check:hover{border-color:rgba(31,92,61,.35)}
+.wz-check input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer;flex-shrink:0}
+.wz-ft{display:flex;align-items:center;gap:10px;padding:12px 16px 16px;
+  border-top:1px solid var(--line-soft);flex-shrink:0}
+.wz-btn{font-size:13px;font-weight:700;padding:13px 18px;border-radius:13px;transition:all .15s}
+.wz-btn.go{flex:1;color:#fff;background:var(--orange);
+  box-shadow:0 4px 16px rgba(232,116,59,.3)}
+.wz-btn.go:hover{background:#d35f28;box-shadow:0 6px 22px rgba(232,116,59,.44)}
+.wz-btn.ghost{color:var(--muted);border:1px solid var(--line)}
+.wz-btn.ghost:hover{color:var(--fg);background:var(--secondary)}
+
+/* summary */
+.sum-row{display:flex;align-items:center;gap:11px;background:var(--card);
+  border:1px solid var(--line);border-radius:14px;padding:12px 13px}
+.sum-ic{flex-shrink:0;width:34px;height:34px;border-radius:10px;background:rgba(31,92,61,.12);
+  display:flex;align-items:center;justify-content:center;color:var(--accent)}
+.sum-body{flex:1;min-width:0}
+.sum-t{font-size:10px;color:var(--muted);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px}
+.sum-v{font-size:11.5px;line-height:1.55;word-break:break-word;color:#4a4136}
+.sum-edit{flex-shrink:0;font-size:11px;font-weight:700;color:var(--accent);padding:6px 11px;
+  border-radius:999px;border:1px solid rgba(31,92,61,.3);transition:background .15s}
+.sum-edit:hover{background:rgba(31,92,61,.12)}
+.sum-thumb{width:34px;height:34px;border-radius:10px;flex-shrink:0;
+  background-color:var(--secondary);background-size:cover;background-position:center;display:none}
+.sum-thumb.on{display:block}
+.wz-prev{background:rgba(31,92,61,.07);border:1px solid rgba(31,92,61,.25);
+  border-radius:14px;padding:12px 13px}
+.wz-prev-t{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--accent);
+  font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:7px}
+.wz-prev-x{font-size:11.5px;line-height:1.75;color:#4a4136}
+
+/* ─── Keyframes ─── */
+@keyframes sonar-sb  { 0%{transform:translate(-50%,-50%) scale(.2);opacity:.55} 100%{transform:translate(-50%,-50%) scale(2.6);opacity:0} }
+@keyframes sonar-run { 0%{transform:translate(-50%,-50%) scale(.18);opacity:.8} 100%{transform:translate(-50%,-50%) scale(2.9);opacity:0} }
+@keyframes orb-p  { 0%,100%{opacity:.8;transform:translate(-50%,-50%) scale(1)} 50%{opacity:1;transform:translate(-50%,-50%) scale(1.1)} }
+@keyframes icon-p { 0%,100%{filter:drop-shadow(0 0 8px rgba(31,92,61,.7))} 50%{filter:drop-shadow(0 0 24px rgba(31,92,61,1));transform:scale(1.06)} }
+@keyframes pdot   { 0%,100%{box-shadow:0 0 6px rgba(31,92,61,.7)} 50%{box-shadow:0 0 14px rgba(31,92,61,1)} }
+@keyframes sf     { 0%,48%,52%,100%{opacity:1} 50%{opacity:.45} }
+@keyframes sb     { to{rotate:1turn} }
+@keyframes shim   { to{left:150%} }
+</style>
+</head>
+<body>
+
+<!-- ════ LOCK ════ -->
+<div id="view-lock">
+  <div class="lock-glow"></div>
+  <img src="logo.png" class="lock-logo" alt="">
+  <div class="lock-brand">VDO Gen Auto Pilot</div>
+  <div class="lock-title">ศูนย์ควบคุม</div>
+  <div class="lock-sub">ระบุ License Key เพื่อเปิดใช้งาน<br>หรือเปิดโปรแกรม Desktop ก่อน</div>
+  <div class="lock-card">
+    <div id="licMsg" class="lic-msg"></div>
+    <div>
+      <div class="lock-label">License Key</div>
+      <input id="licKey" spellcheck="false" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX">
+    </div>
+    <button id="licBtn">เปิดใช้งาน</button>
+  </div>
+</div>
+
+<!-- ════ MAIN ════ -->
+<div id="view-main">
+
+  <!-- ─ TOPBAR ─ -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <img src="logo.png" class="topbar-logo" alt="">
+      <div class="topbar-sep"></div>
+      <button id="openDash" title="Dashboard">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/></svg>
+      </button>
+    </div>
+
+    <div class="shop-chip">
+      <div class="shop-dot"></div>
+      <span id="shopName">ร้านค้า</span>
+    </div>
+
+    <div class="conn">
+      <span class="dot" id="dDot"></span>
+      <span id="dLbl">…</span>
+    </div>
+  </div>
+
+  <!-- ─ ENGINE ─ -->
+  <div class="eng-area">
+    <div id="engWrap">
+      <div class="eng-bg"></div>
+
+      <!-- Sonar rings -->
+      <div class="fill-abs">
+        <div class="sonar-r"></div>
+        <div class="sonar-r"></div>
+        <div class="sonar-r"></div>
+      </div>
+
+      <!-- SVG -->
+      <svg class="eng-svg" viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="gf" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <!-- Minor ticks 60 × r136 -->
+        <circle class="tick-min" cx="150" cy="150" r="136" fill="none"
+          stroke-width="3" stroke-dasharray="1.5 12.74" transform="rotate(-90 150 150)"/>
+        <!-- Major ticks 12 × r136 -->
+        <circle class="tick-maj" cx="150" cy="150" r="136" fill="none"
+          stroke-width="7" stroke-dasharray="3 68.2" transform="rotate(-90 150 150)"/>
+        <!-- Rings -->
+        <circle class="rng1" cx="150" cy="150" r="122" fill="none" stroke-width="1.5" stroke-dasharray="6 18">
+          <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="14s" repeatCount="indefinite"/>
+        </circle>
+        <circle class="rng2" cx="150" cy="150" r="106" fill="none" stroke-width="1" stroke-dasharray="2 8">
+          <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="-360 150 150" dur="9s" repeatCount="indefinite"/>
+        </circle>
+        <circle class="rng3" cx="150" cy="150" r="90" fill="none" stroke-width="1" stroke-dasharray="1 5">
+          <animateTransform attributeName="transform" type="rotate" from="0 150 150" to="360 150 150" dur="5s" repeatCount="indefinite"/>
+        </circle>
+        <!-- Progress -->
+        <circle cx="150" cy="150" r="122" fill="none" stroke="rgba(31,92,61,.09)" stroke-width="2.5" transform="rotate(-90 150 150)"/>
+        <circle id="engProg" cx="150" cy="150" r="122" fill="none"
+          stroke-width="4" stroke-linecap="round" transform="rotate(-90 150 150)" filter="url(#gf)"/>
+      </svg>
+
+      <!-- Center orb -->
+      <div class="eng-orb"></div>
+
+      <!-- Overlay -->
+      <div class="fill-abs">
+        <div class="eng-pill">
+          <div class="eng-pill-dot"></div>
+          <span id="engStatus" class="eng-pill-txt">STANDBY</span>
+        </div>
+
+        <div class="eng-icon-ring">
+          <svg class="eng-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+          </svg>
+        </div>
+
+        <div id="engCount" class="eng-count"></div>
+        <div id="engLbl" class="eng-lbl"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─ BOTTOM ─ -->
+  <div class="bottom">
+
+    <!-- กำลังทำอะไรอยู่ (โชว์เมื่อคิว Flow กำลังรัน) -->
+    <div id="nowDoing" class="now-row">
+      <span class="now-dot"></span>
+      <span id="nowTxt" class="now-txt"></span>
+    </div>
+
+    <!-- Gemini ชนโควต้าฟรี → ใช้เทมเพลตสำรอง -->
+    <div id="spGeminiWarn" class="sp-warn">
+      <span class="sw-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+      <div class="sw-tx"><b>Gemini ชนโควต้าฟรีชั่วคราว</b>โควต้าฟรีต่อวัน/ต่อนาทีเต็ม — รอสักครู่หรือพรุ่งนี้แล้วสร้างใหม่ ระหว่างนี้ใช้เทมเพลตสำรองให้</div>
+      <span class="sw-x" id="spGeminiWarnX"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
+    </div>
+
+    <!-- คิวค้างจากรอบก่อน -->
+    <div id="spResume" class="sp-resume">
+      <div id="spResumeTxt" class="sp-resume-txt"></div>
+      <button id="spResumeClear" class="sp-rs-btn ghost">ล้าง</button>
+      <button id="spResumeBtn" class="sp-rs-btn go">รันต่อ</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat-cell">
+        <div id="engQueue" class="stat-v sky">0</div>
+        <div class="stat-l">คิว</div>
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat-cell">
+        <div id="engDone" class="stat-v green">0</div>
+        <div class="stat-l">วันนี้</div>
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat-cell" id="errCell" title="กดดูรายละเอียดข้อผิดพลาด">
+        <span class="errdot" id="errDot"></span>
+        <div id="engErr" class="stat-v rose">0</div>
+        <div class="stat-l">พลาด</div>
+      </div>
+    </div>
+
+    <!-- dry-run -->
+    <label class="drytog" title="ทำทุกอย่างยกเว้นกดส่ง — ไม่เปลือง Flow credit">
+      <input type="checkbox" id="spDry">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 2v7.5a2 2 0 0 1-.2.9L4.7 20.6a1 1 0 0 0 .9 1.4h12.8a1 1 0 0 0 .9-1.4L14.2 10.4a2 2 0 0 1-.2-.9V2"/>
+        <path d="M8.5 2h7"/><path d="M7 16h10"/></svg>
+      โหมดทดสอบ (ไม่เปลืองเครดิต)
+    </label>
+
+    <!-- CTA -->
+    <div class="cta-wrap" id="ctaWrap">
+      <button id="engineBtn" class="btn-cta start">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/></svg>
+        START ENGINE
+      </button>
+    </div>
+
+    <!-- Quick links -->
+    <div class="quick">
+      <button id="openAff" class="qbtn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Affiliate
+      </button>
+      <button id="openLib" class="qbtn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        คลังวิดีโอ
+      </button>
+    </div>
+
+  </div>
+
+  <!-- ─ ERROR PANEL (sheet ลอยทับ กดช่อง "พลาด" เพื่อเปิด) ─ -->
+  <div id="errPanel" class="err-panel">
+    <div class="err-hd">
+      <span>ข้อผิดพลาดล่าสุด</span>
+      <span class="grow"></span>
+      <button id="errClear" class="sp-rs-btn ghost">ล้างประวัติ</button>
+      <button id="errClose" class="err-x">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.5" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="errList" class="err-list"></div>
+  </div>
+
+  <!-- ─ PRE-FLIGHT WIZARD (กด START ENGINE → ตั้งค่าก่อนเริ่ม) ─ -->
+  <div id="wizard" class="wz">
+    <div class="wz-hd">
+      <div class="grow">
+        <div class="wz-over" id="wzStepLbl">ตั้งค่าเครื่องยนต์ · ขั้นที่ 1/4</div>
+        <div class="wz-title" id="wzTitle">ผู้รีวิว</div>
+        <div class="wz-desc" id="wzDesc">ใครจะเป็นคนถือสินค้ารีวิวในคลิป</div>
+      </div>
+      <button id="wzClose" class="err-x">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.5" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="wz-dots" id="wzDots">
+      <span class="wz-dot on"></span><span class="wz-dot"></span><span class="wz-dot"></span><span class="wz-dot"></span>
+    </div>
+    <div class="wz-body" id="wzBody">
+
+      <!-- ขั้น 1: ผู้รีวิว -->
+      <div class="wz-step on" id="wzS1">
+        <div class="char-grid" id="charGrid"></div>
+        <div id="pPhotosWrap" style="display:flex;flex-direction:column;gap:9px">
+          <div class="photo-row">
+            <div class="photo-slot" data-i="0">
+              <svg class="ph-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span class="ph-lb">หน้าตรง</span><span class="photo-x">×</span>
+            </div>
+            <div class="photo-slot" data-i="1">
+              <svg class="ph-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span class="ph-lb">ครึ่งตัว</span><span class="photo-x">×</span>
+            </div>
+            <div class="photo-slot" data-i="2">
+              <svg class="ph-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span class="ph-lb">เต็มตัว</span><span class="photo-x">×</span>
+            </div>
+          </div>
+          <input type="file" id="pFile" accept="image/*" hidden>
+          <div class="wz-note">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>รูปบุคคลจริงบางรูปอาจถูกระบบของ Google ปฏิเสธ — ถ้าเจอบ่อยแนะนำสลับเป็นตัวละคร AI</span>
+          </div>
+        </div>
+        <div id="pCustomWrap" style="display:flex;flex-direction:column;gap:10px">
+          <div class="wz-sec">กำหนดลักษณะเอง</div>
+          <div class="wz-field"><label>เพศผู้รีวิว</label>
+            <div class="chips" id="pGender">
+              <span class="chip" data-v="หญิง">หญิง</span>
+              <span class="chip" data-v="ชาย">ชาย</span>
+              <span class="chip" data-v="ตามสินค้า">ตามสินค้า</span>
+            </div></div>
+          <div class="wz-field"><label>ช่วงวัย</label>
+            <div class="chips" id="pAge">
+              <span class="chip" data-v="วัยรุ่น">วัยรุ่น</span>
+              <span class="chip" data-v="วัยทำงาน">วัยทำงาน</span>
+              <span class="chip" data-v="ผู้ใหญ่">ผู้ใหญ่</span>
+            </div></div>
+          <div class="wz-field"><label>บุคลิก</label>
+            <div class="chips" id="pPersona">
+              <span class="chip" data-v="สดใสมีพลัง">สดใสมีพลัง</span>
+              <span class="chip" data-v="เป็นกันเอง">เป็นกันเอง</span>
+              <span class="chip" data-v="มืออาชีพ">มืออาชีพ</span>
+              <span class="chip" data-v="ขายของเก่ง">ขายของเก่ง</span>
+            </div></div>
+          <div class="wz-field"><label>ลักษณะหน้าตา/สไตล์</label>
+            <input type="text" id="pDesc" placeholder="เช่น หญิงไทยวัย 25 ผมยาว ยิ้มสดใส"></div>
+        </div>
+        <div class="wz-field"><label>สรรพนามแทนร้าน (ใช้ในคำพูดท้ายคลิป)</label>
+          <input type="text" id="pPronoun" placeholder="ร้านเรา, แอดมิน"></div>
+      </div>
+
+      <!-- ขั้น 2: สไตล์คลิป -->
+      <div class="wz-step" id="wzS2">
+        <div class="wz-sec">ภาพรวมคลิป</div>
+        <div class="wz-field"><label>สไตล์คลิป</label>
+          <div class="chips" id="sLook">
+            <span class="chip" data-v="คอนเทนต์ไวรัล">คอนเทนต์ไวรัล</span>
+            <span class="chip" data-v="รีวิวจริง">รีวิวจริง</span>
+            <span class="chip" data-v="โฆษณาสินค้า">โฆษณาสินค้า</span>
+          </div></div>
+        <div class="wz-field"><label>กลุ่มอายุเป้าหมาย</label>
+          <div class="chips" id="sAge">
+            <span class="chip" data-v="ทุกวัย">ทุกวัย</span>
+            <span class="chip" data-v="วัยรุ่น">วัยรุ่น</span>
+            <span class="chip" data-v="คนทำงาน">คนทำงาน</span>
+            <span class="chip" data-v="ผู้ใหญ่">ผู้ใหญ่</span>
+          </div></div>
+        <div class="wz-field"><label>ฉากหลัง</label>
+          <div class="chips" id="sBg">
+            <span class="chip" data-v="ไลฟ์สไตล์">ไลฟ์สไตล์</span>
+            <span class="chip" data-v="สตูดิโอ">สตูดิโอ</span>
+            <span class="chip" data-v="พื้นขาวมินิมอล">พื้นขาวมินิมอล</span>
+          </div></div>
+        <div class="wz-sec">แพตเทิร์น Hook เปิดคลิป (เลือกได้หลายแบบ — สุ่มหมุนเวียนกันคลิปซ้ำ)</div>
+        <div class="chips" id="sHooks">
+          <span class="chip" data-v="ตกใจราคา">ตกใจราคา</span>
+          <span class="chip" data-v="สาธิตของ">สาธิตของ</span>
+          <span class="chip" data-v="ถามคำถาม">ถามคำถาม</span>
+          <span class="chip" data-v="before-after">Before–After</span>
+          <span class="chip" data-v="เล่าเรื่อง">เล่าเรื่อง</span>
+        </div>
+        <div class="wz-field"><label>CTA ท้ายคลิป</label>
+          <input type="text" id="sCta" placeholder="กดตะกร้าด้านล่างเลย!"></div>
+        <div class="wz-field"><label>แฮชแท็กท้ายแคปชั่น</label>
+          <input type="text" id="sTags" placeholder="#shopee #ของดีบอกต่อ"></div>
+        <div class="wz-sec">วิธีเขียน prompt</div>
+        <div class="cards" id="sPmode">
+          <div class="chip" data-v="template">
+            <span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+            <span class="tx"><span class="t1">Template</span><span class="t2">ใช้แม่แบบเดิมทุกคลิป — ฟรี ไม่กิน quota</span></span>
+            <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          </div>
+          <div class="chip" data-v="ai">
+            <span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg></span>
+            <span class="tx"><span class="t1">AI Gemini</span><span class="t2">เขียนใหม่ตามสินค้าแต่ละตัว — สดกว่า ใช้ quota เล็กน้อย</span></span>
+            <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ขั้น 3: แหล่งสินค้า -->
+      <div class="wz-step" id="wzS3">
+        <div class="cards" id="srcMode">
+          <div class="chip" data-v="manual">
+            <span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+            <span class="tx"><span class="t1">เลือกเองจากคลัง</span><span class="t2">ใช้สินค้าที่ติ๊กไว้ใน Dashboard — คุมเองทุกตัว</span></span>
+            <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          </div>
+          <div class="chip" data-v="auto">
+            <span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+            <span class="tx"><span class="t1">อัตโนมัติตามเกณฑ์</span><span class="t2">ระบบคัดจากคลังให้เอง ตามคอม/ราคา/ยอดขายที่ตั้ง</span></span>
+            <span class="ck"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+          </div>
+        </div>
+        <div class="wz-note" id="srcManualHint">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>ไปติ๊กเลือกสินค้าได้ที่ Dashboard › คลังสินค้า แล้วกดสร้างจากที่นั่น</span>
+        </div>
+        <div id="srcAuto" style="display:flex;flex-direction:column;gap:10px">
+          <div class="wz-sec">เกณฑ์คัดเลือก</div>
+          <div class="wz-grid2">
+            <div class="wz-field"><label>คอมมิชชันขั้นต่ำ (%)</label><input type="number" id="srcComm" min="0" placeholder="5"></div>
+            <div class="wz-field"><label>ยอดขายขั้นต่ำ (ชิ้น)</label><input type="number" id="srcSold" min="0" placeholder="100"></div>
+          </div>
+          <div class="wz-grid2">
+            <div class="wz-field"><label>ราคาต่ำสุด (บาท)</label><input type="number" id="srcPmin" min="0" placeholder="ไม่กำหนด"></div>
+            <div class="wz-field"><label>ราคาสูงสุด (บาท)</label><input type="number" id="srcPmax" min="0" placeholder="ไม่กำหนด"></div>
+          </div>
+          <div class="wz-field"><label>เรียงลำดับ</label>
+            <div class="chips" id="srcSort">
+              <span class="chip" data-v="comm">คอมสูงก่อน</span>
+              <span class="chip" data-v="sold">ขายดีก่อน</span>
+              <span class="chip" data-v="new">มาใหม่ก่อน</span>
+            </div></div>
+          <label class="wz-check"><input type="checkbox" id="srcCart" checked> เฉพาะสินค้าที่มีลิงก์ตะกร้าแล้ว</label>
+        </div>
+      </div>
+
+      <!-- ขั้น 4: ขอบเขตการรัน -->
+      <div class="wz-step" id="wzS4">
+        <div class="wz-grid2">
+          <div class="wz-field"><label>จำนวนคลิปต่อวัน</label><input type="number" id="rPerDay" min="1" value="10"></div>
+          <div class="wz-field"><label>เพดานงบ AI/เดือน (บาท)</label><input type="number" id="rBudget" min="0" placeholder="ไม่จำกัด"></div>
+        </div>
+        <div class="wz-grid2">
+          <div class="wz-field"><label>เริ่มทำงาน</label><input type="time" id="rStart" value="09:00"></div>
+          <div class="wz-field"><label>หยุดทำงาน</label><input type="time" id="rEnd" value="22:00"></div>
+        </div>
+        <div class="wz-sec">โพสต์ลงแพลตฟอร์ม</div>
+        <div class="chips" id="rPlat">
+          <span class="chip" data-v="tiktok">TikTok</span>
+          <span class="chip" data-v="shopee">Shopee Video</span>
+          <span class="chip" data-v="instagram">Instagram</span>
+          <span class="chip" data-v="facebook">Facebook</span>
+          <span class="chip" data-v="youtube">YouTube</span>
+        </div>
+        <label class="wz-check"><input type="checkbox" id="rReview"> รีวิวคลิปก่อนโพสต์ (ระบบค้างไว้ให้กดอนุมัติ)</label>
+        <button id="rTestOne" class="wz-btn ghost" style="align-self:flex-start">ลองสร้าง 1 คลิปก่อน</button>
+        <div class="wz-note" id="rTestNote" style="display:none"></div>
+      </div>
+
+      <!-- สรุป -->
+      <div class="wz-step" id="wzSum">
+        <div class="sum-row">
+          <div class="sum-thumb" id="sumThumb"></div>
+          <div class="sum-ic" id="sumPIc"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+          <div class="sum-body"><div class="sum-t">ผู้รีวิว</div><div class="sum-v" id="sumP"></div></div>
+          <button class="sum-edit" data-step="1">แก้</button>
+        </div>
+        <div class="sum-row">
+          <div class="sum-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+          <div class="sum-body"><div class="sum-t">สไตล์คลิป</div><div class="sum-v" id="sumS"></div></div>
+          <button class="sum-edit" data-step="2">แก้</button>
+        </div>
+        <div class="sum-row">
+          <div class="sum-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+          <div class="sum-body"><div class="sum-t">แหล่งสินค้า</div><div class="sum-v" id="sumSrc"></div></div>
+          <button class="sum-edit" data-step="3">แก้</button>
+        </div>
+        <div class="sum-row">
+          <div class="sum-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></div>
+          <div class="sum-body"><div class="sum-t">ขอบเขตการรัน</div><div class="sum-v" id="sumR"></div></div>
+          <button class="sum-edit" data-step="4">แก้</button>
+        </div>
+        <div class="wz-prev">
+          <div class="wz-prev-t">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></svg>
+            ตัวอย่างคลิปที่ระบบจะสั่ง AI สร้าง
+          </div>
+          <div class="wz-prev-x" id="prevTxt"></div>
+        </div>
+        <div class="wz-note">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>โปรไฟล์บันทึกไว้ในเครื่องแล้ว — เกณฑ์สินค้าอัตโนมัติ / ช่วงเวลา / งบ จะถูกเชื่อมเข้ากับระบบรันจริงในขั้นถัดไป</span>
+        </div>
+      </div>
+
+    </div>
+    <div class="wz-ft">
+      <button id="wzBack" class="wz-btn ghost">ยกเลิก</button>
+      <button id="wzNext" class="wz-btn go">ถัดไป</button>
+    </div>
+  </div>
+</div>
+
+<script src="sidepanel.js"></script>
+</body>
+</html>
