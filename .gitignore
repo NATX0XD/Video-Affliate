@@ -32,6 +32,13 @@ desktop/data/app.db*
 # ── Archive: git backup ของ web เดิม (ไม่ต้อง track) ──
 _archive/web-git-backup/
 
+# ── Build output (ไฟล์ติดตั้ง .dmg/.exe หนัก — build ใหม่ได้เสมอ ไม่ต้อง track) ──
+dist/
+portable-build/
+*.dmg
+*.exe
+*.blockmap
+
 # ── OS ──
 .DS_Store
 Thumbs.db

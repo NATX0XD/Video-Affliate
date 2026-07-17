@@ -20,5 +20,10 @@ adb = Apache-2.0 · scrcpy = Apache-2.0 · ffmpeg = LGPL/GPL (ใช้ build LG
 ใช้ส่วนตัวไม่มีปัญหาอยู่แล้ว
 
 ## ของ build Mac
-ถ้าจะ build ฝั่ง Mac ด้วย ให้วาง binary ฉบับ mac (adb, scrcpy, scrcpy-server, ffmpeg — ไม่มี .exe)
-แทนที่ในโฟลเดอร์นี้ก่อนสั่ง `npm run build:mac` (build ทีละ OS)
+ทางส่งมอบจริงฝั่ง Mac = `build-dmg.command` ที่รากโปรเจกต์ (payload เว็บ+สคริปต์ → `.dmg` ด้วย `hdiutil`)
+ผู้ใช้ดับเบิลคลิก .dmg แล้วรัน `ติดตั้ง-mac-noadmin.command` (โหลด adb/scrcpy/ffmpeg ฉบับ mac ตอนติดตั้ง)
+→ **ไม่ต้อง** วาง binary ในโฟลเดอร์นี้ และไม่ต้องใช้ electron-builder สำหรับการส่งมอบ Mac
+
+target `dmg` ใน `electron/package.json` (electron-builder → .app) ยังไม่พร้อมส่งมอบ:
+ถ้าจะทำจริงต้องวาง binary ฉบับ mac (adb, scrcpy, scrcpy-server, ffmpeg — ไม่มี .exe) ในโฟลเดอร์นี้ก่อน
++ build backend เป็น PyInstaller (`desktop/dist/vgap-server`) แล้วจึงสั่ง `npm run build:mac` (build ทีละ OS)
