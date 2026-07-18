@@ -11,6 +11,7 @@
 #  ข้อมูลผู้ใช้ (~/.vgap) อยู่นอก APP_DIR → รันซ้ำ = อัปเดตทับได้ ไม่ลบข้อมูล
 # ============================================================
 set -o pipefail
+printf '\033]0;VGAP-INSTALLER\007'   # ตั้งชื่อหน้าต่าง → ปิดให้ตรงตัวตอนจบ (กันปิดผิดหน้าต่าง)
 
 # ---- สี/ตัวช่วยข้อความ ----
 say(){  printf "\n\033[1;36m== %s ==\033[0m\n" "$1"; }
@@ -71,13 +72,13 @@ self_cleanup(){
   local boot="$1" vol="" dmg=""
   if [[ "$boot" == /Volumes/* ]]; then
     vol="/Volumes/$(printf '%s' "$boot" | cut -d/ -f3)"
-    dmg=$(hdiutil info 2>/dev/null | awk -v v="$vol" '/image-path/{ip=$3} index($0,v){print ip; exit}')
+    dmg=$(hdiutil info 2>/dev/null | awk -v v="$vol" '/image-path[ \t]*:/{sub(/^.*image-path[ \t]*:[ \t]*/,"");ip=$0} index($0,v){print ip; exit}')
   fi
   nohup bash -c "
     sleep 4
     [ -n \"$vol\" ] && hdiutil detach \"$vol\" -force >/dev/null 2>&1
     [ -n \"$dmg\" ] && rm -f \"$dmg\"
-    osascript -e 'tell application \"Terminal\" to close (first window) saving no' >/dev/null 2>&1
+    osascript -e 'tell application \"Terminal\" to close (every window whose name contains \"VGAP-INSTALLER\") saving no' >/dev/null 2>&1
     sleep 1
     open \"$HOME/Applications/$LAUNCHER_NAME.app\" >/dev/null 2>&1
   " >/dev/null 2>&1 &
