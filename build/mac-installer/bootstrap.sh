@@ -48,10 +48,27 @@ make_launcher_app(){
   <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-  cat > "$dest/Contents/MacOS/launch" <<LAUNCH
-#!/bin/bash
-osascript -e 'tell application "Terminal" to activate' -e 'tell application "Terminal" to do script "/bin/bash " & quoted form of "$APP_DIR/เปิดโปรแกรม-mac.command"'
+  {
+    echo '#!/bin/bash'
+    echo "APP_DIR=\"$APP_DIR\""
+    cat <<'LAUNCH'
+# เปิดเว็บแอปแบบหน้าต่างแอป (Chrome --app) โดยรัน server เบื้องหลัง — ไม่โชว์ Terminal
+cd "$APP_DIR/desktop" 2>/dev/null || exit 1
+URL="http://localhost:3001"
+if ! /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1; then
+  if [ -x .venv/bin/python ]; then PY=".venv/bin/python"; else PY="$(command -v python3)"; fi
+  export PATH="$HOME/.vgap/bin:$PATH"
+  [ -x "$HOME/.vgap/bin/adb" ]           && export VGAP_ADB="$HOME/.vgap/bin/adb"
+  [ -f "$HOME/.vgap/bin/scrcpy-server" ] && export VGAP_SCRCPY_SERVER="$HOME/.vgap/bin/scrcpy-server"
+  export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+  nohup "$PY" main.py >"$HOME/.vgap/server.log" 2>&1 &
+  for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.5; done
+fi
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+if [ -x "$CHROME" ]; then "$CHROME" --app="$URL" --new-window >/dev/null 2>&1 &
+else open "$URL" >/dev/null 2>&1; fi
 LAUNCH
+  } > "$dest/Contents/MacOS/launch"
   chmod +x "$dest/Contents/MacOS/launch"
   # icon (non-fatal)
   local isrc="$APP_DIR/web/public/icons/icon-512.png"
