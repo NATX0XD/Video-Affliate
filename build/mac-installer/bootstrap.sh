@@ -78,6 +78,8 @@ self_cleanup(){
     [ -n \"$vol\" ] && hdiutil detach \"$vol\" -force >/dev/null 2>&1
     [ -n \"$dmg\" ] && rm -f \"$dmg\"
     osascript -e 'tell application \"Terminal\" to close (first window) saving no' >/dev/null 2>&1
+    sleep 1
+    open \"$HOME/Applications/$LAUNCHER_NAME.app\" >/dev/null 2>&1
   " >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
@@ -167,6 +169,6 @@ cat <<EOF
   (ข้อมูล/ตั้งค่าของคุณอยู่ใน ~/.vgap จะไม่ถูกลบ)
 EOF
 echo
-echo "  เสร็จแล้ว — หน้าต่างนี้จะปิดเอง และเก็บตัวติดตั้งให้อัตโนมัติในไม่กี่วินาที..."
+echo "  เสร็จแล้ว — เดี๋ยวเปิดแอปให้อัตโนมัติ + ปิดหน้าต่างนี้ + เก็บตัวติดตั้งเองในไม่กี่วินาที..."
 self_cleanup "$0"
 exit 0
