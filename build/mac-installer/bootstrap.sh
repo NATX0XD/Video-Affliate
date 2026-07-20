@@ -167,10 +167,10 @@ if ! VGAP_NO_PAUSE=1 bash "$DEPS"; then
        "ต่อเน็ตให้เสถียรแล้วดับเบิลคลิกตัวติดตั้งใหม่ หรือส่งรูป error ในหน้าต่างให้ทีมงาน"
 fi
 
-# ---- [5/5] สร้างแอป (หน้าต่างแอป/PWA ของเว็บแอป) ที่ Applications + Desktop ----
+# ---- [5/5] สร้างแอป (หน้าต่างแอป/PWA ของเว็บแอป) — อันเดียว ใน Applications ----
 say "[5/5] สร้างแอป \"$LAUNCHER_NAME\" (เปิดเว็บแอปแบบหน้าต่างแอป/PWA)"
+rm -rf "$HOME/Desktop/$LAUNCHER_NAME.app" 2>/dev/null   # กันของเก่าซ้ำบน Desktop
 make_launcher_app "$HOME/Applications/$LAUNCHER_NAME.app"
-make_launcher_app "$HOME/Desktop/$LAUNCHER_NAME.app" 2>/dev/null || true
 # ลบทางลัด .command ซ้ำที่ deps สร้าง (ใช้ .app แทน)
 rm -f "$HOME/Desktop/เปิด VDO Gen Auto Pilot.command" 2>/dev/null || true
 # ทางลัดถอนการติดตั้ง (ลบทุกอย่างในคลิกเดียว) บน Desktop
@@ -178,7 +178,7 @@ if [ -f "$APP_DIR/ถอนการติดตั้ง-mac.command" ]; then
   cp -f "$APP_DIR/ถอนการติดตั้ง-mac.command" "$HOME/Desktop/ถอนการติดตั้ง VDO Gen Auto Pilot.command" 2>/dev/null
   chmod +x "$HOME/Desktop/ถอนการติดตั้ง VDO Gen Auto Pilot.command" 2>/dev/null || true
 fi
-ok "แอปพร้อมแล้วที่ ~/Applications และ Desktop (+ ตัวถอนการติดตั้งบน Desktop)"
+ok "แอปพร้อมแล้วใน Applications (+ ตัวถอนการติดตั้งบน Desktop)"
 
 # ---- เสร็จ ----
 say "ติดตั้งเสร็จแล้ว"
@@ -188,8 +188,7 @@ cat <<EOF
 
   โค้ดโปรแกรมอยู่ที่:  $APP_DIR
 
-  เปิดโปรแกรม: ดับเบิลคลิกแอป "$LAUNCHER_NAME"
-    • บนหน้าจอ Desktop  หรือใน  Applications
+  เปิดโปรแกรม: ดับเบิลคลิกแอป "$LAUNCHER_NAME" ใน Applications (Launchpad)
     • เปิดเป็น "หน้าต่างแอป" (เหมือนแอปจริง ไม่มีแถบเบราว์เซอร์)
 
   อัปเดตภายหลัง: เปิดตัวติดตั้งนี้ซ้ำได้เลย
