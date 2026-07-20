@@ -66,24 +66,7 @@ export default function AppLayout({ children }) {
     return () => { alive = false; if (t) clearTimeout(t) }
   }, [license.checked, license.ok])
 
-  // หยุด CSS animation ทั้งหมดเมื่อหน้าต่างแอปไม่ได้ focus/ถูกซ่อน — Chrome แชร์ GPU process
-  // ตัวเดียว ถ้าแอปยัง animate อยู่เบื้องหลัง (spinner/pulse) จะทำแท็บ/หน้าต่างอื่นกระตุก
-  useEffect(() => {
-    const root = document.documentElement
-    const pause  = () => root.classList.add('anim-paused')
-    const resume = () => { if (!document.hidden) root.classList.remove('anim-paused') }
-    const onVis  = () => (document.hidden ? pause() : resume())
-    // ตั้งค่าเริ่มต้นตาม focus/visibility ปัจจุบัน
-    if (document.hidden || !document.hasFocus()) pause()
-    window.addEventListener('blur', pause)
-    window.addEventListener('focus', resume)
-    document.addEventListener('visibilitychange', onVis)
-    return () => {
-      window.removeEventListener('blur', pause)
-      window.removeEventListener('focus', resume)
-      document.removeEventListener('visibilitychange', onVis)
-    }
-  }, [])
+  // (หยุด animation/polling เมื่อหน้าต่างไม่ได้ focus — จัดการโดย inline script ใน root layout)
 
   if (!license.checked) {
     return (
