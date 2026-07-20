@@ -102,7 +102,8 @@ PY="$(command -v python3 || true)"
 ARCHP=""
 if [ "$ARCH" = "arm64" ]; then
   HB=""
-  for hp in /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11; do [ -x "$hp" ] && { HB="$hp"; break; }; done
+  # เลือก 3.11/3.12 (มี wheel ครบทุก dep เช่น Pillow 10.3.0) — เลี่ยง 3.13 ที่ Pillow 10.3.0 ยังไม่มี wheel → build ล้ม
+  for hp in /opt/homebrew/bin/python3.11 /opt/homebrew/bin/python3.12; do [ -x "$hp" ] && { HB="$hp"; break; }; done
   if [ -n "$HB" ]; then PY="$HB"; else ARCHP="arch -arm64"; fi
 fi
 rm -rf "$ROOT/desktop/.venv"   # สร้าง venv ใหม่สะอาดทุกครั้ง กันของเก่าปน arch
