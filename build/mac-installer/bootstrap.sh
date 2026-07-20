@@ -66,7 +66,14 @@ if ! /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1; then
   for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.5; done
 fi
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-if [ -x "$CHROME" ]; then "$CHROME" --app="$URL" --new-window >/dev/null 2>&1 &
+# โปรไฟล์ Chrome แยกเฉพาะแอป + โหลดส่วนขยายอัตโนมัติ → งานขับ Flow (debugger) ไม่แชร์
+# process กับ Chrome ที่ผู้ใช้ browse ปกติ = ไม่ทำให้ google/แท็บอื่นหน่วง
+PROFILE="$HOME/.vgap/chrome-app"
+EXT="$APP_DIR/extension"
+if [ -x "$CHROME" ]; then
+  ARGS=(--app="$URL" --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check)
+  [ -d "$EXT" ] && ARGS+=(--load-extension="$EXT")
+  "$CHROME" "${ARGS[@]}" >/dev/null 2>&1 &
 else open "$URL" >/dev/null 2>&1; fi
 LAUNCH
   } > "$dest/Contents/MacOS/launch"
