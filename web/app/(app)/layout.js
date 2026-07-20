@@ -55,9 +55,14 @@ export default function AppLayout({ children }) {
   const [setup, setSetup] = useState({ checked: false, configured: false })
   useEffect(() => {
     if (!license.checked || !license.ok) return
-    api.getSetup()
-      .then(d => setSetup({ checked: true, configured: !!d.configured }))
-      .catch(() => setSetup({ checked: true, configured: true }))
+    let alive = true, t = null
+    const load = () => api.getSetup()
+      .then(d => { if (alive) setSetup({ checked: true, configured: !!d.configured }) })
+      // ต่อ backend ไม่ได้ = อย่าเดาว่า configured (เดิมเดา true → ข้าม onboarding ไป dashboard ผิด)
+      // คงหน้า "กำลังเชื่อมต่อ" แล้ว retry จน backend พร้อม → ค่อยตัดสิน onboarding/หน้าหลักถูกต้อง
+      .catch(() => { if (alive) { setSetup({ checked: false, configured: false }); t = setTimeout(load, 1500) } })
+    load()
+    return () => { alive = false; if (t) clearTimeout(t) }
   }, [license.checked, license.ok])
 
   if (!license.checked) {
@@ -72,8 +77,9 @@ export default function AppLayout({ children }) {
   }
   if (!setup.checked) {
     return (
-      <div className="h-screen flex items-center justify-center bg-base">
+      <div className="h-screen flex flex-col gap-3 items-center justify-center bg-base">
         <div className="w-8 h-8 rounded-full border-2 border-line border-t-accent animate-spin" />
+        <p className="text-muted-foreground text-sm">กำลังเชื่อมต่อโปรแกรมหลักในเครื่อง…</p>
       </div>
     )
   }
