@@ -42,9 +42,9 @@
 
   /* nav */
   nav{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
-  .logoplate{background:linear-gradient(180deg,#fff,#eef0f4);border-radius:11px;padding:7px 12px;display:inline-flex;align-items:center;
-    box-shadow:0 4px 16px -6px rgba(0,0,0,.6)}
-  .logoplate img{height:24px;width:auto}
+  .logoplate{display:inline-flex;align-items:center;
+    filter:drop-shadow(0 0 1px rgba(255,255,255,.45)) drop-shadow(0 2px 6px rgba(0,0,0,.5))}
+  .logoplate img{height:26px;width:auto}
   .nav-cta{font-size:14px;font-weight:600;color:var(--fg2);border:1px solid var(--border2);border-radius:10px;padding:8px 16px;transition:.2s;cursor:pointer}
   .nav-cta:hover{border-color:var(--accent);color:var(--fg)}
 
@@ -53,9 +53,9 @@
   .pill{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--fg2);
     background:var(--wash);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:100px;margin-bottom:26px}
   .pill span{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
-  .herologo{display:inline-flex;padding:22px 34px;border-radius:22px;margin-bottom:26px;
-    background:radial-gradient(ellipse at center,rgba(255,255,255,.97),rgba(255,255,255,.86) 55%,rgba(255,255,255,0) 78%)}
-  .herologo img{height:clamp(64px,11vw,104px);width:auto}
+  .herologo{display:inline-flex;margin-bottom:26px;
+    filter:drop-shadow(0 0 1.5px rgba(255,255,255,.5)) drop-shadow(0 10px 26px rgba(0,0,0,.55))}
+  .herologo img{height:clamp(66px,11vw,108px);width:auto}
   h1{font-size:clamp(29px,5.4vw,50px);font-weight:800;line-height:1.12;letter-spacing:-.025em;text-wrap:balance}
   h1 .g{background:linear-gradient(115deg,#d9bcff,#a855f7 72%);-webkit-background-clip:text;background-clip:text;color:transparent}
   .hero .lead{margin:20px auto 0}
