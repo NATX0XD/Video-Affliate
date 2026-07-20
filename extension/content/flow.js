@@ -1485,15 +1485,22 @@ if (window._flowAutomatorLoaded) {
   function findModeBtn() {
     return allClickable().find((el) => /crop_9_16|nano banana|วิดีโอ ·/i.test(el.innerText || "")) || null;
   }
+  // Flow UI ใหม่ใช้ป้ายอังกฤษ (Image/Video/Frames/Ingredients) — map ไทย↔อังกฤษ ให้ตัวเลือกเจอทั้งคู่
+  const MODE_ALT = {
+    "รูปภาพ": ["รูปภาพ", "image"], "วิดีโอ": ["วิดีโอ", "video"],
+    "เฟรม": ["เฟรม", "frames"], "ส่วนผสม": ["ส่วนผสม", "ingredients"],
+    "1x": ["1x"], "x2": ["x2"], "x3": ["x3"], "x4": ["x4"],
+  };
   // หาตัวเลือกในป๊อปอัปโหมด (รูปภาพ/วิดีโอ/เฟรม/ส่วนผสม/1x…) — รองรับทั้ง button และ div, เลือกตัวเล็กสุด (ไม่ใช่ container ครอบ)
   function findModeOption(label) {
     const want = norm(label);
+    const wants = MODE_ALT[want] || [want];
     const cands = [...document.querySelectorAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],div,span')]
       .filter(isVisible)
       .filter((el) => {
         const t = norm(el.innerText || el.textContent);
-        if (/crop_9_16|·|nano banana/i.test(t)) return false;   // ตัด "ปุ่มโหมด" เอง (ไม่ใช่ตัวเลือกในป๊อปอัป)
-        return t === want || t.split(/\s+/).includes(want) || (t.includes(want) && t.length <= want.length + 16);   // แยกคำ → เผื่อไอคอนนำหน้ายาว
+        if (/crop_9_16|·|nano banana|omni flash/i.test(t)) return false;   // ตัด "ปุ่มโหมด" เอง (ไม่ใช่ตัวเลือกในป๊อปอัป)
+        return wants.some((w) => t === w || t.split(/\s+/).includes(w) || (t.includes(w) && t.length <= w.length + 16));   // แยกคำ → เผื่อไอคอนนำหน้ายาว
       })
       // ตัด sidebar ซ้าย (x<110 เช่น "image ดูรูปภาพ") ออก — ป๊อปอัปโหมดอยู่กลาง/ขวาจอเสมอ
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 340 && r.height > 4 && r.height <= 130 && r.left > 110; });
@@ -1506,10 +1513,11 @@ if (window._flowAutomatorLoaded) {
     await trustedClickEl(el, log);
     return true;
   }
-  // ปุ่มโหมดบอกโหมดปัจจุบันเสมอ: รูปภาพ→มี "nano banana/🍌" · วิดีโอ→มี "วิดีโอ/Ns"
+  // ปุ่มโหมดบอกโหมดปัจจุบัน: image→"Image/รูปภาพ/nano banana/🍌" · video→"Video/วิดีโอ · Ns"
+  // Flow UI ใหม่ปุ่ม video = "Video · 10s crop_9_16 1x" (อังกฤษ), image = "Image · …"
   const modeBtnText = () => { const b = findModeBtn(); return (b && b.innerText) || ""; };
-  const isImageMode = () => /nano banana|🍌/i.test(modeBtnText());
-  const isVideoMode = () => /วิดีโอ|\bvideo\b|\d+\s*s\b/i.test(modeBtnText());
+  const isVideoMode = () => /วิดีโอ|\bvideo\b/i.test(modeBtnText());
+  const isImageMode = () => !isVideoMode() && /รูปภาพ|\bimage\b|nano banana|🍌/i.test(modeBtnText());
   // สลับโหมดสร้าง + ★ยืนยันจากปุ่มโหมดจริง★ retry 3 รอบ (กัน setMode หลุด → สร้างผิดโหมด/เสียเครดิต)
   // typeLabel = รูปภาพ/วิดีโอ · subLabel = เฟรม/ส่วนผสม · countLabel = 1x/x2… (ออปชั่น)
   // ช่องเฟรม "เริ่ม"/"สิ้นสุด" เป็น <div> เล็ก ~50x50 ข้อความตรงเป๊ะ (ไม่ใช่ปุ่ม → allClickable หาไม่เจอ)
