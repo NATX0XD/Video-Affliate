@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VDO Gen Auto Pilot — ดาวน์โหลดโปรแกรม</title>
+<meta name="description" content="โปรแกรมสร้างคลิปสั้นขายของ Shopee ด้วย AI (Google Flow) แล้วสั่งมือถือโพสต์ให้อัตโนมัติ ครบในโปรแกรมเดียว ดาวน์โหลดฟรีทั้ง macOS และ Windows" />
+<meta property="og:title" content="VDO Gen Auto Pilot" />
+<meta property="og:description" content="สร้างคลิปสั้น Shopee ด้วย AI แล้วโพสต์ผ่านมือถืออัตโนมัติ — ดาวน์โหลดฟรี" />
+<meta property="og:type" content="website" />
+<link rel="icon" href="assets/logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --base:#07070b; --base2:#0c0c12; --panel:#101018; --panel2:#16161f;
+    --border:#242430; --border2:#31313d;
+    --fg:#f6f6f9; --fg2:#c6c6d2; --muted:#8a8a98;
+    --accent:#b072f7; --accent2:#a855f7; --accent-deep:#8b3ff0;
+    --wash:rgba(168,85,247,.12); --ok:#35d39a; --win:#4fb8ff; --warn:#fbbf24;
+    --radius:18px; --maxw:1080px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:'Prompt',system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--base);color:var(--fg);
+    line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%;display:block}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .eyebrow{color:var(--accent);font-size:12.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+  h2{font-size:clamp(23px,3.6vw,34px);font-weight:800;letter-spacing:-.02em;margin:10px 0 14px;text-wrap:balance;line-height:1.2}
+  .lead{color:var(--fg2);font-size:clamp(15px,2vw,17px);max-width:620px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
+
+  /* ambient */
+  .glow{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .glow i{position:absolute;border-radius:50%;filter:blur(60px)}
+  .glow i:nth-child(1){top:-160px;left:50%;transform:translateX(-50%);width:900px;height:520px;background:radial-gradient(circle,rgba(168,85,247,.20),transparent 62%)}
+  .glow i:nth-child(2){bottom:-140px;right:-120px;width:560px;height:460px;background:radial-gradient(circle,rgba(79,184,255,.09),transparent 62%)}
+  main{position:relative;z-index:1}
+
+  /* nav */
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(9,9,14,.55);
+    backdrop-filter:blur(16px) saturate(1.5);-webkit-backdrop-filter:blur(16px) saturate(1.5);
+    border-bottom:1px solid var(--border)}
+  .topbar .nav{display:flex;align-items:center;justify-content:space-between;padding:12px 0}
+  .brand{display:flex;align-items:center}
+  .brandname{font-weight:700;font-size:15px;letter-spacing:-.01em;margin-left:11px;color:var(--fg)}
+  .logoplate{display:inline-flex;align-items:center;
+    filter:drop-shadow(0 0 1px rgba(255,255,255,.45)) drop-shadow(0 2px 6px rgba(0,0,0,.5))}
+  .logoplate img{height:26px;width:auto}
+  .nav-cta{font-size:14px;font-weight:600;color:var(--fg2);border:1px solid var(--border2);border-radius:10px;padding:8px 16px;transition:.2s;cursor:pointer}
+  .nav-cta:hover{border-color:var(--accent);color:var(--fg)}
+
+  /* hero */
+  .hero{text-align:center;padding:46px 0 8px}
+  .pill{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--fg2);
+    background:var(--wash);border:1px solid rgba(168,85,247,.28);padding:7px 15px;border-radius:100px;margin-bottom:26px}
+  .pill span{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .herologo{display:inline-flex;margin-bottom:26px;
+    filter:drop-shadow(0 0 1.5px rgba(255,255,255,.5)) drop-shadow(0 10px 26px rgba(0,0,0,.55))}
+  .herologo img{height:clamp(66px,11vw,108px);width:auto}
+  h1{font-size:clamp(29px,5.4vw,50px);font-weight:800;line-height:1.12;letter-spacing:-.025em;text-wrap:balance}
+  h1 .g{background:linear-gradient(115deg,#d9bcff,#a855f7 72%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero .lead{margin:20px auto 0}
+  .trust{display:flex;flex-wrap:wrap;gap:8px 22px;justify-content:center;margin-top:22px;color:var(--muted);font-size:13px}
+  .trust b{color:var(--fg2);font-weight:600}
+  .trust .c{display:inline-flex;align-items:center;gap:7px}
+  .trust svg{width:15px;height:15px;color:var(--ok)}
+
+  /* download row */
+  .dl{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:34px auto 0;max-width:760px}
+  .dcard{background:linear-gradient(180deg,var(--panel),var(--base2));border:1px solid var(--border);border-radius:var(--radius);
+    padding:22px;position:relative;overflow:hidden;transition:.25s}
+  .dcard.you{border-color:rgba(168,85,247,.55);box-shadow:0 0 0 1px rgba(168,85,247,.22),0 22px 60px -30px rgba(168,85,247,.55)}
+  .dhead{display:flex;align-items:center;gap:12px;margin-bottom:3px}
+  .dhead svg{width:27px;height:27px}
+  .dhead b{font-size:18px;font-weight:700}
+  .dcard .m{color:var(--muted);font-size:12.5px;margin:5px 0 17px;min-height:36px;line-height:1.5}
+  .youtag{position:absolute;top:14px;right:14px;font-size:10.5px;font-weight:700;color:var(--accent);background:var(--wash);
+    border:1px solid rgba(168,85,247,.3);padding:3px 10px;border-radius:100px;opacity:0;transition:.25s}
+  .dcard.you .youtag{opacity:1}
+  .btn{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;font-family:inherit;font-size:15px;font-weight:600;
+    color:#fff;cursor:pointer;padding:13px;border-radius:12px;border:0;transition:.2s;
+    background:linear-gradient(135deg,#bd83ff,var(--accent-deep));box-shadow:0 12px 30px -12px rgba(168,85,247,.75)}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 16px 36px -12px rgba(168,85,247,.9)}
+  .btn.ghost{background:var(--panel2);color:var(--fg);border:1px solid var(--border2);box-shadow:none}
+  .btn.ghost:hover{border-color:var(--accent)}
+  .btn svg{width:17px;height:17px}
+  .dcard .fn{display:block;text-align:center;color:var(--muted);font-size:11.5px;margin-top:11px;font-variant-numeric:tabular-nums}
+  .allver{text-align:center;color:var(--muted);font-size:13px;margin-top:16px}
+  .allver a{color:var(--fg2);border-bottom:1px dotted var(--border2)}
+
+  /* browser frame showcase */
+  .showcase{margin:52px auto 0;max-width:900px}
+  .frame{border:1px solid var(--border2);border-radius:16px;overflow:hidden;background:var(--panel);
+    box-shadow:0 40px 90px -40px rgba(0,0,0,.85),0 0 0 1px rgba(168,85,247,.06)}
+  .fbar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#0e0e15;border-bottom:1px solid var(--border)}
+  .fbar .d{width:11px;height:11px;border-radius:50%}
+  .fbar .d.r{background:#ff5f57}.fbar .d.y{background:#febc2e}.fbar .d.g{background:#28c840}
+  .fbar .u{margin-left:12px;flex:1;background:#181820;border:1px solid var(--border);border-radius:7px;
+    font-size:12px;color:var(--muted);padding:5px 12px;text-align:center;max-width:280px}
+  .frame img{width:100%;display:block}
+  .cap{text-align:center;color:var(--muted);font-size:13px;margin-top:16px}
+
+  /* section */
+  section{padding:60px 0}
+  .shead{text-align:center;max-width:640px;margin:0 auto 40px}
+  .shead .lead{margin:0 auto}
+
+  /* pipeline */
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;counter-reset:s}
+  .fstep{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:22px;position:relative}
+  .fstep .ic{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;background:var(--wash);margin-bottom:14px}
+  .fstep .ic svg{width:20px;height:20px;color:var(--accent);stroke-width:2}
+  .fstep h3{font-size:16px;font-weight:700;margin-bottom:7px;display:flex;align-items:center;gap:8px}
+  .fstep h3::before{counter-increment:s;content:counter(s);font-size:12px;font-weight:700;color:var(--accent);
+    background:var(--wash);width:22px;height:22px;border-radius:7px;display:grid;place-items:center;flex:0 0 auto}
+  .fstep p{color:var(--fg2);font-size:13.5px}
+
+  /* feature rows (real screenshots + copy) */
+  .feat{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center;margin:64px 0}
+  .feat:nth-child(even) .ftext{order:2}
+  .feat .fimg{border:1px solid var(--border2);border-radius:14px;overflow:hidden;background:var(--panel);
+    box-shadow:0 30px 70px -40px rgba(0,0,0,.8)}
+  .feat .fimg img{width:100%}
+  .feat h3{font-size:clamp(19px,2.6vw,24px);font-weight:700;letter-spacing:-.01em;margin-bottom:12px;text-wrap:balance}
+  .feat p{color:var(--fg2);font-size:15px;margin-bottom:14px}
+  .flist{list-style:none;display:flex;flex-direction:column;gap:10px}
+  .flist li{display:flex;gap:10px;align-items:flex-start;color:var(--fg2);font-size:14px}
+  .flist svg{width:18px;height:18px;color:var(--accent);flex:0 0 auto;margin-top:2px;stroke-width:2}
+
+  /* requirements */
+  .need{display:grid;grid-template-columns:repeat(2,1fr);gap:13px;max-width:820px;margin:0 auto}
+  .need div{display:flex;gap:13px;align-items:flex-start;background:var(--panel);border:1px solid var(--border);border-radius:13px;padding:17px 19px}
+  .need svg{width:20px;height:20px;color:var(--accent);flex:0 0 auto;margin-top:2px;stroke-width:2}
+  .need b{font-size:14.5px;font-weight:600;display:block}
+  .need span{color:var(--muted);font-size:12.5px}
+
+  /* note */
+  .note{max-width:820px;margin:0 auto;background:linear-gradient(180deg,rgba(251,191,36,.06),transparent);
+    border:1px solid rgba(251,191,36,.24);border-radius:var(--radius);padding:24px 26px}
+  .note h3{font-size:15.5px;font-weight:700;color:var(--warn);display:flex;align-items:center;gap:9px;margin-bottom:13px}
+  .note h3 svg{width:19px;height:19px;stroke-width:2}
+  .note ul{list-style:none;display:flex;flex-direction:column;gap:12px}
+  .note li{color:var(--fg2);font-size:14px;padding-left:20px;position:relative}
+  .note li::before{content:"";position:absolute;left:0;top:9px;width:6px;height:6px;border-radius:50%;background:var(--warn)}
+  .note b{color:var(--fg)}
+  .note code{background:var(--panel2);border:1px solid var(--border2);border-radius:6px;padding:1px 7px;font-size:12.5px;color:var(--fg)}
+
+  /* final cta */
+  .final{text-align:center;background:radial-gradient(ellipse at top,rgba(168,85,247,.14),transparent 62%);
+    border:1px solid var(--border);border-radius:24px;padding:52px 24px;max-width:900px;margin:0 auto}
+  .final h2{margin-bottom:10px}
+  .final .dl{margin-top:28px}
+
+  footer{border-top:1px solid var(--border);margin-top:20px;padding:30px 0 46px;text-align:center;color:var(--muted);font-size:12.5px}
+  footer .logoplate{margin-bottom:14px}
+  footer a{color:var(--fg2);border-bottom:1px dotted var(--border2)}
+
+  @media(max-width:760px){
+    .dl,.flow,.need{grid-template-columns:1fr}
+    .feat{grid-template-columns:1fr;gap:22px;margin:44px 0}
+    .feat:nth-child(even) .ftext{order:0}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="glow" aria-hidden="true"><i></i><i></i></div>
+<header class="topbar">
+  <div class="wrap nav">
+    <span class="brand">
+      <span class="logoplate"><img src="assets/logo.png" alt="VDO Gen Auto Pilot" /></span>
+      <span class="brandname">VDO Gen Auto Pilot</span>
+    </span>
+    <a class="nav-cta" href="#download">ดาวน์โหลด</a>
+  </div>
+</header>
+<main>
+  <div class="wrap">
+    <section class="hero">
+      <div class="herologo"><img src="assets/logo.png" alt="โลโก้ VDO Gen Auto Pilot" /></div>
+      <h1>สร้างคลิปสั้นขายของ Shopee<br><span class="g">แล้วสั่งมือถือโพสต์ให้อัตโนมัติ</span></h1>
+      <p class="lead">โปรแกรมเดียวครบวงจร: ดูดสินค้าจาก Shopee Affiliate ให้ AI (Google Flow) สร้างคลิป
+        แล้วสั่งมือถือ Android จริงโพสต์เอง ตั้งค่าครั้งเดียว วนทำได้ทุกวัน หรือเปิดโหมดอัตโนมัติทิ้งไว้</p>
+
+      <div class="dl" id="download">
+        <div class="dcard" id="card-mac">
+          <span class="youtag">เครื่องของคุณ</span>
+          <div class="dhead">
+            <svg viewBox="0 0 24 24" fill="#e8e8ee" aria-hidden="true"><path d="M16.4 12.9c0-2.3 1.9-3.4 2-3.4-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-1 2.8-2.1c.9-1.3 1.2-2.5 1.3-2.6-.1 0-2.5-1-2.5-3.8zM14.3 5.7c.6-.8 1-1.9.9-3-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.9 1 .1 2-.5 2.7-1.3z"/></svg>
+            <b>macOS</b>
+          </div>
+          <p class="m">รองรับ Apple Silicon และ Intel · ตัวติดตั้งลงในเครื่องผู้ใช้เอง ไม่ต้องใช้รหัสเครื่อง (admin)</p>
+          <a class="btn" id="dl-mac" href="#" aria-label="ดาวน์โหลดตัวติดตั้งสำหรับ macOS">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>
+            ดาวน์โหลดสำหรับ Mac
+          </a>
+          <span class="fn">VDO-Gen-AutoPilot-Installer-mac.dmg</span>
+        </div>
+
+        <div class="dcard" id="card-win">
+          <span class="youtag">เครื่องของคุณ</span>
+          <div class="dhead">
+            <svg viewBox="0 0 24 24" fill="#4fb8ff" aria-hidden="true"><path d="M3 5.6 10.4 4.6v7.1H3zM10.4 12.4v7.1L3 18.4v-6zM11.3 4.5 21 3.1v8.6h-9.7zM21 12.4V21l-9.7-1.4v-7.2z"/></svg>
+            <b>Windows</b>
+          </div>
+          <p class="m">รองรับ Windows 10 และ 11 · ติดตั้งลงในโฟลเดอร์ผู้ใช้ ไม่ต้องใช้สิทธิ์ผู้ดูแลเครื่อง</p>
+          <a class="btn ghost" id="dl-win" href="#" aria-label="ดาวน์โหลดตัวติดตั้งสำหรับ Windows">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>
+            ดาวน์โหลดสำหรับ Windows
+          </a>
+          <span class="fn">VDO-Gen-Setup.exe</span>
+        </div>
+      </div>
+      <p class="allver">หรือดู <a href="#" id="rel-link">ทุกเวอร์ชัน / ไฟล์ทั้งหมด</a> บน GitHub Releases</p>
+
+      <div class="trust">
+        <span class="c"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> <b>ฟรี</b> ไม่มีค่าใช้จ่าย</span>
+        <span class="c"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> ข้อมูล<b>เก็บในเครื่องคุณ</b></span>
+        <span class="c"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> ติดตั้ง<b>ไม่ต้องรหัสเครื่อง</b></span>
+      </div>
+    </section>
+
+    <!-- product showcase (real screenshot) -->
+    <div class="showcase">
+      <div class="frame">
+        <div class="fbar"><span class="d r"></span><span class="d y"></span><span class="d g"></span><span class="u">localhost:3001</span></div>
+        <img src="assets/shot-cockpit.png" alt="หน้าค็อกพิต — ภาพรวมระบบ จำนวนมือถือออนไลน์ คลิปรอโพสต์ เผยแพร่สำเร็จ และการ์ดแพลตฟอร์มปลายทาง" loading="lazy" />
+      </div>
+      <p class="cap">หน้า “ค็อกพิต” — เห็นสถานะทุกอย่างในจอเดียว: มือถือที่ต่ออยู่ คลิปในคิว ยอดโพสต์ และกราฟย้อนหลัง</p>
+    </div>
+  </div>
+
+  <!-- how it works -->
+  <section>
+    <div class="wrap">
+      <div class="shead">
+        <span class="eyebrow">ระบบทำงานยังไง</span>
+        <h2>วนซ้ำ 4 ขั้น จบในโปรแกรมเดียว</h2>
+        <p class="lead">ไม่ต้องสลับหลายเครื่องมือ ทุกขั้นเชื่อมกันในตัวเดียว — ทำครั้งแรกแล้วครั้งต่อไปแทบไม่ต้องแตะ</p>
+      </div>
+      <div class="flow">
+        <div class="fstep">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9m18 0-4-4-3 3-4-4-5 5m18 0H3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3>ดูดสินค้า</h3>
+          <p>เปิดหน้า Shopee Affiliate กดปุ่มจากส่วนเสริม Chrome ดึงชื่อ ราคา รูป และลิงก์เข้าคลังอัตโนมัติ</p>
+        </div>
+        <div class="fstep">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m13 2-3 7h5l-3 7M6 3v18M18 3v18" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <h3>สร้างคลิปด้วย AI</h3>
+          <p>เลือกสินค้า แล้วให้ Google Flow (Veo) สร้างคลิปสั้นให้ พร้อมแคปชันจาก AI — เลือกแนวและตัวละครได้</p>
+        </div>
+        <div class="fstep">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></div>
+          <h3>รีวิวก่อนโพสต์</h3>
+          <p>ดูคลิปที่ได้ในคลังก่อนปล่อย หรือจะตั้งให้โพสต์อัตโนมัติทันทีเมื่อสร้างเสร็จก็ได้</p>
+        </div>
+        <div class="fstep">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg></div>
+          <h3>มือถือโพสต์เอง</h3>
+          <p>ระบบสั่งมือถือ Android จริงผ่านสาย USB เปิดแอป พิมพ์แคปชัน แนบลิงก์ แล้วโพสต์ตามเวลาที่ตั้งไว้</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- features with real screenshots -->
+  <section style="padding-top:8px">
+    <div class="wrap">
+      <div class="shead">
+        <span class="eyebrow">ในโปรแกรมมีอะไร</span>
+        <h2>ออกแบบให้คนไม่เขียนโค้ดใช้ได้จริง</h2>
+      </div>
+
+      <div class="feat">
+        <div class="ftext">
+          <h3>หน้าตั้งค่าครั้งแรกแบบพาทำทีละขั้น</h3>
+          <p>เปิดโปรแกรมครั้งแรกจะมีตัวช่วยพาตั้งค่า 5 ขั้น ไม่ต้องเดาเอง กรอกทีละช่องจนพร้อมใช้</p>
+          <ul class="flist">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> ตั้งชื่อร้าน · ใส่คีย์ AI · เชื่อมมือถือ · เลือกแพลตฟอร์ม</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> มีปุ่มทดสอบว่าคีย์และมือถือใช้งานได้จริง</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> คำอธิบายภาษาไทยทุกขั้น ข้ามแล้วมาทำทีหลังได้</li>
+          </ul>
+        </div>
+        <div class="fimg"><img src="assets/shot-onboarding.png" alt="หน้าตั้งค่าครั้งแรก — ตัวช่วยพาทำทีละขั้น เริ่มจากตั้งชื่อร้าน" loading="lazy" /></div>
+      </div>
+
+      <div class="feat">
+        <div class="ftext">
+          <h3>ติดตั้งส่วนเสริม Chrome แบบมีคนพาทำ</h3>
+          <p>ส่วนเสริมคือตัวดูดสินค้าและขับ Google Flow — โปรแกรมพาติดตั้งทีละขั้น กดปุ่มเดียวเปิดหน้าตั้งค่าให้ แล้วตรวจจับให้เองว่าติดตั้งสำเร็จ</p>
+          <ul class="flist">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> กดปุ่มเปิดหน้าส่วนขยาย + เผยโฟลเดอร์ให้ลากวาง</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> คัดลอกที่อยู่โฟลเดอร์ให้ในคลิกเดียว</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> ตรวจจับอัตโนมัติเมื่อเชื่อมต่อสำเร็จ</li>
+          </ul>
+        </div>
+        <div class="fimg"><img src="assets/shot-ext.png" alt="ขั้นตอนติดตั้งส่วนเสริมเบราว์เซอร์ — พาทำทีละขั้นพร้อมปุ่มลัดและการตรวจจับอัตโนมัติ" loading="lazy" /></div>
+      </div>
+
+      <div class="feat">
+        <div class="ftext">
+          <h3>คลังคลิปและสินค้ารวมที่เดียว</h3>
+          <p>สินค้าที่ดูดมาและคลิปที่สร้างแล้วอยู่ในคลังเดียว เลือกดู เลือกโพสต์ หรือจัดการเป็นชุดได้</p>
+          <ul class="flist">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> ดูสถานะแต่ละคลิป: รอสร้าง / เสร็จ / โพสต์แล้ว</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> เปิด “จอสด” ดูมือถือทำงานจริงตอนโพสต์</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg> โหมดอัตโนมัติ: วนโพสต์เอง พักเครื่องเองเมื่อร้อน/แบตต่ำ</li>
+          </ul>
+        </div>
+        <div class="fimg"><img src="assets/shot-library.png" alt="หน้าคลังคลิป — รวมสินค้าที่ดูดมาและคลิปที่สร้างแล้ว" loading="lazy" /></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- requirements -->
+  <section style="padding-top:8px">
+    <div class="wrap">
+      <div class="shead">
+        <span class="eyebrow">ก่อนเริ่ม</span>
+        <h2>ต้องเตรียมอะไรบ้าง</h2>
+      </div>
+      <div class="need">
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20v-8M6 18a6 6 0 0 1 6-6 6 6 0 0 1 6 6M2 12a10 10 0 0 1 20 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>อินเทอร์เน็ต</b><span>ตอนติดตั้ง (โหลดโค้ด + เครื่องมือ) และตอนสร้างคลิป</span></span></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2" stroke-linecap="round"/></svg><span><b>มือถือ Android + สาย USB</b><span>เปิด USB debugging และลงแอป ADBKeyboard (พิมพ์ไทย)</span></span></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/></svg><span><b>บัญชี Google</b><span>ใช้เข้า Google Flow เพื่อให้ AI สร้างคลิป</span></span></div>
+        <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg><span><b>Google Chrome</b><span>สำหรับส่วนเสริม (ดูดสินค้า + ขับ Flow)</span></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- note -->
+  <section style="padding-top:8px">
+    <div class="wrap">
+      <div class="note">
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke-linecap="round" stroke-linejoin="round"/></svg> การเปิดครั้งแรก (ตัวติดตั้งยังไม่ได้เซ็นใบรับรอง — เป็นเรื่องปกติของเครื่องมือภายใน)</h3>
+        <ul>
+          <li><b>macOS:</b> คลิกขวาที่ไฟล์ &gt; <b>Open</b> &gt; <b>Open</b> · ถ้าเป็น macOS 15 (Sequoia) ขึ้นไปแล้วไม่มีปุ่ม ให้ไปที่ <code>System Settings &gt; Privacy &amp; Security</code> เลื่อนลงล่างสุด แล้วกด <b>Open Anyway</b></li>
+          <li><b>Windows:</b> ถ้าขึ้นจอฟ้า SmartScreen กด <b>More info</b> &gt; <b>Run anyway</b></li>
+          <li>ตัวติดตั้ง <b>ไม่แตะระบบ</b> ลงในโฟลเดอร์ผู้ใช้เอง และถอนออกแล้ว <b>ไม่ลบข้อมูล</b>ของคุณ (เก็บแยกไว้ต่างหาก)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- final cta -->
+  <section>
+    <div class="wrap">
+      <div class="final">
+        <span class="eyebrow">พร้อมเริ่ม</span>
+        <h2>โหลดแล้วตั้งค่าครั้งเดียว ใช้ได้ทุกวัน</h2>
+        <p class="lead" style="margin:0 auto">เลือกตัวติดตั้งให้ตรงกับเครื่องของคุณ ระบบลงทุกอย่างให้เอง แล้วเปิดใช้ได้ทันที</p>
+        <div class="dl">
+          <div class="dcard"><div class="dhead"><svg viewBox="0 0 24 24" fill="#e8e8ee" aria-hidden="true"><path d="M16.4 12.9c0-2.3 1.9-3.4 2-3.4-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-1 2.8-2.1c.9-1.3 1.2-2.5 1.3-2.6-.1 0-2.5-1-2.5-3.8zM14.3 5.7c.6-.8 1-1.9.9-3-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.9 1 .1 2-.5 2.7-1.3z"/></svg><b>macOS</b></div>
+            <a class="btn" id="dl-mac2" href="#">ดาวน์โหลดสำหรับ Mac</a><span class="fn">.dmg · ไม่ต้องรหัสเครื่อง</span></div>
+          <div class="dcard"><div class="dhead"><svg viewBox="0 0 24 24" fill="#4fb8ff" aria-hidden="true"><path d="M3 5.6 10.4 4.6v7.1H3zM10.4 12.4v7.1L3 18.4v-6zM11.3 4.5 21 3.1v8.6h-9.7zM21 12.4V21l-9.7-1.4v-7.2z"/></svg><b>Windows</b></div>
+            <a class="btn ghost" id="dl-win2" href="#">ดาวน์โหลดสำหรับ Windows</a><span class="fn">.exe · Windows 10 / 11</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <span class="logoplate"><img src="assets/logo.png" alt="VDO Gen Auto Pilot" /></span>
+      <p>โปรแกรมสร้างคลิป Shopee ด้วย AI แล้วโพสต์ผ่านมือถืออัตโนมัติ</p>
+      <p style="margin-top:6px"><a href="https://github.com/NATX0XD/Video-Affliate" id="repo-link">ซอร์สโค้ดและคู่มือบน GitHub</a></p>
+    </div>
+  </footer>
+</main>
+
+<script>
+  var BASE="https://github.com/NATX0XD/Video-Affliate";
+  var L=BASE+"/releases/latest/download/";
+  var mac=L+"VDO-Gen-AutoPilot-Installer-mac.dmg", win=L+"VDO-Gen-Setup.exe";
+  ["dl-mac","dl-mac2"].forEach(function(id){var e=document.getElementById(id);if(e)e.href=mac});
+  ["dl-win","dl-win2"].forEach(function(id){var e=document.getElementById(id);if(e)e.href=win});
+  document.getElementById("rel-link").href=BASE+"/releases";
+  document.getElementById("repo-link").href=BASE;
+  var ua=(navigator.userAgent||"")+" "+(navigator.platform||"");
+  var isWin=/Win/i.test(ua), isMac=/Mac/i.test(ua)&&!/iPhone|iPad/i.test(ua);
+  if(isMac){document.getElementById("card-mac").classList.add("you");}
+  else if(isWin){document.getElementById("card-win").classList.add("you");
+    document.getElementById("dl-mac").classList.add("ghost");
+    document.getElementById("dl-win").classList.remove("ghost");}
+</script>
+</body>
+</html>

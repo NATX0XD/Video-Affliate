@@ -11,7 +11,7 @@
 #  ข้อมูลผู้ใช้ (~/.vgap) อยู่นอก APP_DIR → รันซ้ำ = อัปเดตทับได้ ไม่ลบข้อมูล
 # ============================================================
 set -o pipefail
-printf '\033]0;VGAP-INSTALLER\007'   # ตั้งชื่อหน้าต่าง → ปิดให้ตรงตัวตอนจบ (กันปิดผิดหน้าต่าง)
+# หมายเหตุ: ชื่อ/การปิดหน้าต่างติดตั้ง จัดการด้วย window id + custom title จาก installer (แม่นกว่า OSC title)
 
 # ---- สี/ตัวช่วยข้อความ ----
 say(){  printf "\n\033[1;36m== %s ==\033[0m\n" "$1"; }
@@ -86,18 +86,21 @@ LAUNCH
 
 # ปิด Terminal + eject/ลบตัวติดตั้ง (.dmg) ให้เอง — ทำ detached หลัง bash จบ
 self_cleanup(){
-  local boot="$1" vol="" dmg=""
+  local boot="$1" vol="" dmg="" wid=""
+  wid=$(cat /tmp/vgap_win_id 2>/dev/null)
   if [[ "$boot" == /Volumes/* ]]; then
     vol="/Volumes/$(printf '%s' "$boot" | cut -d/ -f3)"
     dmg=$(hdiutil info 2>/dev/null | awk -v v="$vol" '/image-path[ \t]*:/{sub(/^.*image-path[ \t]*:[ \t]*/,"");ip=$0} index($0,v){print ip; exit}')
   fi
+  # ปิดหน้าต่างติดตั้งด้วย window id จริง (คงอยู่แม้ process จบ) + สำรองด้วย custom title
   nohup bash -c "
     sleep 4
     [ -n \"$vol\" ] && hdiutil detach \"$vol\" -force >/dev/null 2>&1
     [ -n \"$dmg\" ] && rm -f \"$dmg\"
-    osascript -e 'tell application \"Terminal\" to close (every window whose name contains \"VGAP-INSTALLER\") saving no' >/dev/null 2>&1
+    osascript -e 'tell application \"Terminal\"' -e 'try' -e 'close (every window whose id is $wid) saving no' -e 'end try' -e 'try' -e 'close (every window whose custom title is \"VGAP-INSTALLER\") saving no' -e 'end try' -e 'end tell' >/dev/null 2>&1
     sleep 1
     open \"$HOME/Applications/$LAUNCHER_NAME.app\" >/dev/null 2>&1
+    rm -f /tmp/vgap_win_id
   " >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
