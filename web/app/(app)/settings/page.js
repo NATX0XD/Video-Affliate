@@ -238,7 +238,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Save bar */}
-      <div className="shrink-0 border-t border-border bg-card/80 backdrop-blur-xl">
+      <div className="shrink-0 border-t border-border bg-card">
         <div className="px-4 sm:px-6 lg:px-10 py-3.5 flex items-center gap-3">
           <button onClick={save}
             className={`flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold text-white transition-all active:scale-[.98]

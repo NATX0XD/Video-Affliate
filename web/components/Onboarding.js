@@ -300,7 +300,9 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
 
   return (
     <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-base p-4 overflow-y-auto">
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full bg-accent/10 blur-[120px] pointer-events-none" />
+      {/* glow: radial-gradient แทน blur-[120px] (ไม่ใช้ GPU filter = ไม่กระตุก) */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] h-[500px] pointer-events-none"
+        style={{ background: 'radial-gradient(closest-side, rgba(168,85,247,0.12), transparent 70%)' }} />
 
       <div className="relative w-full max-w-[520px] my-6 animate-scale-in">
         {/* Brand */}
