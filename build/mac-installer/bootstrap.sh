@@ -65,11 +65,10 @@ if ! /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1; then
   nohup $ARCHP "$PY" main.py >"$HOME/.vgap/server.log" 2>&1 &
   for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.5; done
 fi
-CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-# เปิดเป็นหน้าต่าง Chrome ปกติ (ไม่ใช่ --app/PWA) ในโปรไฟล์หลักของผู้ใช้
-# --app/PWA ไม่ถูก Chrome throttle ตอน background → ทำแท็บอื่นแล็ค
-# หน้าต่างปกติถูก freeze ตอนสลับไปแท็บอื่น → แท็บอื่นลื่น (ผู้ใช้ยืนยัน)
-if [ -x "$CHROME" ]; then "$CHROME" --new-window "$URL" >/dev/null 2>&1 &
+# เปิดเป็น "แท็บ" ในหน้าต่าง Chrome เดิม (ไม่ใช่ --app / ไม่ใช่ --new-window)
+# background TAB → Chrome throttle (document.hidden) = ไม่แล็ค · background WINDOW → ยัง visible = แล็ค
+# open -a "Google Chrome" URL = เปิดแท็บใหม่ในหน้าต่างที่รันอยู่
+if [ -d "/Applications/Google Chrome.app" ]; then open -a "Google Chrome" "$URL" >/dev/null 2>&1
 else open "$URL" >/dev/null 2>&1; fi
 LAUNCH
   } > "$dest/Contents/MacOS/launch"
