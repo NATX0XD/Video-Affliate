@@ -13,7 +13,11 @@ osascript >/dev/null 2>/tmp/vgap_installer.err <<OSA
 tell application "Terminal"
   activate
   do script "/bin/bash " & quoted form of "$BOOT"
+  delay 0.3
+  set custom title of front window to "VGAP-INSTALLER"
+  set wid to id of front window
 end tell
+do shell script "echo " & wid & " > /tmp/vgap_win_id"
 OSA
 if [ $? -ne 0 ]; then
   osascript -e 'display dialog "เปิดตัวติดตั้งไม่สำเร็จ — ต้องอนุญาตให้ควบคุม Terminal ก่อน. ไปที่ System Settings > Privacy & Security > Automation แล้วเปิดสิทธิ์ให้ \"Install VDO Gen Auto Pilot\" ควบคุม Terminal จากนั้นเปิดแอปนี้ใหม่ (หรือคลิกขวาที่แอป แล้วเลือก Open)" buttons {"OK"} default button 1 with icon caution with title "Install VDO Gen Auto Pilot"' >/dev/null 2>&1
