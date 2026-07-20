@@ -432,7 +432,12 @@ function StepKey({ apiKey, setApiKey, keySet, keyOk, keyTesting, onTest, flowEma
                onChange={e => setApiKey(e.target.value)} />
       </FormField>
 
-      <div className="flex items-center gap-2.5 mt-1">
+      <div className="flex items-center gap-2.5 mt-1 flex-wrap">
+        <Button variant="outline" size="sm" asChild>
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+            <ExternalLink size={14} /> ขอคีย์ฟรี (Google AI Studio)
+          </a>
+        </Button>
         <Button variant="outline" size="sm" onClick={onTest}
                 disabled={keyTesting || (!apiKey.trim() && !keySet)}>
           {keyTesting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
