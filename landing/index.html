@@ -159,6 +159,16 @@
   footer .logoplate{margin-bottom:14px}
   footer a{color:var(--fg2);border-bottom:1px dotted var(--border2)}
 
+  #firstopen .opensteps{display:grid;grid-template-columns:320px 1fr;gap:38px;align-items:center;max-width:900px;margin:0 auto}
+  .osimg{border:1px solid var(--border2);border-radius:16px;overflow:hidden;background:#0f0f16;box-shadow:0 30px 70px -40px rgba(0,0,0,.85)}
+  .osimg img{width:100%;display:block}
+  .oslist{list-style:none;counter-reset:o;display:flex;flex-direction:column;gap:17px}
+  .oslist li{position:relative;padding-left:42px;color:var(--fg2);font-size:15px;line-height:1.6}
+  .oslist li::before{counter-increment:o;content:counter(o);position:absolute;left:0;top:1px;width:28px;height:28px;border-radius:9px;
+    background:var(--wash);color:var(--accent);font-weight:700;font-size:14px;display:grid;place-items:center}
+  .oslist b{color:var(--fg)}
+  .mockbtn{display:inline-block;background:#2f6fed;color:#fff;font-size:13px;font-weight:600;padding:3px 12px;border-radius:7px;vertical-align:middle}
+  @media(max-width:760px){#firstopen .opensteps{grid-template-columns:1fr}}
   @media(max-width:760px){
     .dl,.flow,.need{grid-template-columns:1fr}
     .feat{grid-template-columns:1fr;gap:22px;margin:44px 0}
@@ -332,15 +342,28 @@
     </div>
   </section>
 
-  <!-- note -->
-  <section style="padding-top:8px">
+  <!-- first open guide -->
+  <section id="firstopen" style="padding-top:8px">
     <div class="wrap">
-      <div class="note">
-        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke-linecap="round" stroke-linejoin="round"/></svg> การเปิดครั้งแรก (ตัวติดตั้งยังไม่ได้เซ็นใบรับรอง — เป็นเรื่องปกติของเครื่องมือภายใน)</h3>
+      <div class="shead">
+        <span class="eyebrow">เปิดครั้งแรก</span>
+        <h2>เปิดบน Mac ครั้งแรก — ทำครั้งเดียว</h2>
+        <p class="lead">แอปยังไม่ได้ซื้อใบรับรอง (unsigned) macOS จะเตือน 1 ครั้ง เป็นเรื่องปกติของเครื่องมือภายใน — ทำ 4 ขั้นนี้ แล้วครั้งต่อไปดับเบิลคลิกเปิดได้เลย</p>
+      </div>
+      <div class="opensteps">
+        <div class="osimg"><img src="assets/gatekeeper.png" alt="กล่องเตือนของ macOS: Apple could not verify Install VDO Gen Auto Pilot" loading="lazy" /></div>
+        <ol class="oslist">
+          <li>ถ้าเจอกล่องเตือนนี้ (ตามรูป) → กด <b>Done</b> ก่อน (อย่าลบไฟล์)</li>
+          <li>เปิด <b>เมนู Apple  &gt; System Settings &gt; Privacy &amp; Security</b></li>
+          <li>เลื่อนลงล่างสุด จะเห็นข้อความ “Install VDO Gen Auto Pilot ถูกบล็อก” → กดปุ่ม <span class="mockbtn">Open Anyway</span></li>
+          <li>ยืนยันด้วย <b>Touch ID</b> หรือ <b>รหัสเครื่อง</b> → แอปเปิดและเริ่มติดตั้ง (ครั้งต่อไปเปิดได้เลย ไม่ต้องทำซ้ำ)</li>
+        </ol>
+      </div>
+      <div class="note" style="margin-top:30px">
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" stroke-linecap="round" stroke-linejoin="round"/></svg> หมายเหตุ</h3>
         <ul>
-          <li><b>macOS:</b> คลิกขวาที่ไฟล์ &gt; <b>Open</b> &gt; <b>Open</b> · ถ้าเป็น macOS 15 (Sequoia) ขึ้นไปแล้วไม่มีปุ่ม ให้ไปที่ <code>System Settings &gt; Privacy &amp; Security</code> เลื่อนลงล่างสุด แล้วกด <b>Open Anyway</b></li>
-          <li><b>Windows:</b> ถ้าขึ้นจอฟ้า SmartScreen กด <b>More info</b> &gt; <b>Run anyway</b></li>
-          <li>ตัวติดตั้ง <b>ไม่แตะระบบ</b> ลงในโฟลเดอร์ผู้ใช้เอง และถอนออกแล้ว <b>ไม่ลบข้อมูล</b>ของคุณ (เก็บแยกไว้ต่างหาก)</li>
+          <li><b>Windows:</b> ถ้าขึ้นจอฟ้า SmartScreen ตอนเปิด ให้กด <b>More info</b> &gt; <b>Run anyway</b></li>
+          <li>ตัวติดตั้ง <b>ไม่แตะระบบ</b> ลงในโฟลเดอร์ผู้ใช้เอง และถอนออกแล้ว <b>ไม่ลบข้อมูล</b>ของคุณ (เก็บแยกต่างหาก)</li>
         </ul>
       </div>
     </div>
