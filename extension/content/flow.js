@@ -1521,14 +1521,17 @@ if (window._flowAutomatorLoaded) {
   // สลับโหมดสร้าง + ★ยืนยันจากปุ่มโหมดจริง★ retry 3 รอบ (กัน setMode หลุด → สร้างผิดโหมด/เสียเครดิต)
   // typeLabel = รูปภาพ/วิดีโอ · subLabel = เฟรม/ส่วนผสม · countLabel = 1x/x2… (ออปชั่น)
   // ช่องเฟรม "เริ่ม"/"สิ้นสุด" เป็น <div> เล็ก ~50x50 ข้อความตรงเป๊ะ (ไม่ใช่ปุ่ม → allClickable หาไม่เจอ)
+  // Flow UI ใหม่ช่องเฟรมเป็นอังกฤษ "Start"/"End" — map ไทย↔อังกฤษ
+  const FRAME_ALT = { "เริ่ม": ["เริ่ม", "start"], "สิ้นสุด": ["สิ้นสุด", "end"] };
   function findFrameSlot(label) {
     const want = norm(label);
+    const wants = FRAME_ALT[want] || [want];
     return [...document.querySelectorAll('div,span,button,[role="button"]')]
       .filter(isVisible)
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 130 && r.height > 8 && r.height <= 130; })
-      .find((el) => norm(el.innerText || el.textContent) === want) || null;
+      .find((el) => wants.includes(norm(el.innerText || el.textContent))) || null;
   }
-  // โหมด "เฟรม" พร้อม = มีช่องสลอต "เริ่ม" โผล่ที่แถบ prompt
+  // โหมด "เฟรม" พร้อม = มีช่องสลอต "เริ่ม/Start" โผล่ที่แถบ prompt
   const framesSubReady = () => !!findFrameSlot("เริ่ม");
   async function setMode(typeLabel, subLabel, countLabel, log) {
     const L = (m) => { try { log && log(m); } catch {} };
