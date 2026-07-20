@@ -1567,6 +1567,19 @@ class WebServer:
 
     def start(self):
         self._started_at = time.time()
+        # กันพอร์ตชน: ถ้าพอร์ตที่ตั้งไว้ (3001) ไม่ว่าง → เลือกพอร์ตว่างถัดไป
+        # หน้าเว็บใช้ origin ตัวเอง (window.location) จึงตามพอร์ตใหม่ได้เอง
+        import socket as _sk
+        _pref = self.port
+        for _cand in [_pref] + list(range(_pref + 1, _pref + 21)):
+            _s = _sk.socket(_sk.AF_INET, _sk.SOCK_STREAM)
+            try:
+                _s.bind(("127.0.0.1", _cand)); _s.close()
+                self.port = _cand; break
+            except OSError:
+                _s.close(); continue
+        if self.port != _pref:
+            self.log(f"[WEB] พอร์ต {_pref} ไม่ว่าง → ใช้พอร์ต {self.port} แทน")
 
         async def _run():
             self._loop = asyncio.get_running_loop()

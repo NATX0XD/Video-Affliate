@@ -3,7 +3,8 @@ import { useState, useEffect } from 'react'
 import { Play, Square, Maximize2, Smartphone } from 'lucide-react'
 import { api } from '@/lib/api'
 
-const BASE    = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const BASE    = process.env.NEXT_PUBLIC_API_URL
+  || (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost:3001')
 const CELL_MS = 1000  // 1 fps for grid thumbnails
 
 export function MirrorCell({ idx, device, onFullscreen }) {

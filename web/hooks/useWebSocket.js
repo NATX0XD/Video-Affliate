@@ -1,7 +1,15 @@
 'use client'
 import { useEffect, useRef, useCallback } from 'react'
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001/ws'
+// WS ตาม origin ของหน้าเว็บ (พอร์ตเดียวกับ server ที่เสิร์ฟหน้านี้) — กันพอร์ตชน
+function wsUrl() {
+  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL
+  if (typeof window !== 'undefined' && window.location) {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${window.location.host}/ws`
+  }
+  return 'ws://localhost:3001/ws'
+}
 
 export function useWebSocket(onMessage) {
   const wsRef      = useRef(null)
@@ -12,7 +20,7 @@ export function useWebSocket(onMessage) {
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
-    const ws = new WebSocket(WS_URL)
+    const ws = new WebSocket(wsUrl())
     wsRef.current = ws
 
     ws.onopen = () => {
