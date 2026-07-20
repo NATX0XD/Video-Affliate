@@ -575,12 +575,10 @@ if (window._flowAutomatorLoaded) {
       }
       log("ไม่เจอช่องแชต/ปุ่มเริ่ม — เปิด project ใน Flow ของบัญชีนี้เองสักครั้ง (ระบบจะจำไว้ให้)");
     }
-    // i2v: ปิดโหมด Agent + แผง session ผู้ช่วยให้ (Flow UI ใหม่ Agent เปิด default —
-    // i2v ต้องส่งพรอมป์เข้าโหมดวิดีโอตรง). ครั้งแรก Flow จำค่าไว้ → รอบหลังไม่ต้องทำอีก
-    try {
-      const _eng = ((await chrome.storage.local.get("flow_gen")).flow_gen || {}).engine;
-      if (_eng === "i2v") await ensureAgentOff(log);
-    } catch {}
+    // NOTE: เคยเรียก ensureAgentOff() ตรงนี้สำหรับ i2v แต่มันแทรกก่อนสร้าง → รบกวน flow
+    // ที่ Mewwi ทำได้ปกติ (คลิกปิด panel/Agent ผิด). ถอดออก → Flow-control เท่า Mewwi เป๊ะ
+    // ถ้า Flow UI ต้องปิด Agent จริง ให้ผู้ใช้ปิดเอง 1 ครั้ง (Flow จำค่าไว้) หรือแก้ผ่าน adapter
+    // (ensureAgentOff ยังนิยามไว้ด้านล่าง เผื่ออนาคต แต่ไม่ถูกเรียกในตอนนี้)
     return true;
   }
 
