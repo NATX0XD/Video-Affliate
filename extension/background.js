@@ -862,60 +862,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // จาก Side Panel/Dashboard: คิวสินค้าอยู่ที่ extension เอง → เก็บลง storage → เปิดแท็บ Flow → รันสร้างคลิป
+  // จาก Side Panel/Dashboard/คิวเว็บแอปหลัก: เก็บ work-list → เปิดแท็บ Flow → รันสร้างคลิป
   if (msg.action === 'flow_start') {
-    (async () => {
-      if (msg.products && msg.products.length) {
-        await chrome.storage.local.set({ flow_jobs: msg.products });   // work-list ของ extension
-      }
-      // ตัวเลือกจาก modal: ตัวละคร + สไตล์ → เก็บไว้ให้ buildFlowPrompt/flow.js ใช้
-      // (resume คิวค้างจะไม่ส่ง gen มา → ใช้ค่าที่เก็บไว้รอบก่อน)
-      if (msg.gen && msg.gen.charId) {
-        const meta = CHAR_META[msg.gen.charId] || null;
-        const gen = {
-          style: msg.gen.style || 'selfie',
-          len: Math.max(1, Math.min(3, msg.gen.len || 1)),   // จำนวนคลิป 8 วิ ที่ต่อกัน
-          charId: msg.gen.charId,
-          charName: msg.gen.charName || (meta ? meta.name : ''),
-          charDesc: msg.gen.charId === 'self' ? (msg.gen.charDesc || '') : (meta ? meta.desc : msg.gen.charDesc || ''),
-          audName: msg.gen.audName || '', audHint: msg.gen.audHint || '',
-          bgName: msg.gen.bgName || '', bgPrompt: msg.gen.bgPrompt || '',
-          // creative cockpit: บรรยากาศ/โหมดเสียง/น้ำเสียง/ภาษา/เพลง → ป้อนเข้า geminiFlowPrompt เขียน prompt
-          moodName: msg.gen.moodName || '', moodPrompt: msg.gen.moodPrompt || '',
-          sound: msg.gen.sound || 'voice',
-          voiceName: msg.gen.voiceName || '', voicePrompt: msg.gen.voicePrompt || '',
-          langName: msg.gen.langName || '', langPrompt: msg.gen.langPrompt || '',
-          musicName: msg.gen.musicName || '', musicPrompt: msg.gen.musicPrompt || '',
-          engine: msg.gen.engine === 'i2v' ? 'i2v' : 'agent',   // i2v = nano banana → frames-to-video (หน้าเป๊ะ) · agent = runGenerate เดิม
-        };
-        // รูปอ้างอิง: ใช้ snapshot จากพรีวิว 3D (มุมที่ผู้ใช้หมุนไว้) ก่อนเสมอ
-        let img = msg.gen.snapshot || null;
-        try {
-          if (img) {
-            // ใช้ snapshot ที่ส่งมา
-          } else if (msg.gen.charId === 'self') {
-            // รูปจริงของผู้ใช้จาก engine_profile (modal/wizard เซฟไว้)
-            const p = await chrome.storage.local.get('engine_profile');
-            img = (((p.engine_profile || {}).presenter || {}).photos || [])[0] || null;
-          } else {
-            // avatar ตัวละคร → dataURL (flow.js เอาไปอัปเป็นรูปอ้างอิงใน Flow)
-            const blob = await fetch(chrome.runtime.getURL(`avatars/${msg.gen.charId}.png`)).then((r) => r.blob());
-            img = await new Promise((res) => {
-              const fr = new FileReader();
-              fr.onload = () => res(String(fr.result));
-              fr.onerror = () => res(null);
-              fr.readAsDataURL(blob);
-            });
-          }
-        } catch {}
-        await chrome.storage.local.set({ flow_gen: gen, flow_char_img: img });
-      }
-      _flowCfg = null;   // โหลด config สดสำหรับรอบนี้ (เผื่อผู้ใช้เพิ่งแก้ settings)
-      geminiBlocked = null;   // เริ่มรอบใหม่ → ลองเรียก Gemini อีกครั้ง (เผื่อเพิ่งเติมเครดิต)
-      try { await chrome.storage.local.remove('gemini_blocked'); } catch {}
-      const r = await openFlowAndRun(!!msg.dry);
-      sendResponse(r);
-    })();
+    handleFlowStart(msg).then(sendResponse);
     return true;
   }
 
@@ -1045,3 +994,84 @@ async function trustedEnter(tabId, ctrl) {
 // เก็บกวาดเมื่อแท็บปิด
 chrome.tabs.onRemoved.addListener((tabId) => _attached.delete(tabId));
 chrome.debugger.onDetach && chrome.debugger.onDetach.addListener((src) => { if (src.tabId) _attached.delete(src.tabId); });
+
+// ── flow_start (ใช้ร่วมกันระหว่าง onMessage และ poller คิวจากเว็บแอปหลัก) ────────────
+// เก็บ work-list + gen ลง storage → เปิดแท็บ Flow → รันสร้างคลิป (logic เดิม ไม่เปลี่ยน)
+async function handleFlowStart(msg) {
+  if (msg.products && msg.products.length) {
+    await chrome.storage.local.set({ flow_jobs: msg.products });   // work-list ของ extension
+  }
+  // ตัวเลือกจาก modal/wizard: ตัวละคร + สไตล์ → เก็บไว้ให้ buildFlowPrompt/flow.js ใช้
+  // (resume คิวค้างจะไม่ส่ง gen มา → ใช้ค่าที่เก็บไว้รอบก่อน)
+  if (msg.gen && msg.gen.charId) {
+    const meta = CHAR_META[msg.gen.charId] || null;
+    const gen = {
+      style: msg.gen.style || 'selfie',
+      len: Math.max(1, Math.min(3, msg.gen.len || 1)),   // จำนวนคลิป 8 วิ ที่ต่อกัน
+      charId: msg.gen.charId,
+      charName: msg.gen.charName || (meta ? meta.name : ''),
+      charDesc: msg.gen.charId === 'self' ? (msg.gen.charDesc || '') : (meta ? meta.desc : msg.gen.charDesc || ''),
+      audName: msg.gen.audName || '', audHint: msg.gen.audHint || '',
+      bgName: msg.gen.bgName || '', bgPrompt: msg.gen.bgPrompt || '',
+      // creative cockpit: บรรยากาศ/โหมดเสียง/น้ำเสียง/ภาษา/เพลง → ป้อนเข้า geminiFlowPrompt เขียน prompt
+      moodName: msg.gen.moodName || '', moodPrompt: msg.gen.moodPrompt || '',
+      sound: msg.gen.sound || 'voice',
+      voiceName: msg.gen.voiceName || '', voicePrompt: msg.gen.voicePrompt || '',
+      langName: msg.gen.langName || '', langPrompt: msg.gen.langPrompt || '',
+      musicName: msg.gen.musicName || '', musicPrompt: msg.gen.musicPrompt || '',
+      engine: msg.gen.engine === 'i2v' ? 'i2v' : 'agent',   // i2v = nano banana → frames-to-video (หน้าเป๊ะ) · agent = runGenerate เดิม
+    };
+    // รูปอ้างอิง: ใช้ snapshot จากพรีวิว 3D (มุมที่ผู้ใช้หมุนไว้) ก่อนเสมอ
+    let img = msg.gen.snapshot || null;
+    try {
+      if (img) {
+        // ใช้ snapshot ที่ส่งมา
+      } else if (msg.gen.charId === 'self') {
+        // รูปจริงของผู้ใช้จาก engine_profile (modal/wizard เซฟไว้)
+        const p = await chrome.storage.local.get('engine_profile');
+        img = (((p.engine_profile || {}).presenter || {}).photos || [])[0] || null;
+      } else {
+        // avatar ตัวละคร → dataURL (flow.js เอาไปอัปเป็นรูปอ้างอิงใน Flow)
+        const blob = await fetch(chrome.runtime.getURL(`avatars/${msg.gen.charId}.png`)).then((r) => r.blob());
+        img = await new Promise((res) => {
+          const fr = new FileReader();
+          fr.onload = () => res(String(fr.result));
+          fr.onerror = () => res(null);
+          fr.readAsDataURL(blob);
+        });
+      }
+    } catch {}
+    await chrome.storage.local.set({ flow_gen: gen, flow_char_img: img });
+  }
+  _flowCfg = null;   // โหลด config สดสำหรับรอบนี้ (เผื่อผู้ใช้เพิ่งแก้ settings)
+  geminiBlocked = null;   // เริ่มรอบใหม่ → ลองเรียก Gemini อีกครั้ง (เผื่อเพิ่งเติมเครดิต)
+  try { await chrome.storage.local.remove('gemini_blocked'); } catch {}
+  return await openFlowAndRun(!!msg.dry);
+}
+
+// ── Queue poller ────────────────────────────────────────────────────────────────
+// เว็บแอปหลัก (หน้า คลังสินค้า) กด "สร้างคลิป" → POST /api/queue/push {payload:{type:'flow_start',...}}
+// extension claim คิวมาแล้วเรียก handleFlowStart เดิม (additive — ไม่แตะ flow/credit logic)
+// กันชนกันเอง: _qBusy = กำลังรัน batch อยู่ → ไม่ claim งานใหม่จนกว่าจะเสร็จ
+let _qBusy = false;
+async function pollQueue() {
+  if (_qBusy) return;
+  let item = null;
+  try {
+    const base = await apiBase();
+    const r = await fetch(`${base}/api/queue/claim`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worker: 'ext' }), signal: AbortSignal.timeout(5000),
+    }).then((x) => x.json());
+    item = r && r.item;
+  } catch { return; }   // desktop ปิด/ออฟไลน์ → เงียบ
+  if (!item) return;
+  const p = item.payload || item;
+  if (!p || p.type !== 'flow_start') return;   // งานประเภทอื่น — ข้าม (ปล่อยไว้ให้ worker อื่น)
+  _qBusy = true;
+  try { await handleFlowStart(p); }
+  catch (e) { console.warn('[VGAP] queue flow_start error', e); }
+  finally { _qBusy = false; }
+}
+chrome.alarms && chrome.alarms.create('vgap_queue', { periodInMinutes: 0.25 });   // ~ทุก 15 วิ
+chrome.alarms && chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'vgap_queue') pollQueue(); });

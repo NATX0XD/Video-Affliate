@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Shopee VDO Gen",
-  "version": "3.24.0",
+  "version": "3.25.0",
   "description": "Auto Pilot System — ศูนย์ควบคุม Side Panel ดูดสินค้า + สร้างคลิป Flow อัตโนมัติ (extension เขียน prompt เอง)",
   "permissions": [
     "activeTab",
@@ -10,7 +10,8 @@
     "downloads",
     "tabs",
     "sidePanel",
-    "debugger"
+    "debugger",
+    "alarms"
   ],
   "host_permissions": [
     "https://shopee.co.th/*",
