@@ -96,16 +96,16 @@ Section "ติดตั้งโปรแกรม" SecMain
 
   ; ---- ทางลัด (WorkingDir = $INSTDIR เพราะ SetOutPath ตั้ง $OUTDIR = $INSTDIR แล้ว) ----
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
-  CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${LAUNCHER}" "" "$INSTDIR\${LAUNCHER}" 0 SW_SHOWNORMAL "" "${APP_NAME}"
+  CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${LAUNCHER}" "" "$INSTDIR\app.ico" 0 SW_SHOWNORMAL "" "${APP_NAME}"
   CreateShortCut "$SMPROGRAMS\${APP_NAME}\ถอนการติดตั้ง.lnk" "$INSTDIR\Uninstall.exe"
-  CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${LAUNCHER}" "" "$INSTDIR\${LAUNCHER}" 0 SW_SHOWNORMAL "" "${APP_NAME}"
+  CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${LAUNCHER}" "" "$INSTDIR\app.ico" 0 SW_SHOWNORMAL "" "${APP_NAME}"
 
   ; ---- uninstaller + ลงทะเบียน Apps & features (per-user = HKCU) ----
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr   HKCU "${UNINST_KEY}" "DisplayName"     "${APP_NAME}"
   WriteRegStr   HKCU "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr   HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr   HKCU "${UNINST_KEY}" "DisplayIcon"     "$INSTDIR\${LAUNCHER}"
+  WriteRegStr   HKCU "${UNINST_KEY}" "DisplayIcon"     "$INSTDIR\app.ico"
   WriteRegStr   HKCU "${UNINST_KEY}" "Publisher"       "VDO Gen Auto Pilot"
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1

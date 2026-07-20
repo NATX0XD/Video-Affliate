@@ -7,4 +7,6 @@ set "VGAP_DATA_DIR=%~dp0data"
 set "VGAP_OPEN_BROWSER=1"
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
-"%~dp0vgap-server.exe"
+rem เก็บ log ไว้ debug — ถ้า "เปิดแล้วไม่มีอะไรเกิดขึ้น" ให้เปิดดู data\server.log
+if not exist "%~dp0data" mkdir "%~dp0data"
+"%~dp0vgap-server.exe" > "%~dp0data\server.log" 2>&1
