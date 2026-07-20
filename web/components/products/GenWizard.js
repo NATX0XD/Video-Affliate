@@ -249,10 +249,20 @@ export function GenWizard({ products = [], onClose, onDone }) {
                 จะสร้าง <span className="font-bold text-accent">{clips} คลิป</span> จาก {products.length} สินค้า
                 ({o.len} คลิป/สินค้า) · ใช้ ~{clips} เครดิต Flow
               </div>
-              <p className="text-muted-foreground text-[11px] leading-relaxed">
-                กด "สร้างจริง" แล้วงานจะเข้าคิว — ส่วนขยาย (extension) จะเปิด Google Flow แล้วขับสร้างให้อัตโนมัติ
-                ต้องเปิด Chrome ที่ติดตั้งส่วนขยายไว้ค้างไว้ระหว่างสร้าง
-              </p>
+              <div className="rounded-xl border border-border bg-secondary/40 px-4 py-3 flex flex-col gap-2">
+                <p className="text-foreground text-xs font-semibold flex items-center gap-1.5">
+                  <ExternalLink size={13} className="text-accent" /> ก่อนสร้าง — เปิด Google Flow + ล็อกอินค้างไว้
+                </p>
+                <p className="text-muted-foreground text-[11px] leading-relaxed">
+                  กด "สร้างจริง" แล้วงานเข้าคิว → ส่วนขยายจะเปิด Google Flow แล้วขับสร้างให้อัตโนมัติ
+                  (สร้างโปรเจกต์ใหม่ + ใส่พรอมป์ + รอเรนเดอร์). <span className="text-foreground">ต้องเปิด Chrome
+                  หน้าต่างแอปค้างไว้ + ล็อกอินบัญชี Google ในหน้า Flow ก่อน</span> ครั้งแรกต้องล็อกอินเอง
+                </p>
+                <a href="https://labs.google/fx/tools/flow" target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline w-fit">
+                  <ExternalLink size={13} /> เปิด Google Flow เพื่อล็อกอิน
+                </a>
+              </div>
             </div>
           )}
         </div>
