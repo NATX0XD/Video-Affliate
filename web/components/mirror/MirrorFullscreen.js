@@ -13,9 +13,13 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
   const dragRef = useRef(null)
   const [label, setLabel] = useState(device?.label || '')
   const [plats, setPlats] = useState(device?.platforms || [])
+  // อัตราส่วนจอจริงของเครื่อง (มือถือ/แท็บเล็ตต่างกัน) — เริ่มจาก phoneW/H ถ้ามี แล้วอัปเดตจากภาพจริงตอนโหลด
+  const [ar, setAr] = useState(
+    device?.phoneW && device?.phoneH ? device.phoneW / device.phoneH : 9 / 19.5)
   useEffect(() => {
     setLabel(device?.label || '')
     setPlats(device?.platforms || [])
+    if (device?.phoneW && device?.phoneH) setAr(device.phoneW / device.phoneH)
   }, [device?.serial])
 
   const saveLabel = () => { if (device) api.setDeviceLabel(device.serial, label).catch(() => {}) }
@@ -81,29 +85,25 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
         </span>
       </div>
 
-      <div className="flex flex-1 overflow-hidden min-h-0">
-        {/* Phone screen */}
-        <div className="flex-1 flex items-center justify-center p-6 overflow-hidden bg-background">
-          <div className="relative h-full flex items-center justify-center">
-            <div className="relative rounded-[2rem] overflow-hidden border-[3px] border-border h-full bg-black"
-                 style={{ aspectRatio: '9/19.5', boxShadow: '0 40px 100px rgba(0,0,0,0.7)' }}>
-              <img
-                ref={imgRef}
-                src={api.streamUrl(device.serial)}
-                alt="screen"
-                className="w-full h-full block select-none"
-                style={{ objectFit: 'fill', cursor: 'crosshair' }}
-                draggable={false}
-                onPointerDown={onPointerDown}
-                onPointerUp={onPointerUp}
-                onContextMenu={e => { e.preventDefault(); key('KEYCODE_BACK') }}
-              />
-            </div>
-          </div>
+      <div className="flex flex-col lg:flex-row flex-1 overflow-hidden min-h-0">
+        {/* Phone/Tablet screen — ปรับตามจอจริงของเครื่อง (contain: เต็มทั้งกว้าง/สูงตามที่พอดี) */}
+        <div className="flex-1 flex items-center justify-center p-3 sm:p-5 overflow-hidden bg-background min-h-0 min-w-0">
+          <img
+            ref={imgRef}
+            src={api.streamUrl(device.serial)}
+            alt="screen"
+            onLoad={e => { const n = e.currentTarget; if (n.naturalWidth && n.naturalHeight) setAr(n.naturalWidth / n.naturalHeight) }}
+            className="max-w-full max-h-full w-auto h-auto object-contain rounded-[1.5rem] border-[3px] border-border bg-black block select-none"
+            style={{ aspectRatio: String(ar), cursor: 'crosshair', boxShadow: '0 40px 100px rgba(0,0,0,0.7)' }}
+            draggable={false}
+            onPointerDown={onPointerDown}
+            onPointerUp={onPointerUp}
+            onContextMenu={e => { e.preventDefault(); key('KEYCODE_BACK') }}
+          />
         </div>
 
         {/* Controls panel */}
-        <div className="w-56 shrink-0 border-l border-border flex flex-col gap-5 p-4 overflow-y-auto bg-card">
+        <div className="w-full lg:w-56 shrink-0 border-t lg:border-t-0 lg:border-l border-border flex flex-col gap-5 p-4 overflow-y-auto bg-card">
           {/* Readiness checklist */}
           <ReadinessSection device={{ ...device, label, platforms: plats }} />
 
