@@ -1517,9 +1517,26 @@ class WebServer:
             cands = [shutil.which("google-chrome"), shutil.which("chromium"), shutil.which("chromium-browser")]
         chrome = next((c for c in cands if c and os.path.exists(c)), None)
         opened = False
-        if chrome:
+        # Chrome เมิน URL chrome:// ที่ส่งทาง command-line เมื่อ Chrome เปิดอยู่แล้ว (แอปเปิด --app ไว้)
+        # → Mac ใช้ osascript สั่ง Chrome เปิดแท็บใน profile ที่กำลังรัน (ไม่เด้ง profile picker)
+        if sys.platform == "darwin":
+            script = ('tell application "Google Chrome"\n'
+                      '  activate\n'
+                      '  if (count of windows) = 0 then\n'
+                      '    make new window\n'
+                      '    set URL of active tab of front window to "chrome://extensions/"\n'
+                      '  else\n'
+                      '    tell front window to make new tab with properties {URL:"chrome://extensions/"}\n'
+                      '  end if\n'
+                      'end tell')
             try:
-                subprocess.Popen([chrome, "chrome://extensions", "--new-window"]); opened = True
+                r = subprocess.run(["osascript", "-e", script], capture_output=True, timeout=8)
+                opened = (r.returncode == 0)
+            except Exception:
+                opened = False
+        if not opened and chrome:
+            try:
+                subprocess.Popen([chrome, "chrome://extensions/"]); opened = True
             except Exception:
                 opened = False
         try:                                      # เผยโฟลเดอร์ให้ลาก/เลือก
