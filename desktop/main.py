@@ -46,10 +46,11 @@ def _open_app_window(url: str):
             from pathlib import Path as _P
             # โปรไฟล์ Chrome แยกเฉพาะแอป — งานขับ Google Flow (chrome.debugger/CDP) + สตรีมจอ
             # จะไม่แชร์ GPU/browser process กับ Chrome ที่ผู้ใช้เปิด google/แท็บอื่น → ไม่ลากให้หน่วง
-            # เปิดเป็นหน้าต่าง Chrome ปกติ (ไม่ใช่ --app/PWA) ในโปรไฟล์หลักของผู้ใช้
-            # --app/PWA ไม่ถูก Chrome throttle ตอน background → ทำแท็บอื่นแล็ค
-            # หน้าต่างปกติถูก freeze ตอนสลับไปแท็บอื่น → แท็บอื่นลื่น
-            subprocess.Popen([chrome, "--new-window", url])
+            # เปิดเป็น "แท็บ" ในหน้าต่าง Chrome เดิม (ไม่ใช่ --app และไม่ใช่ --new-window)
+            # เหตุผล: background TAB (แท็บที่ไม่ใช่แท็บ active) Chrome throttle + document.hidden=true
+            # แต่ background WINDOW (active tab ของหน้าต่างที่อยู่หลัง) ยัง "visible" → ไม่ throttle → แล็ค
+            # ส่ง url เป็น arg เฉยๆ = เปิดแท็บใหม่ในหน้าต่างที่รันอยู่
+            subprocess.Popen([chrome, url])
             return
         except Exception:
             pass
