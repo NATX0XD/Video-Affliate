@@ -11,8 +11,18 @@ chmod +x "$BOOT" 2>/dev/null
 # (ปฏิเสธสิทธิ์ Automation หรือเหตุอื่น) อย่าออกเงียบ ๆ — เด้ง dialog บอกวิธีแก้
 osascript >/dev/null 2>/tmp/vgap_installer.err <<OSA
 tell application "Terminal"
+  set wasRunning to running
   activate
-  do script "/bin/bash " & quoted form of "$BOOT"
+  if wasRunning then
+    do script "/bin/bash " & quoted form of "$BOOT"
+  else
+    delay 0.6
+    if (count of windows) > 0 then
+      do script "/bin/bash " & quoted form of "$BOOT" in front window
+    else
+      do script "/bin/bash " & quoted form of "$BOOT"
+    end if
+  end if
   delay 0.3
   set custom title of front window to "VGAP-INSTALLER"
   set wid to id of front window
