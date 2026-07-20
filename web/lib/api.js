@@ -87,6 +87,8 @@ export const api = {
   // ส่วนขยาย (onboarding): path โฟลเดอร์ extension + สั่ง desktop เปิด chrome://extensions
   extPath:         ()         => req('GET',  '/api/ext/path'),
   openExtPage:     ()         => req('POST', '/api/ext/open'),
+  // สถานะ Flow/ส่วนขยาย — {ok, queued, ext_online} ใช้เช็กก่อนสั่งสร้างคลิป
+  flowStatus:        ()       => req('GET', '/api/flow/status'),
   // ตัวเชื่อม Google Flow (adapter override layer) — โชว์เวอร์ชัน + อัปเดตเมื่อ Flow เปลี่ยนหน้าตา
   flowAdapter:       ()       => req('GET', '/api/flow/adapter'),
   // อ่าน body เอง (แม้ status ไม่ 200) เพื่อเอา error ภาษาไทย + version มาโชว์ toast เองที่หน้า
