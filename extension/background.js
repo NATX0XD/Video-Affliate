@@ -694,12 +694,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // ── เปิด Dashboard จอใหญ่ (จาก scraper popup / ที่อื่น) — โฟกัสแท็บเดิมถ้ามี ──
-  if (msg.action === 'open_dashboard') {
-    const url = chrome.runtime.getURL('dashboard.html');
+  // ── เปิดแอป VDO Gen (เว็บแอปหลัก localhost:3001) — โฟกัสแท็บเดิมถ้ามี ──
+  // เดิมเปิด dashboard.html ของ extension (ศูนย์ควบคุมซ้ำ) — ย้ายมาเปิดเว็บแอปแทน
+  if (msg.action === 'open_dashboard' || msg.action === 'open_app') {
+    const base = `http://localhost:${_portCache || '3001'}`;
+    const url = `${base}/dashboard/`;
     chrome.tabs.query({}, tabs => {
-      const ex = tabs.find(t => (t.url || '').startsWith(url));
-      if (ex) { chrome.tabs.update(ex.id, { active: true }); chrome.windows.update(ex.windowId, { focused: true }); }
+      const ex = tabs.find(t => (t.url || '').startsWith(`${base}/`));
+      if (ex) { chrome.tabs.update(ex.id, { active: true, url }); chrome.windows.update(ex.windowId, { focused: true }); }
       else chrome.tabs.create({ url });
       sendResponse({ ok: true });
     });

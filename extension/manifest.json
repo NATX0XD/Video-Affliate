@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Shopee VDO Gen",
-  "version": "3.26.0",
-  "description": "Auto Pilot System — ศูนย์ควบคุม Side Panel ดูดสินค้า + สร้างคลิป Flow อัตโนมัติ (extension เขียน prompt เอง)",
+  "version": "3.27.0",
+  "description": "ตัวช่วยดูดสินค้าจาก Shopee เข้าคลังในแอป VDO Gen (localhost:3001) + ขับ Flow สร้างคลิปอัตโนมัติ — ศูนย์ควบคุมอยู่บนเว็บแอป",
   "permissions": [
     "activeTab",
     "scripting",
@@ -22,7 +22,7 @@
     "http://localhost/*"
   ],
   "action": {
-    "default_title": "Shopee VDO Gen — เปิดศูนย์ควบคุม"
+    "default_title": "Shopee VDO Gen — เปิดตัวช่วยดูดสินค้า"
   },
   "side_panel": {
     "default_path": "sidepanel.html"
