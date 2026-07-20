@@ -1,4 +1,7 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+// ใช้ origin ของหน้าเว็บเอง (server เสิร์ฟหน้านี้ที่พอร์ตไหน ก็คุยพอร์ตนั้น)
+// → กันปัญหาพอร์ต 3001 ชนกับโปรแกรมอื่น แล้ว server ย้ายไปพอร์ตว่างถัดไป
+const BASE = process.env.NEXT_PUBLIC_API_URL
+  || (typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost:3001')
 
 // ── global error hook ─────────────────────────────────────────────
 // ToastProvider ลงทะเบียน handler ที่นี่ เพื่อเด้ง toast แทน catch เงียบ

@@ -5,4 +5,10 @@ cd /d "%~dp0desktop"
 set "VGAP_OPEN_BROWSER=1"
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
-python main.py
+rem ใช้ Python 3.11 ที่ setup ลงไว้ก่อน (PATH อาจยังไม่ refresh หลังติดตั้ง / กันไปเจอ python เวอร์ชันอื่น)
+set "PY311=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if exist "%PY311%" (
+  "%PY311%" main.py
+) else (
+  python main.py
+)
