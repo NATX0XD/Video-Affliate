@@ -41,7 +41,12 @@
   main{position:relative;z-index:1}
 
   /* nav */
-  nav{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
+  .topbar{position:sticky;top:0;z-index:50;background:rgba(9,9,14,.55);
+    backdrop-filter:blur(16px) saturate(1.5);-webkit-backdrop-filter:blur(16px) saturate(1.5);
+    border-bottom:1px solid var(--border)}
+  .topbar .nav{display:flex;align-items:center;justify-content:space-between;padding:12px 0}
+  .brand{display:flex;align-items:center}
+  .brandname{font-weight:700;font-size:15px;letter-spacing:-.01em;margin-left:11px;color:var(--fg)}
   .logoplate{display:inline-flex;align-items:center;
     filter:drop-shadow(0 0 1px rgba(255,255,255,.45)) drop-shadow(0 2px 6px rgba(0,0,0,.5))}
   .logoplate img{height:26px;width:auto}
@@ -164,15 +169,18 @@
 </head>
 <body>
 <div class="glow" aria-hidden="true"><i></i><i></i></div>
+<header class="topbar">
+  <div class="wrap nav">
+    <span class="brand">
+      <span class="logoplate"><img src="assets/logo.png" alt="VDO Gen Auto Pilot" /></span>
+      <span class="brandname">VDO Gen Auto Pilot</span>
+    </span>
+    <a class="nav-cta" href="#download">ดาวน์โหลด</a>
+  </div>
+</header>
 <main>
   <div class="wrap">
-    <nav>
-      <span class="logoplate"><img src="assets/logo.png" alt="VDO Gen Auto Pilot" /></span>
-      <a class="nav-cta" href="#download">ดาวน์โหลด</a>
-    </nav>
-
     <section class="hero">
-      <span class="pill"><span></span> พร้อมใช้งานจริง — ดาวน์โหลดฟรี</span>
       <div class="herologo"><img src="assets/logo.png" alt="โลโก้ VDO Gen Auto Pilot" /></div>
       <h1>สร้างคลิปสั้นขายของ Shopee<br><span class="g">แล้วสั่งมือถือโพสต์ให้อัตโนมัติ</span></h1>
       <p class="lead">โปรแกรมเดียวครบวงจร: ดูดสินค้าจาก Shopee Affiliate ให้ AI (Google Flow) สร้างคลิป
