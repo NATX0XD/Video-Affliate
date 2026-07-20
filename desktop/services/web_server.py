@@ -1201,9 +1201,11 @@ class WebServer:
 
         @app.get("/api/flow/status")
         def flow_status():
-            self._touch_extension()
+            # หมายเหตุ: ไม่เรียก _touch_extension() ที่นี่ (จะทำให้ ext_online เป็นจริงเสมอ)
+            # ext_online = extension เพิ่งติดต่อเข้ามาภายใน 20 วิ (poller/ping) → ใช้เช็กก่อนสั่งสร้าง
             q = self.db.count(QUEUED)
-            out = {"ok": True, "queued": q}
+            ext_online = (time.time() - self._last_ext_ping) < 20 if self._last_ext_ping else False
+            out = {"ok": True, "queued": q, "ext_online": ext_online}
             if self.budget:
                 out["budget"] = self.budget.snapshot()
             return out

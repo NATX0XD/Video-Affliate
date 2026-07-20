@@ -30,6 +30,11 @@ export function GenProgress() {
     }
   }, [gp?.stage, gp?.ts])
 
+  // error → กางรายละเอียด (สาเหตุ fail) ให้เห็นทันที ไม่ต้องกดเปิด
+  useEffect(() => {
+    if (gp?.stage === 'error') setShowDetail(true)
+  }, [gp?.stage, gp?.ts])
+
   // งานเสร็จ → เก็บ widget เองหลังโชว์สักครู่
   useEffect(() => {
     if (gp?.stage === 'done') {

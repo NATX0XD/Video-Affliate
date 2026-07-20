@@ -149,6 +149,15 @@ export function GenWizard({ products = [], onClose, onDone }) {
   const [presetSnap, setPresetSnap] = useState(null)   // ภาพแคปจากโมเดล 3D (ตัวละคร preset)
   const [adv, setAdv] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [extOnline, setExtOnline] = useState(null)     // ส่วนขยายเชื่อมไหม (pre-check ก่อนสร้าง)
+  // ถึงขั้นสรุป → เช็กสถานะส่วนขยาย (poll ทุก 3 วิ ขณะอยู่ขั้นนี้)
+  useEffect(() => {
+    if (step !== 3) return
+    let alive = true
+    const chk = () => api.flowStatus().then(d => alive && setExtOnline(!!d.ext_online)).catch(() => alive && setExtOnline(false))
+    chk(); const id = setInterval(chk, 3000)
+    return () => { alive = false; clearInterval(id) }
+  }, [step])
   const fileRef = useRef(null)
   const modelRef = useRef(null)
   const set = patch => setO(prev => ({ ...prev, ...patch }))
@@ -417,6 +426,15 @@ export function GenWizard({ products = [], onClose, onDone }) {
                 <p className="text-foreground text-xs font-semibold flex items-center gap-1.5">
                   <ExternalLink size={13} className="text-accent" /> ก่อนสร้าง — เปิด Google Flow + ล็อกอินค้างไว้
                 </p>
+                {/* pre-check: ส่วนขยายเชื่อมไหม */}
+                <div className={`flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2.5 py-1.5 w-fit
+                  ${extOnline === true ? 'bg-success/15 text-success'
+                    : extOnline === false ? 'bg-danger/15 text-danger' : 'bg-secondary text-muted-foreground'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${extOnline === true ? 'bg-success' : extOnline === false ? 'bg-danger' : 'bg-muted-foreground'}`} />
+                  {extOnline === true ? 'ส่วนขยายเชื่อมแล้ว — พร้อมสร้าง'
+                    : extOnline === false ? 'ส่วนขยายยังไม่เชื่อม — เปิด Chrome ที่ติดตั้งส่วนขยาย + โหลดส่วนขยายไว้ ก่อนกดสร้าง'
+                    : 'กำลังเช็กส่วนขยาย…'}
+                </div>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
                   กด "สร้างจริง" แล้วงานเข้าคิว → ส่วนขยายจะเปิด Google Flow แล้วขับสร้างให้อัตโนมัติ
                   (สร้างโปรเจกต์ใหม่ + ใส่พรอมป์ + รอเรนเดอร์). <span className="text-foreground">ต้องเปิด Chrome
