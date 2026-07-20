@@ -66,13 +66,13 @@ if ! /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1; then
   for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.5; done
 fi
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-# เปิดเป็นหน้าต่าง browser ปกติ (ไม่ใช่ --app/PWA) ในโปรไฟล์แยก + auto-load extension
-# เหตุผล: --app/PWA ไม่ถูก Chrome throttle ตอน background → รันเต็มสปีดแย่ง GPU/CPU ทำแท็บอื่นแล็ค
-# หน้าต่าง browser ปกติถูก throttle/freeze ตอนสลับไปแท็บอื่น → แท็บอื่นลื่น
+# เปิดเป็นหน้าต่างแอป (--app/PWA) ในโปรไฟล์แยก + auto-load extension
+# หน้าเว็บ "เงียบเอง" เมื่อไม่ได้ focus (inline script หยุด polling+animation) → ไม่แย่ง GPU/CPU
+# ทำแท็บอื่นแล็ค แม้ --app จะไม่ถูก Chrome throttle เอง
 PROFILE="$HOME/.vgap/chrome-app"
 EXT="$APP_DIR/extension"
 if [ -x "$CHROME" ]; then
-  ARGS=(--new-window "$URL" --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check)
+  ARGS=(--app="$URL" --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check)
   [ -d "$EXT" ] && ARGS+=(--load-extension="$EXT")
   "$CHROME" "${ARGS[@]}" >/dev/null 2>&1 &
 else open "$URL" >/dev/null 2>&1; fi
