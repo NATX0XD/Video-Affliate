@@ -1,6 +1,7 @@
 export function Card({ children, className = '', glass = false }) {
+  // glass เดิมใช้ backdrop-blur-md ทุกการ์ด = GPU churn (หลายใบ/หน้า) → พื้นทึบสูงแทน look เกือบเดิม
   const base = glass
-    ? 'bg-surface/70 backdrop-blur-md border border-line rounded-2xl'
+    ? 'bg-surface/95 border border-line rounded-2xl'
     : 'bg-surface border border-line rounded-2xl shadow-card'
   return <div className={`${base} ${className}`}>{children}</div>
 }

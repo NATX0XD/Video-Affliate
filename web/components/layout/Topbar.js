@@ -2,7 +2,7 @@ import { Smartphone, ListOrdered, Menu } from 'lucide-react'
 
 export function Topbar({ title, devices = 0, queue = 0, onMenu }) {
   return (
-    <header className="h-[60px] lg:h-[64px] flex items-center gap-3 px-4 lg:px-8 border-b border-border shrink-0 bg-card/80 backdrop-blur-xl sticky top-0 z-10">
+    <header className="h-[60px] lg:h-[64px] flex items-center gap-3 px-4 lg:px-8 border-b border-border shrink-0 bg-card sticky top-0 z-10">
       <button onClick={onMenu}
         className="lg:hidden p-2 -ml-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary">
         <Menu size={20} />
