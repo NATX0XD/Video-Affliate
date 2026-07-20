@@ -575,7 +575,51 @@ if (window._flowAutomatorLoaded) {
       }
       log("ไม่เจอช่องแชต/ปุ่มเริ่ม — เปิด project ใน Flow ของบัญชีนี้เองสักครั้ง (ระบบจะจำไว้ให้)");
     }
+    // i2v: ปิดโหมด Agent + แผง session ผู้ช่วยให้ (Flow UI ใหม่ Agent เปิด default —
+    // i2v ต้องส่งพรอมป์เข้าโหมดวิดีโอตรง). ครั้งแรก Flow จำค่าไว้ → รอบหลังไม่ต้องทำอีก
+    try {
+      const _eng = ((await chrome.storage.local.get("flow_gen")).flow_gen || {}).engine;
+      if (_eng === "i2v") await ensureAgentOff(log);
+    } catch {}
     return true;
+  }
+
+  // ปิด Agent toggle + แผง session ผู้ช่วย (best-effort · non-fatal · idempotent)
+  // ปลอดภัย: คลิกปิด Agent เฉพาะเมื่อ "ตรวจว่าเปิดอยู่จริง" เท่านั้น — ไม่แน่ใจ = ไม่แตะ (กันเผลอเปิด)
+  async function ensureAgentOff(log) {
+    const L = (m) => { try { log && log(m); } catch {} };
+    try {
+      // 1) ปิดแผง session ผู้ช่วย (X มุมขวาบน) ถ้าเปิดอยู่ — กันบังปุ่ม/ช่องพิมพ์
+      const closeBtn = allClickable().find((el) => {
+        const t = norm(txt(el));
+        if (!(t === "close" || t === "✕" || t === "×" || t === "dismiss")) return false;
+        const box = el.closest('aside,[role="dialog"],[class*="anel"],[class*="idebar"],[class*="ession"]') || el.parentElement;
+        return box && /session|untitled|assistant|ผู้ช่วย|เซสชัน/i.test(box.textContent || "");
+      });
+      if (closeBtn) { L("ปิดแผง session ผู้ช่วย…"); await trustedClickEl(closeBtn, log); await sleep(500); }
+
+      // 2) ปิด Agent toggle ถ้ากำลังเปิด (i2v ต้องไม่ผ่าน agent)
+      const agentBtn = allClickable().find((el) => norm(txt(el)) === "agent");
+      if (agentBtn) {
+        const pressed = agentBtn.getAttribute("aria-pressed");
+        let on = pressed === "true"
+          || /(^|\s)(active|selected|on|enabled|checked)(\s|$)/i.test(agentBtn.className || "");
+        if (!on && pressed == null) {
+          // pill ที่ active มักพื้นทึบสว่าง (เช่น ขาว) — เช็ค bg เป็นสัญญาณเสริม
+          try {
+            const bg = getComputedStyle(agentBtn).backgroundColor || "";
+            const m = bg.match(/rgba?\(([^)]+)\)/);
+            if (m) {
+              const [r, g, b, a = "1"] = m[1].split(",").map((x) => parseFloat(x));
+              if (parseFloat(a) > 0.5 && (r + g + b) / 3 > 140) on = true;   // พื้นสว่างทึบ = เปิด
+            }
+          } catch {}
+        }
+        if (on) { L("ปิด Agent (ใช้โหมดวิดีโอตรงสำหรับ i2v)…"); await trustedClickEl(agentBtn, log); await sleep(500); }
+        else if (pressed === "false") { /* ปิดอยู่แล้ว */ }
+        else L('เจอปุ่ม Agent แต่ไม่ชัดว่าเปิด/ปิด → ข้าม (ถ้ายังเปิด ให้กดปิด Agent เอง 1 ครั้ง Flow จะจำไว้)');
+      }
+    } catch (e) { L("ensureAgentOff: " + (e && e.message)); }
   }
 
   // agent กำลังสร้างอยู่ไหม (best-effort: spinner/progress ที่มองเห็น)
