@@ -20,18 +20,21 @@ function Refresh-Path {
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 
 Write-Host "`n=== [1/6] Python 3.11 ===" -ForegroundColor Cyan
-if (Have "python") {
-  Write-Host "  already installed"
+# บังคับ Python 3.11 โดยเฉพาะ (ไม่ข้ามเพราะเครื่องมี python อื่น เช่น 3.13 ที่ Pillow ไม่มี wheel → build ล้ม)
+$pyDir = "$env:LOCALAPPDATA\Programs\Python\Python311"
+$PY311 = "$pyDir\python.exe"
+if (Test-Path $PY311) {
+  Write-Host "  Python 3.11 already installed"
 } else {
   $py = "$tools\python-3.11.9-amd64.exe"
-  Write-Host "  downloading installer..."
+  Write-Host "  downloading Python 3.11 installer..."
   Invoke-WebRequest "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $py
   Write-Host "  installing (per-user, no admin)..."
   Start-Process $py -ArgumentList "/quiet","InstallAllUsers=0","PrependPath=1","Include_pip=1","Include_launcher=1" -Wait
   Refresh-Path
-  $pyDir = "$env:LOCALAPPDATA\Programs\Python\Python311"
-  if (-not (Have "python") -and (Test-Path "$pyDir\python.exe")) { Add-UserPath $pyDir; Add-UserPath "$pyDir\Scripts" }
 }
+if (Test-Path $PY311) { Add-UserPath $pyDir; Add-UserPath "$pyDir\Scripts" }
+else { $PY311 = "python" }   # fallback เผื่อ path ต่าง
 
 Write-Host "`n=== [2/6] Node.js LTS (portable) ===" -ForegroundColor Cyan
 if (Have "node") {
@@ -80,8 +83,8 @@ Refresh-Path
 
 Write-Host "`n=== [6/6] pip deps + build web ===" -ForegroundColor Cyan
 Push-Location (Join-Path $root "desktop")
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+& $PY311 -m pip install --upgrade pip
+& $PY311 -m pip install -r requirements.txt
 Pop-Location
 # หน้าเว็บ: ถ้ามี web\out อยู่แล้ว (แจกแบบ prebuilt) → ข้าม build ได้เลย ไม่ต้องใช้ Node
 if (Test-Path (Join-Path $root "web\out\index.html")) {
