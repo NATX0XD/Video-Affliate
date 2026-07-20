@@ -57,11 +57,12 @@ cd "$APP_DIR/desktop" 2>/dev/null || exit 1
 URL="http://localhost:3001"
 if ! /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1; then
   if [ -x .venv/bin/python ]; then PY=".venv/bin/python"; else PY="$(command -v python3)"; fi
+  ARCHP=""; [ "$(uname -m)" = "arm64" ] && ARCHP="arch -arm64"   # บังคับ arm64 กัน native wheel mismatch
   export PATH="$HOME/.vgap/bin:$PATH"
   [ -x "$HOME/.vgap/bin/adb" ]           && export VGAP_ADB="$HOME/.vgap/bin/adb"
   [ -f "$HOME/.vgap/bin/scrcpy-server" ] && export VGAP_SCRCPY_SERVER="$HOME/.vgap/bin/scrcpy-server"
   export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
-  nohup "$PY" main.py >"$HOME/.vgap/server.log" 2>&1 &
+  nohup $ARCHP "$PY" main.py >"$HOME/.vgap/server.log" 2>&1 &
   for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:3001 -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.5; done
 fi
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -172,7 +173,12 @@ make_launcher_app "$HOME/Applications/$LAUNCHER_NAME.app"
 make_launcher_app "$HOME/Desktop/$LAUNCHER_NAME.app" 2>/dev/null || true
 # ลบทางลัด .command ซ้ำที่ deps สร้าง (ใช้ .app แทน)
 rm -f "$HOME/Desktop/เปิด VDO Gen Auto Pilot.command" 2>/dev/null || true
-ok "แอปพร้อมแล้วที่ ~/Applications และ Desktop"
+# ทางลัดถอนการติดตั้ง (ลบทุกอย่างในคลิกเดียว) บน Desktop
+if [ -f "$APP_DIR/ถอนการติดตั้ง-mac.command" ]; then
+  cp -f "$APP_DIR/ถอนการติดตั้ง-mac.command" "$HOME/Desktop/ถอนการติดตั้ง VDO Gen Auto Pilot.command" 2>/dev/null
+  chmod +x "$HOME/Desktop/ถอนการติดตั้ง VDO Gen Auto Pilot.command" 2>/dev/null || true
+fi
+ok "แอปพร้อมแล้วที่ ~/Applications และ Desktop (+ ตัวถอนการติดตั้งบน Desktop)"
 
 # ---- เสร็จ ----
 say "ติดตั้งเสร็จแล้ว"

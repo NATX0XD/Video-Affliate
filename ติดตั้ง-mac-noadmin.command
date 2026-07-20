@@ -97,9 +97,18 @@ ok "พร้อมรัน"
 say "[6/7] เตรียม Python env + ติดตั้ง dependencies (ใช้ python3 ของ Mac)"
 PY="$(command -v python3 || true)"
 [ -n "$PY" ] || die "ไม่พบ python3 ในเครื่อง — เปิด Terminal พิมพ์ 'python3 --version' ถ้าเด้งให้ติดตั้ง Command Line Tools ให้กดติดตั้งก่อน แล้วรันไฟล์นี้ใหม่"
-"$PY" -m venv "$ROOT/desktop/.venv"
-"$ROOT/desktop/.venv/bin/pip" install -q --upgrade pip
-"$ROOT/desktop/.venv/bin/pip" install -q -r "$ROOT/desktop/requirements.txt"
+# ★ Apple Silicon: python /usr/bin/python3 เป็น universal → สลับ arch เป็น x86_64 ได้ แต่ native wheel
+#   (เช่น pydantic_core) ถูกลงเป็น arm64 → mismatch → server crash. บังคับ arm64 ให้ตรงกันทุกจุด.
+ARCHP=""
+if [ "$ARCH" = "arm64" ]; then
+  HB=""
+  for hp in /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3.11; do [ -x "$hp" ] && { HB="$hp"; break; }; done
+  if [ -n "$HB" ]; then PY="$HB"; else ARCHP="arch -arm64"; fi
+fi
+rm -rf "$ROOT/desktop/.venv"   # สร้าง venv ใหม่สะอาดทุกครั้ง กันของเก่าปน arch
+$ARCHP "$PY" -m venv "$ROOT/desktop/.venv"
+$ARCHP "$ROOT/desktop/.venv/bin/pip" install -q --upgrade pip
+$ARCHP "$ROOT/desktop/.venv/bin/pip" install -q -r "$ROOT/desktop/requirements.txt"
 ok "ติดตั้ง dependencies แล้ว (desktop/.venv)"
 
 say "[7/7] สร้างทางลัดบนหน้าจอ Desktop"
