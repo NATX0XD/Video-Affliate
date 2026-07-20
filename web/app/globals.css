@@ -139,3 +139,11 @@ body {
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
   animation: shimmer 1.5s ease-in-out infinite;
 }
+
+/* หยุด animation ทั้งหมดเมื่อหน้าต่างแอปไม่ได้ focus/ถูกซ่อน (JS toggle .anim-paused ที่ <html>)
+   Chrome แชร์ GPU process เดียว — แอปที่ animate ตอน background ทำแท็บ/หน้าต่างอื่นกระตุก */
+html.anim-paused *,
+html.anim-paused *::before,
+html.anim-paused *::after {
+  animation-play-state: paused !important;
+}
