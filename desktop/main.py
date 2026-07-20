@@ -48,7 +48,9 @@ def _open_app_window(url: str):
             # จะไม่แชร์ GPU/browser process กับ Chrome ที่ผู้ใช้เปิด google/แท็บอื่น → ไม่ลากให้หน่วง
             profile = str(cfg.DATA_ROOT / "chrome-app")
             ext = _P(__file__).resolve().parents[1] / "extension"
-            args = [chrome, "--app=" + url, "--user-data-dir=" + profile,
+            # เปิดเป็นหน้าต่าง browser ปกติ (ไม่ใช่ --app) — --app/PWA ไม่ถูก Chrome throttle
+            # ตอน background → รันเต็มสปีดแย่ง GPU/CPU ทำแท็บอื่นแล็ค. หน้าต่างปกติถูก throttle ตอนสลับไป
+            args = [chrome, "--new-window", url, "--user-data-dir=" + profile,
                     "--no-first-run", "--no-default-browser-check"]
             if ext.is_dir():
                 args.append("--load-extension=" + str(ext))   # โหลดส่วนขยายอัตโนมัติในโปรไฟล์แอป
