@@ -747,7 +747,7 @@ if (window._shopeeScraperLoaded) {
     card.innerHTML = `
       <div class="__sc_hd">
         <div class="lg">${SVG.cart}</div>
-        <div style="flex:1"><h3>Shopee Scraper</h3><p>ดูดสินค้า + ตะกร้า · v${(chrome.runtime?.getManifest?.() || {}).version || '?'}</p></div>
+        <div style="flex:1"><h3>Shopee Scraper</h3><p>ดูดสินค้าเข้าคลังในแอป · v${(chrome.runtime?.getManifest?.() || {}).version || '?'}</p></div>
         <button class="cl" id="__sc_close">${SVG.x}</button>
       </div>
       <div class="__sc_tabs">
@@ -796,7 +796,7 @@ if (window._shopeeScraperLoaded) {
           <div class="__sc_stat"><div class="__sc_sv" id="__sc_sent" style="color:#34d399">0</div><div class="__sc_sl">ส่งเข้าศูนย์</div></div>
         </div>
         <button class="__sc_b __sc_stop" id="__sc_stopbtn" style="display:none">${SVG.stop} หยุดดูด</button>
-        <button class="__sc_b __sc_dash" id="__sc_dash">เปิด Dashboard</button>
+        <button class="__sc_b __sc_dash" id="__sc_dash">เปิดแอป VDO Gen (localhost:3001)</button>
         <div class="__sc_log" id="__sc_logbox"><span class="dim">พร้อมดูดสินค้า…</span></div>
       </div>`;
 
@@ -870,7 +870,7 @@ if (window._shopeeScraperLoaded) {
         if (hit('#__sc_scrape')) { runScrape(); return; }
         if (hit('#__sc_stopbtn')) { window._scrapeStop = true; slog('กำลังหยุด…', 'dim'); return; }
         if (hit('#__sc_dash')) {
-          if (!sendMsg({ action: 'open_dashboard' })) slog('ส่วนขยายถูกรีโหลด — รีเฟรชหน้านี้ (F5) ก่อน', 'er');
+          if (!sendMsg({ action: 'open_app' })) slog('ส่วนขยายถูกรีโหลด — รีเฟรชหน้านี้ (F5) ก่อน', 'er');
           return;
         }
       } catch (err) { slog('ผิดพลาด: ' + err.message, 'er'); }

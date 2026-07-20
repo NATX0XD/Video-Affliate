@@ -24,21 +24,22 @@ export const GEN_AUDS = [
   { id: 'beauty', name: 'สายบิวตี้ & สุขภาพ', desc: 'ผลลัพธ์เห็นชัด ผิวสวย ก่อน-หลัง',               hint: 'สายความงาม/สุขภาพ — เน้นผลลัพธ์ที่เห็นด้วยตา (ผิว/รูปลักษณ์ก่อน-หลัง) แสงสวยผิวโกลว์ โทนสะอาดหรู' },
 ]
 
+// thumb = CSS gradient ที่สื่อถึงฉาก/อารมณ์นั้น (ทำงานออฟไลน์ ไม่พึ่งรูปจริง)
 export const GEN_BGS = [
-  { id: 'studio',  name: 'สตูดิโอสว่าง',      p: 'สตูดิโอแสงสว่างสะอาดตา พื้นหลังสีพาสเทล' },
-  { id: 'living',  name: 'ห้องนั่งเล่นอบอุ่น', p: 'ห้องนั่งเล่นโทนอบอุ่น แสงธรรมชาติจากหน้าต่าง บรรยากาศบ้านจริง' },
-  { id: 'kitchen', name: 'ครัว',              p: 'ครัวสมัยใหม่สว่างสะอาด มีอุปกรณ์ครัวเป็นฉากหลังเบลอๆ' },
-  { id: 'outdoor', name: 'กลางแจ้งแดดสวย',    p: 'กลางแจ้งแสงแดดสวยตอนเย็น โทนสดชื่นมีชีวิตชีวา' },
-  { id: 'neon',    name: 'นีออนกลางคืน',      p: 'ฉากกลางคืนแสงนีออนชมพู-ฟ้า สไตล์ไวรัลทันสมัย' },
-  { id: 'minimal', name: 'มินิมอลพื้นขาว',    p: 'ฉากมินิมอลพื้นหลังขาวเรียบ เงานุ่ม ดูพรีเมียม' },
+  { id: 'studio',  name: 'สตูดิโอสว่าง',      p: 'สตูดิโอแสงสว่างสะอาดตา พื้นหลังสีพาสเทล',                        thumb: 'linear-gradient(135deg,#fdfbfb 0%,#e2d1f9 100%)' },
+  { id: 'living',  name: 'ห้องนั่งเล่นอบอุ่น', p: 'ห้องนั่งเล่นโทนอบอุ่น แสงธรรมชาติจากหน้าต่าง บรรยากาศบ้านจริง', thumb: 'linear-gradient(135deg,#f6d365 0%,#fda085 100%)' },
+  { id: 'kitchen', name: 'ครัว',              p: 'ครัวสมัยใหม่สว่างสะอาด มีอุปกรณ์ครัวเป็นฉากหลังเบลอๆ',           thumb: 'linear-gradient(135deg,#e0eafc 0%,#cfdef3 100%)' },
+  { id: 'outdoor', name: 'กลางแจ้งแดดสวย',    p: 'กลางแจ้งแสงแดดสวยตอนเย็น โทนสดชื่นมีชีวิตชีวา',                 thumb: 'linear-gradient(135deg,#f9d423 0%,#ff8c42 55%,#ff5f6d 100%)' },
+  { id: 'neon',    name: 'นีออนกลางคืน',      p: 'ฉากกลางคืนแสงนีออนชมพู-ฟ้า สไตล์ไวรัลทันสมัย',                 thumb: 'linear-gradient(135deg,#ff6ec4 0%,#7873f5 100%)' },
+  { id: 'minimal', name: 'มินิมอลพื้นขาว',    p: 'ฉากมินิมอลพื้นหลังขาวเรียบ เงานุ่ม ดูพรีเมียม',                 thumb: 'linear-gradient(135deg,#ffffff 0%,#e6e6e6 100%)' },
 ]
 
 export const GEN_MOODS = [
-  { id: 'warm',     name: 'อบอุ่น',         p: 'บรรยากาศอบอุ่นเป็นกันเอง แสงนวลโทนทอง สีอุ่นสบายตา' },
-  { id: 'premium',  name: 'พรีเมียมหรู',    p: 'บรรยากาศพรีเมียมหรูหรา แสงนุ่มคุมเงา โทนสีลึกสะอาด ดูมีระดับ' },
-  { id: 'fun',      name: 'สนุกสดใส',       p: 'บรรยากาศสนุกสดใสมีพลัง สีจัดสว่าง จังหวะมีชีวิตชีวา' },
-  { id: 'minimal',  name: 'มินิมอลสะอาด',   p: 'บรรยากาศมินิมอลสะอาดตา โทนสีเดียวเรียบ พื้นที่ว่างเยอะ เน้นสินค้าเด่น' },
-  { id: 'dramatic', name: 'ดราม่าเข้ม',     p: 'บรรยากาศดราม่าคอนทราสต์สูง แสงเน้นเฉพาะจุด เงาเข้ม ดูน่าตื่นเต้น' },
+  { id: 'warm',     name: 'อบอุ่น',         p: 'บรรยากาศอบอุ่นเป็นกันเอง แสงนวลโทนทอง สีอุ่นสบายตา',                thumb: 'linear-gradient(135deg,#f6d365 0%,#fda085 100%)' },
+  { id: 'premium',  name: 'พรีเมียมหรู',    p: 'บรรยากาศพรีเมียมหรูหรา แสงนุ่มคุมเงา โทนสีลึกสะอาด ดูมีระดับ',      thumb: 'linear-gradient(135deg,#434343 0%,#000000 100%)' },
+  { id: 'fun',      name: 'สนุกสดใส',       p: 'บรรยากาศสนุกสดใสมีพลัง สีจัดสว่าง จังหวะมีชีวิตชีวา',               thumb: 'linear-gradient(135deg,#fa709a 0%,#fee140 100%)' },
+  { id: 'minimal',  name: 'มินิมอลสะอาด',   p: 'บรรยากาศมินิมอลสะอาดตา โทนสีเดียวเรียบ พื้นที่ว่างเยอะ เน้นสินค้าเด่น', thumb: 'linear-gradient(135deg,#ffffff 0%,#dfe9f3 100%)' },
+  { id: 'dramatic', name: 'ดราม่าเข้ม',     p: 'บรรยากาศดราม่าคอนทราสต์สูง แสงเน้นเฉพาะจุด เงาเข้ม ดูน่าตื่นเต้น',   thumb: 'linear-gradient(135deg,#0f0c29 0%,#302b63 50%,#24243e 100%)' },
 ]
 
 export const GEN_SOUNDS = [
@@ -122,8 +123,8 @@ export function toExtProduct(p) {
 }
 
 // แปลง genOpt (เก็บเป็น id) → gen object รูปแบบเดียวกับที่ extension ส่งเข้า flow_start
-// selfPhoto = dataURL รูปผู้ใช้ (เฉพาะตัวละคร 'self') ใช้เป็นภาพอ้างอิงหน้า
-export function buildGen(o, selfPhoto = null) {
+// snapshot = dataURL ภาพอ้างอิง i2v: 'self' = รูปที่อัป · ตัวละคร preset = ภาพแคปจากโมเดล 3D ที่ผู้ใช้หมุนไว้
+export function buildGen(o, snapshot = null) {
   const pick = (arr, id, key = 'id') => arr.find(x => x[key] === id) || arr[0]
   const ch   = pick(GEN_CHARS, o.charId)
   const aud  = pick(GEN_AUDS, o.aud)
@@ -135,7 +136,7 @@ export function buildGen(o, selfPhoto = null) {
   return {
     charId: o.charId, engine: o.engine || 'i2v', style: o.style, len: o.len || 1,
     charName: ch.name, charDesc: ch.desc, charModel: ch.model || null,
-    snapshot: o.charId === 'self' ? (selfPhoto || null) : null,
+    snapshot: snapshot || null,
     audName: aud.name, audHint: aud.hint,
     bgName: bg.name, bgPrompt: bg.p,
     moodName: mood.name, moodPrompt: mood.p,
