@@ -5,6 +5,7 @@ Auto-post loop — หัวใจ near-zero-touch ของ desktop.
 เคารพ: โหมดอนุมัติ (auto/hold), ตารางเวลา, โควต้า/วัน, มีมือถือต่อ
 สถานะเปิด/ปิดเก็บใน DB (app_config) → เปิดเครื่องมาก็ทำงานต่อเอง (always-on)
 """
+import json
 import threading
 import time
 import random
@@ -131,7 +132,8 @@ class AutoPilot:
                     p = make_poster(pk, self.adb, self.log, s)
                     if hasattr(p, "usage_cb"):
                         p.usage_cb = self._record_usage
-                    r = p.process(serial, video, product, dry_run=True)   # ★ dry: หยุดก่อนกดโพสต์
+                    r = p.process(serial, video, product, dry_run=True,
+                                  coords_override=self._coords_override(serial))   # ★ dry: หยุดก่อนกดโพสต์
                     self.log(f"[ทดสอบ] {pk}: " + ("ผ่าน flow ✓ (caption ติด หยุดก่อนโพสต์)" if r
                              else "ติดบางสเตป — ดู log ด้านบนว่าค้างปุ่มไหน"))
             finally:
@@ -240,6 +242,20 @@ class AutoPilot:
         raw = self.db.get_config(f"dev_platforms:{serial}", "") or ""
         return [p for p in raw.split(",") if p]
 
+    def _coords_override(self, serial: str):
+        """พิกัด calibrate ต่อเครื่อง (JSON {key:[rx,ry]}) — poster เอาไปทับ default.
+        ไม่มี/พังก็คืน None → poster ใช้พิกัดเดิม 100%."""
+        if not self.db:
+            return None
+        raw = self.db.get_config(f"post_coords:{serial}", "") or ""
+        if not raw.strip():
+            return None
+        try:
+            d = json.loads(raw)
+            return d if isinstance(d, dict) and d else None
+        except Exception:
+            return None
+
     def _device_online(self, serial: str) -> bool:
         if not self.adb:
             return False
@@ -285,7 +301,8 @@ class AutoPilot:
                     p = make_poster(pk, self.adb, self.log, s)
                     if hasattr(p, "usage_cb"):
                         p.usage_cb = self._record_usage   # บันทึกการใช้ Gemini ตอน verify (J)
-                    r = p.process(serial, video, product)
+                    r = p.process(serial, video, product,
+                                  coords_override=self._coords_override(serial))
                     if r is None:
                         continue
                     if r == "unverified":     # T4: โพสต์แล้วแต่ยืนยันผลไม่ได้ — ไม่นับเป็นสถิติ (ไม่รู้ผล)

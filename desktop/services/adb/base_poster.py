@@ -266,11 +266,38 @@ class BasePoster:
 
     # ── Orchestration (template method) ───────────────────────
 
+    def _apply_coords_override(self, override: Optional[dict]):
+        """รวมพิกัด override ต่อเครื่อง (per-instance) ทับ default R ของ poster.
+        Additive: ไม่มี override → self.R = class R เดิมเป๊ะ. รับเฉพาะ key ที่มีใน
+        default R + ค่า [rx,ry] เป็น float 0..1 (ตัวอื่นข้าม)."""
+        base = getattr(type(self), "R", None)
+        if not isinstance(base, dict) or not override:
+            return
+        merged = dict(base)
+        for k, v in override.items():
+            if k not in base:
+                continue
+            # รับ 2 shape: [rx,ry] (array/tuple) หรือ {rx,ry} (object) — เผื่อ config เก่า/ใหม่ปน
+            if isinstance(v, dict):
+                rxv, ryv = v.get("rx"), v.get("ry")
+            elif isinstance(v, (list, tuple)) and len(v) == 2:
+                rxv, ryv = v[0], v[1]
+            else:
+                continue
+            try:
+                rx, ry = float(rxv), float(ryv)
+            except (TypeError, ValueError):
+                continue
+            if 0.0 <= rx <= 1.0 and 0.0 <= ry <= 1.0:
+                merged[k] = (rx, ry)
+        self.R = merged   # instance attr — ไม่แตะ class R (เครื่องอื่นไม่กระทบ)
+
     def process(self, serial: str, video_path: Path, product: dict,
-                dry_run: bool = False) -> bool:
+                dry_run: bool = False, coords_override: Optional[dict] = None) -> bool:
         if not self.PACKAGE:
             self.log(f"[{self.TAG}] ยังไม่ได้กำหนดแอปปลายทาง — ข้าม")
             return None
+        self._apply_coords_override(coords_override)
         if not self.push_video(serial, video_path):
             return False
         time.sleep(2)

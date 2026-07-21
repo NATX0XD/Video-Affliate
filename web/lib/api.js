@@ -64,6 +64,10 @@ export const api = {
   adbSwipe:        (s, x1,y1,x2,y2,ms) =>
                                req('POST', `/api/adb/swipe/${s}`, {x1,y1,x2,y2,ms}),
   adbKey:          (s, code)  => req('POST', `/api/adb/key/${s}`, { code }),
+  // คาลิเบรตพิกัดโพสต์ต่อเครื่อง (ratio 0..1) — GET อ่าน, POST บันทึก, DELETE รีเซ็ตเป็นค่าเริ่มต้น(มือถือ)
+  getDeviceCoords:   (s)         => req('GET',    `/api/devices/${s}/coords`),
+  saveDeviceCoords:  (s, coords) => req('POST',   `/api/devices/${s}/coords`, { coords }),
+  resetDeviceCoords: (s)         => req('DELETE', `/api/devices/${s}/coords`),
   listVideos:      ()         => req('GET',  '/api/videos'),
   uploadClip:      (formData)  => fetch(`${BASE}/api/clips/upload`, { method: 'POST', body: formData })
                                    .then(r => { if (!r.ok) throw new Error('upload failed'); return r.json() }),

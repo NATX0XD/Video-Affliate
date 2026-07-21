@@ -54,8 +54,9 @@ ShowUninstDetails show
 
 ; ---- หน้าตา MUI ----
 !define MUI_ABORTWARNING
-!define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
-!define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
+; logo จริงของแอป (app.ico อยู่ใน payload จาก portable/) — ไอคอนตัวติดตั้ง .exe + wizard + uninstaller
+!define MUI_ICON "${PAYLOAD_DIR}\app.ico"
+!define MUI_UNICON "${PAYLOAD_DIR}\app.ico"
 
 ; Welcome
 !define MUI_WELCOMEPAGE_TITLE "ติดตั้ง ${APP_NAME}"
@@ -139,8 +140,13 @@ Section "Uninstall"
   SetShellVarContext current
 
   ; ปิดโปรแกรมก่อน (กันไฟล์ถูกล็อก) — เงียบ ๆ ไม่ error ถ้าไม่ได้เปิดอยู่
+  ; ★ ต้อง kill vgap-server.exe (โปรแกรมจริง frozen) ด้วย ไม่งั้นมันล็อก data\app.db,settings.json
+  ;   → RMDir ลบ data ไม่ได้ → ลงใหม่ยังจำ setup เก่า (หน้า setup ไม่ขึ้น)
+  ExecWait 'taskkill /im vgap-server.exe /f'
   ExecWait 'taskkill /im python.exe /f'
   ExecWait 'taskkill /im pythonw.exe /f'
+  ExecWait 'taskkill /im adb.exe /f'
+  Sleep 800
 
   ; ลบทางลัด
   Delete "$DESKTOP\${APP_NAME}.lnk"
