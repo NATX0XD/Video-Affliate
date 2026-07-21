@@ -40,6 +40,9 @@ export const api = {
   jobs:            ()         => req('GET',  '/api/jobs'),
   deleteJob:       (id)       => req('DELETE', `/api/jobs/${id}`),
   postJob:         (id)       => req('POST', `/api/jobs/${id}/post`),
+  // จับคู่คลิป↔เครื่อง (M2) — serial='' = อัตโนมัติ (ปล่อยระบบเลือก)
+  assignJob:       (id, serial)     => req('POST', `/api/jobs/${id}/assign`, { serial: serial || '' }),
+  assignJobs:      (ids, serial)    => req('POST', `/api/jobs/assign`, { ids, serial: serial || '' }),
   dryPostJob:      (id)       => req('POST', `/api/jobs/${id}/dryrun`),
   cancelJob:       (id)       => req('POST', `/api/jobs/${id}/cancel`),   // ยกเลิกงานค้าง → generated
   getSetup:        ()         => req('GET',  '/api/setup'),

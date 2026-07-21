@@ -730,6 +730,10 @@ class WebServer:
                     "price": bi.get("price", ""),
                     "commission": (prod.get("commission", {}) or {}).get("rate", ""),
                     "link": link,                      # ตะกร้า (affiliate short link)
+                    # M1: เครื่องที่ล็อกให้คลิปนี้ ('' = auto) + label เครื่อง (ถ้าตั้งไว้)
+                    "assigned_serial": (j.get("assigned_serial") or ""),
+                    "assigned_label": (self.db.get_config(f"dev_label:{j.get('assigned_serial')}", "")
+                                       if (j.get("assigned_serial") or "") else ""),
                     "created_at": j["created_at"], "updated_at": j["updated_at"],
                 })
             return {"jobs": out, "review_mode": cfg.load().get("review_mode", "auto")}
@@ -812,6 +816,42 @@ class WebServer:
             if self.db:
                 self.db.set_status(jid, GENERATED, error="ยกเลิกโดยผู้ใช้")
             return {"ok": True}
+
+        # ── M1: assign คลิป → เครื่อง (serial="" = auto) ──
+        def _known_serial(serial: str) -> bool:
+            """serial ต้องเป็น '' (auto) หรือเครื่องที่ระบบรู้จัก (เคย scan เห็น)."""
+            if not serial:
+                return True
+            return bool(self.adb and serial in self.adb.devices)
+
+        @app.post("/api/jobs/{jid}/assign")
+        def assign_job(jid: int, body: dict):
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            serial = ((body or {}).get("serial") or "").strip()
+            if not _known_serial(serial):
+                return {"ok": False, "error": f"ไม่รู้จักเครื่อง: {serial}"}
+            if not self.db.get(jid):
+                return {"ok": False, "error": "ไม่พบคลิป"}
+            self.db.set_job_assignment(jid, serial)
+            return {"ok": True, "id": jid, "assigned_serial": serial}
+
+        @app.post("/api/jobs/assign")
+        def assign_jobs_bulk(body: dict):
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            serial = ((body or {}).get("serial") or "").strip()
+            ids = [i for i in ((body or {}).get("ids") or []) if isinstance(i, int)]
+            if not _known_serial(serial):
+                return {"ok": False, "error": f"ไม่รู้จักเครื่อง: {serial}"}
+            if not ids:
+                return {"ok": False, "error": "ids ว่าง"}
+            n = 0
+            for jid in ids:
+                if self.db.get(jid):
+                    self.db.set_job_assignment(jid, serial)
+                    n += 1
+            return {"ok": True, "assigned": n, "serial": serial}
 
         @app.get("/api/reports")
         def reports():

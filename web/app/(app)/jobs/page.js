@@ -6,7 +6,10 @@ import { Button }     from '@/components/ui/Button'
 import { SkeletonJobItem } from '@/components/ui/Skeleton'
 import { PageHeader, JOB_STATUS } from '@/components/layout/PageHeader'
 import { LazyVideo } from '@/components/ui/LazyVideo'
-import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check, Film, FlaskConical, Play, X, Coins, Search, ArrowUpDown } from 'lucide-react'
+import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check, Film, FlaskConical, Play, X, Coins, Search, ArrowUpDown, Smartphone, CheckSquare, Square } from 'lucide-react'
+
+// ชื่อเครื่องที่อ่านง่าย — label > model > serial
+const deviceName = (d) => d?.label || d?.model || d?.serial || ''
 
 const shortLink = (u) => (u || '').replace(/^https?:\/\//, '')
 
@@ -27,11 +30,13 @@ const matchFilter = (j, f) =>
 const isPosted = (j) => ['posted', 'done'].includes(j.status)
 
 // ลายเซ็นข้อมูลงาน — ใช้เทียบว่า poll รอบนี้ "เปลี่ยนจริงไหม" (กัน re-render เปล่า)
-const jobsSig = (arr) => (arr || []).map(j => `${j.id}:${j.status}:${j.updated_at}:${j.attempts}`).join('|')
+const jobsSig = (arr) => (arr || []).map(j => `${j.id}:${j.status}:${j.updated_at}:${j.attempts}:${j.assigned_serial || ''}`).join('|')
 
 // re-render การ์ดเฉพาะตอน job เปลี่ยน หรือสถานะปุ่ม (busy/dry/copied) ของ "ใบนี้" เปลี่ยน
 const jobCardEqual = (a, b) =>
   a.job === b.job &&
+  a.devices === b.devices &&
+  a.selected === b.selected &&
   (a.busy === a.job.id)    === (b.busy === b.job.id) &&
   (a.dryBusy === a.job.id) === (b.dryBusy === b.job.id) &&
   (a.copied === a.job.id)  === (b.copied === b.job.id)
@@ -54,6 +59,8 @@ export default function JobsPage() {
   const [preview, setPreview] = useState(null)   // คลิปที่กำลังเปิดดู (โมดอล)
   const [sort, setSort]   = useState('new')
   const [query, setQuery] = useState('')
+  const [devices, setDevices] = useState([])          // เครื่องที่ต่ออยู่ (สำหรับจับคู่)
+  const [sel, setSel]     = useState(() => new Set())  // id คลิปที่เลือก (assign หลายอัน)
   const copy = (text, id) => { try { navigator.clipboard?.writeText(text) } catch {}; setCopied(id); setTimeout(() => setCopied(null), 1500) }
 
   const load = useCallback(async () => {
@@ -66,6 +73,36 @@ export default function JobsPage() {
     finally { setLoading(false) }
   }, [])
   useEffect(() => { load(); const id = setInterval(load, 4000); return () => clearInterval(id) }, [load])
+
+  // โหลดรายการเครื่อง (poll เบา ๆ ทุก 8 วิ — เผื่อเสียบ/ถอดเครื่อง)
+  const loadDevices = useCallback(async () => {
+    try { const d = await api.devices(); setDevices(prev => {
+      const next = d.devices || []
+      const sig = a => a.map(x => `${x.serial}:${x.status}:${x.label || x.model || ''}`).join('|')
+      return sig(prev) === sig(next) ? prev : next
+    }) } catch {}
+  }, [])
+  useEffect(() => { loadDevices(); const id = setInterval(loadDevices, 8000); return () => clearInterval(id) }, [loadDevices])
+
+  const onlineDevices = devices.filter(d => d.status === 'device' || !d.status)
+
+  // จับคู่ 1 คลิป (optimistic — อัปเดตทันที ไม่รอ backend)
+  const assignOne = useCallback((id, serial) => {
+    setJobs(prev => prev.map(j => j.id === id ? { ...j, assigned_serial: serial || '' } : j))
+    api.assignJob(id, serial).catch(() => {}).finally(load)
+  }, [load])
+  // จับคู่หลายคลิป
+  const assignMany = (serial) => {
+    const ids = [...sel]
+    if (!ids.length) return
+    setJobs(prev => prev.map(j => ids.includes(j.id) ? { ...j, assigned_serial: serial || '' } : j))
+    api.assignJobs(ids, serial).catch(() => {}).finally(load)
+    setSel(new Set())
+  }
+  const toggleSel = useCallback((id) => setSel(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
+  }), [])
+  const clearSel = () => setSel(new Set())
 
   const postNow = async (id) => { setBusy(id); try { await api.postJob(id) } catch {}; setTimeout(() => { setBusy(null); load() }, 1500) }
   const dryNow  = async (id) => { setDryBusy(id); try { await api.dryPostJob(id) } catch {}; setTimeout(() => setDryBusy(null), 3000) }
@@ -178,6 +215,7 @@ export default function JobsPage() {
                   <AnimatePresence initial={false}>
                     {notPosted.map(j => (
                       <JobCard key={j.id} job={j} busy={busy} dryBusy={dryBusy} copied={copied}
+                        devices={onlineDevices} selected={sel.has(j.id)} onToggleSel={toggleSel} onAssign={assignOne}
                         onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onOpen={setPreview} />
                     ))}
                   </AnimatePresence>
@@ -191,6 +229,7 @@ export default function JobsPage() {
                   <AnimatePresence initial={false}>
                     {posted.map(j => (
                       <JobCard key={j.id} job={j} busy={busy} dryBusy={dryBusy} copied={copied}
+                        devices={onlineDevices} selected={sel.has(j.id)} onToggleSel={toggleSel} onAssign={assignOne}
                         onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onOpen={setPreview} />
                     ))}
                   </AnimatePresence>
@@ -206,6 +245,32 @@ export default function JobsPage() {
         {preview && (
           <ClipPreviewModal key="preview" job={preview} busy={busy} dryBusy={dryBusy} copied={copied}
             onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onClose={() => setPreview(null)} />
+        )}
+      </AnimatePresence>
+
+      {/* แถบจับคู่หลายคลิป (sticky ล่าง) */}
+      <AnimatePresence>
+        {sel.size > 0 && (
+          <motion.div key="assignbar" initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-3 rounded-2xl border border-border bg-card shadow-lift">
+            <span className="text-sm text-foreground font-semibold flex items-center gap-1.5">
+              <CheckSquare size={15} className="text-accent" /> assign {sel.size} คลิป
+            </span>
+            <div className="relative flex items-center">
+              <Smartphone size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <select defaultValue="" onChange={(e) => { assignMany(e.target.value); e.target.value = '' }}
+                className="appearance-none pl-8 pr-7 py-1.5 text-xs font-medium bg-secondary border border-border rounded-lg text-foreground outline-none focus:border-accent/50 cursor-pointer">
+                <option value="" disabled>เลือกเครื่อง…</option>
+                <option value="">อัตโนมัติ</option>
+                {onlineDevices.length === 0
+                  ? <option disabled>ไม่มีเครื่องต่ออยู่</option>
+                  : onlineDevices.map(d => <option key={d.serial} value={d.serial}>{deviceName(d)}</option>)}
+              </select>
+            </div>
+            <button onClick={clearSel} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+              <Square size={13} /> ล้าง
+            </button>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -227,9 +292,11 @@ function GroupHeader({ title, count, tone }) {
 }
 
 // ── การ์ดงาน 1 ใบ ──
-const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, onCopy, onDry, onPost, onCancel, onRemove, onOpen }) {
+const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, devices = [], selected, onToggleSel, onAssign, onCopy, onDry, onPost, onCancel, onRemove, onOpen }) {
   const s = JOB_STATUS[j.status] ?? JOB_STATUS.pending
   const isErr = j.status === 'error'
+  const assigned = j.assigned_serial || ''
+  const assignedDev = assigned ? devices.find(d => d.serial === assigned) : null
   return (
     <motion.div
       key={j.id}
@@ -240,6 +307,12 @@ const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, onCopy, o
       className="group rounded-xl bg-card text-card-foreground border border-border shadow-card p-4 lift"
     >
       <div className="flex items-center gap-4">
+        {/* checkbox เลือกหลายคลิป */}
+        <button onClick={() => onToggleSel?.(j.id)} title="เลือกเพื่อจับคู่หลายคลิป"
+          className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all
+            ${selected ? 'bg-accent border-accent' : 'bg-secondary border-border hover:border-accent/50'}`}>
+          {selected && <Check size={13} className="text-white" strokeWidth={3} />}
+        </button>
         {/* รูปย่อคลิป (ใหญ่ขึ้น + กดเล่น) */}
         <button onClick={() => j.file && onOpen(j)} disabled={!j.file}
           className="relative w-16 h-24 rounded-lg overflow-hidden bg-black shrink-0 border border-border hover:border-accent/60 transition-colors disabled:cursor-default">
@@ -289,6 +362,29 @@ const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, onCopy, o
               <Link2 size={11} /> ไม่มีลิงก์ตะกร้า
             </span>
           )}
+          {/* จับคู่เครื่อง */}
+          <div className="mt-2 flex items-center gap-1.5">
+            <Smartphone size={12} className="text-muted-foreground shrink-0" />
+            <div className="relative flex items-center">
+              <select value={assigned} onChange={(e) => onAssign?.(j.id, e.target.value)}
+                className={`appearance-none pl-2 pr-6 py-1 text-[11px] font-medium rounded-lg border outline-none cursor-pointer transition-colors
+                  ${assigned ? 'bg-accent-wash text-accent border-accent/30' : 'bg-secondary text-muted-foreground border-border'} focus:border-accent/50`}>
+                <option value="">อัตโนมัติ</option>
+                {assignedDev == null && assigned && (
+                  <option value={assigned}>{assigned} (ไม่ต่ออยู่)</option>
+                )}
+                {devices.length === 0
+                  ? <option disabled>ไม่มีเครื่องต่ออยู่</option>
+                  : devices.map(d => <option key={d.serial} value={d.serial}>{deviceName(d)}</option>)}
+              </select>
+              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground text-[9px]">▾</span>
+            </div>
+            {assigned && (
+              <span className="text-[10px] text-accent font-medium truncate">
+                → {assignedDev ? deviceName(assignedDev) : assigned}
+              </span>
+            )}
+          </div>
         </div>
         <span title={j.error || ''}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold shrink-0 ${s.cls}`}>
