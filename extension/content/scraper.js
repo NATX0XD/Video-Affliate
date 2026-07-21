@@ -1038,11 +1038,31 @@ if (window._shopeeScraperLoaded) {
       if (ok) { await sleep(1200); slog('เริ่มดูดผลการค้นหา…'); runScrape(); }
     }
 
+    // ปิด popup/โฆษณาที่ Shopee เด้งตอนเปิดหน้าครั้งแรก (บังปุ่ม/การ์ด → ดูดไม่ได้)
+    function closeAds() {
+      let closed = 0;
+      try {
+        const sels = ['.ant-modal-close', '.shopee-popup__close-btn', '[class*="Popup"] [class*="close" i]',
+          '[aria-label="Close"]', '[aria-label="close"]', '[aria-label="ปิด"]'];
+        for (const s of sels) document.querySelectorAll(s).forEach(el => {
+          try { const r = el.getBoundingClientRect(); if (r.width && r.height) { el.click(); closed++; } } catch {}
+        });
+        document.querySelectorAll('[role="dialog"] button,[class*="overlay" i] button,[class*="popup" i] button').forEach(b => {
+          const t = (b.innerText || b.getAttribute('aria-label') || '').trim();
+          if (/^(×|✕|✖|x|close|ปิด)$/i.test(t)) { try { b.click(); closed++; } catch {} }
+        });
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      } catch {}
+      return closed;
+    }
+
     async function runScrape() {
       if (running) return;
       running = true; window._scrapeStop = false;
       $('#__sc_scrape').disabled = true; $('#__sc_stopbtn').style.display = 'flex';
       $('#__sc_found').textContent = '0'; $('#__sc_sent').textContent = '0';
+      const _ads = closeAds(); if (_ads) slog(`ปิดโฆษณา/ป๊อปอัป ${_ads} อัน`);
+      await sleep(400);
       slog('เริ่มเลื่อนหน้าเก็บสินค้า…');
       window._onScrapeProgress = (n) => { $('#__sc_found').textContent = n; };
       try {
