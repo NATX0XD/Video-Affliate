@@ -81,6 +81,7 @@ class JobStore:
                     cost          REAL DEFAULT 0,
                     cost_at       INTEGER DEFAULT 0,
                     next_retry_at INTEGER DEFAULT 0,
+                    assigned_serial TEXT DEFAULT '',   -- คลิปนี้ล็อกให้เครื่อง serial นี้ ('' = auto)
                     created_at    INTEGER,
                     updated_at    INTEGER,
                     posted_at     INTEGER
@@ -168,6 +169,8 @@ class JobStore:
                 adds.append("ALTER TABLE jobs ADD COLUMN next_retry_at INTEGER DEFAULT 0")
             if "cost_at" not in cols:
                 adds.append("ALTER TABLE jobs ADD COLUMN cost_at INTEGER DEFAULT 0")
+            if "assigned_serial" not in cols:
+                adds.append("ALTER TABLE jobs ADD COLUMN assigned_serial TEXT DEFAULT ''")
             for sql in adds:
                 self._conn.execute(sql)
 
@@ -302,6 +305,36 @@ class JobStore:
             )
             self._conn.commit()
             return self.get(jid)
+
+    def claim_for_device(self, serial: str, from_status: str,
+                         to_status: str) -> Optional[dict]:
+        """เหมือน claim() แต่เคารพ assigned_serial (M1):
+          - งานที่ assign ให้ serial นี้ → หยิบก่อน
+          - งานที่ยังไม่ assign ('') → เครื่องไหนก็หยิบได้
+          - งานที่ assign ให้เครื่องอื่น → ข้าม (เครื่องนี้ห้ามแตะ)
+        ถ้า serial ว่าง → พฤติกรรมเดิม (auto) แต่ยังกันงานที่ถูกจองไว้ให้เครื่องอื่น."""
+        ts = _now()
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT id FROM jobs
+                   WHERE status=? AND (next_retry_at IS NULL OR next_retry_at<=?)
+                     AND (assigned_serial='' OR assigned_serial=?)
+                   ORDER BY (assigned_serial=?) DESC, created_at ASC LIMIT 1""",
+                (from_status, ts, serial, serial),
+            ).fetchone()
+            if row is None:
+                return None
+            jid = row["id"]
+            self._conn.execute(
+                "UPDATE jobs SET status=?, updated_at=? WHERE id=?",
+                (to_status, ts, jid),
+            )
+            self._conn.commit()
+            return self.get(jid)
+
+    def set_job_assignment(self, job_id: int, serial: str = ""):
+        """ล็อกคลิปให้เครื่อง serial ('' = auto/ปลดล็อก)."""
+        self.update(job_id, assigned_serial=(serial or ""))
 
     # ── update ────────────────────────────────────────────────
 

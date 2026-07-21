@@ -84,7 +84,15 @@ class AutoPilot:
         if not ready_enabled(cfg.load()):
             self.log("[AUTO] โพสต์ไม่ได้ — ยังไม่ได้เลือกแพลตฟอร์มปลายทาง (ตั้งค่า)")
             return False
-        serial = self._pick_device()
+        # M1: ถ้าคลิป assign ไว้ → โพสต์เครื่องนั้นเท่านั้น (ออฟไลน์ = ไม่เด้งไปเครื่องอื่น)
+        assigned = (job.get("assigned_serial") or "").strip()
+        if assigned:
+            if not self._device_online(assigned):
+                self.log(f"[AUTO] โพสต์ไม่ได้ — เครื่องที่กำหนด ({assigned}) ออฟไลน์")
+                return False
+            serial = assigned
+        else:
+            serial = self._pick_device()
         if not serial:
             self.log("[AUTO] โพสต์ไม่ได้ — ไม่มีมือถือเชื่อมต่อ")
             return False
@@ -171,7 +179,8 @@ class AutoPilot:
                 time.sleep(5); continue
             if not self._health_ok(serial, s):    # ร้อนเกิน/แบตต่ำ → พักเครื่อง (E)
                 time.sleep(8); continue
-            job = self.db.claim(GENERATED, POSTING)   # atomic → ไม่ชนกับเครื่องอื่น
+            # M1: หยิบงานที่ assign ให้เครื่องนี้ก่อน + งาน auto ('') — ไม่แตะงานเครื่องอื่น
+            job = self.db.claim_for_device(serial, GENERATED, POSTING)
             if not job:
                 time.sleep(4); continue
             self._post_one(job, serial, s, self._device_platforms(serial))
