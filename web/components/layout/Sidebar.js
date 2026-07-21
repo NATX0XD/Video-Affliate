@@ -4,7 +4,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
-  ListOrdered, Settings, Film, X, CheckSquare, MonitorSmartphone, ShieldAlert, GitBranch, Package,
+  ListOrdered, Settings, Film, X, CheckSquare, MonitorSmartphone, ShieldAlert, GitBranch, Package, ScrollText,
 } from 'lucide-react'
 
 const NAV = [
@@ -23,6 +23,7 @@ const NAV = [
     { href: '/mirror',    label: 'จอสด',          icon: MonitorSmartphone },
   ]},
   { group: 'ระบบ', items: [
+    { href: '/logs',      label: 'บันทึก',        icon: ScrollText      },
     { href: '/settings',  label: 'ตั้งค่า',       icon: Settings        },
   ]},
 ]

@@ -24,6 +24,7 @@ const TITLES = {
   '/library':   'คลังคลิป',
   '/devices':   'ดูแลเครื่อง',
   '/mirror':    'จอสด',
+  '/logs':      'บันทึก',
   '/settings':  'ตั้งค่า',
 }
 

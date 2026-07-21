@@ -45,6 +45,7 @@ export const api = {
   getSetup:        ()         => req('GET',  '/api/setup'),
   saveSetup:       (data)     => req('POST', '/api/setup', data),
   logs:            (q = '')   => req('GET',  `/api/logs${q}`),
+  clearLogs:       ()         => req('POST', '/api/logs/clear'),
   diagnostics:     ()         => req('GET',  '/api/diagnostics'),
   mirrorStart:     (serial)   => req('POST', `/api/mirror/start/${serial}`),
   mirrorStop:      (serial)   => req('POST', `/api/mirror/stop/${serial}`),
