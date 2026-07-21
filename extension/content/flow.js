@@ -154,6 +154,28 @@ if (window._flowAutomatorLoaded) {
       return s;
     } catch { return ""; }
   }
+  // dump เนื้อในป๊อปอัปโหมด "ตอนเปิด" — จับ div/span/button ใบเล็กในโซนกลาง/ขวา (ป๊อปอัปโหมดอยู่ที่นั่น)
+  // ใช้ diagnose ว่าปุ่ม วิดีโอ/เฟรม จริงอยู่พิกัดไหน + ข้อความอะไร (allClickable จับ div ไม่ครบ)
+  let _modePopupDump = "";
+  function dumpPopup() {
+    try {
+      const seen = new Set(); const out = [];
+      for (const el of document.querySelectorAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],[role="menuitemradio"],div,span')) {
+        if (!isVisible(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.left <= 110 || r.width <= 4 || r.width > 360 || r.height <= 4 || r.height > 140) continue;
+        // leaf-ish: ข้อความสั้น (ตัด container ที่รวมหลายปุ่ม)
+        const t = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+        if (!t || t.length > 34) continue;
+        const key = Math.round(r.left) + "," + Math.round(r.top) + "|" + t.slice(0, 20);
+        if (seen.has(key)) continue; seen.add(key);
+        const role = el.getAttribute("role") || el.tagName.toLowerCase();
+        out.push(`[${Math.round(r.left)},${Math.round(r.top)} ${role}]${t.slice(0, 26)}`);
+        if (out.length >= 34) break;
+      }
+      return out.join(" · ");
+    } catch { return ""; }
+  }
   function findByText(words, scope = allClickable()) {
     const w = words.map(norm);
     return scope.find((el) => {
@@ -1565,7 +1587,9 @@ if (window._flowAutomatorLoaded) {
       // เปิดป๊อปอัปให้ชัวร์ — คลิกปุ่มโหมดจน "เห็นตัวเลือกเป้าหมาย" จริง (สูงสุด 3 ครั้ง) เผื่อคลิกแรกไม่เปิด
       let opt = null;
       for (let k = 0; k < 3 && !opt; k++) { await trustedClickEl(btn, log); await sleep(950); opt = findModeOption(typeLabel); }
-      if (!opt) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ ลองรอบ ${attempt}/4`); await sleep(800); continue; }
+      // จับเนื้อป๊อปอัป "ตอนเปิด" ทุกครั้ง (ก่อนคลิก/Escape) — diagnose ปุ่ม วิดีโอ/เฟรม จริง
+      _modePopupDump = dumpPopup();
+      if (!opt) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ ลองรอบ ${attempt}/4 | ป๊อปอัป: ${_modePopupDump}`); await sleep(800); continue; }
       await clickModeOption(typeLabel, log); await sleep(700);
       if (subLabel) { await clickModeOption(subLabel, log); await sleep(650); }
       if (countLabel) { await clickModeOption(countLabel, log); await sleep(550); }   // 1x/x2/x3/x4
@@ -1893,7 +1917,7 @@ if (window._flowAutomatorLoaded) {
     let name = opts.name; try { const d = await chrome.storage.local.get("products"); name = name || ((d.products || [])[0]?.basic_info?.name); } catch {}
     await ensureChatPage(log);
     const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);
-    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: "เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มบนจอ: " + _d, steps }; }
+    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: "เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ป๊อปอัป: " + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
     await sleep(900);
     log("เลือกเฟรมเริ่ม… (โมเดลรับเฉพาะเฟรมเริ่ม ไม่ใส่เฟรมจบ)");
     const okS = await pickFrame("เริ่ม", startUrl, log);
