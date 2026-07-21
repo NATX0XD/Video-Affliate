@@ -201,6 +201,8 @@ jobs:
 
           # ตัวติดตั้ง + ตัวเปิด (*.vbs / *.bat / *.ps1) และคู่มือ (*.md) — ระดับ root
           Copy-Item -Path *.vbs, *.bat, *.ps1, *.md -Destination "$P\" -Force
+          # logo ตัวติดตั้ง (app.ico) — NSIS MUI_ICON + shortcut ต้องใช้ (อยู่ใน portable/)
+          if (Test-Path "portable\app.ico") { Copy-Item "portable\app.ico" "$P\" -Force }
 
           cmd /c "exit 0"   # reset $LASTEXITCODE (robocopy คืน code 1 = สำเร็จ กัน step แดง)
           Write-Host "=== payload root ==="
