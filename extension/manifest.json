@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Shopee VDO Gen",
-  "version": "3.27.3",
+  "version": "3.27.4",
   "description": "ตัวช่วยดูดสินค้าจาก Shopee เข้าคลังในแอป VDO Gen (localhost:3001) + ขับ Flow สร้างคลิปอัตโนมัติ — ศูนย์ควบคุมอยู่บนเว็บแอป",
   "permissions": [
     "activeTab",

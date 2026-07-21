@@ -41,6 +41,7 @@ export const api = {
   deleteJob:       (id)       => req('DELETE', `/api/jobs/${id}`),
   postJob:         (id)       => req('POST', `/api/jobs/${id}/post`),
   dryPostJob:      (id)       => req('POST', `/api/jobs/${id}/dryrun`),
+  cancelJob:       (id)       => req('POST', `/api/jobs/${id}/cancel`),   // ยกเลิกงานค้าง → generated
   getSetup:        ()         => req('GET',  '/api/setup'),
   saveSetup:       (data)     => req('POST', '/api/setup', data),
   logs:            (q = '')   => req('GET',  `/api/logs${q}`),

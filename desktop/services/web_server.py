@@ -709,6 +709,14 @@ class WebServer:
                 return {"ok": self.autopilot.dry_post_job(jid)}
             return {"ok": False}
 
+        @app.post("/api/jobs/{jid}/cancel")
+        def cancel_job(jid: int):
+            """ยกเลิกงานที่ค้าง (posting/generating) → รีเซ็ตกลับ generated เพื่อลองใหม่ได้
+            (thread โพสต์ที่รันอยู่จะจบเองแล้วเห็นสถานะเปลี่ยน — งานไม่ค้างในหน้าจอ)"""
+            if self.db:
+                self.db.set_status(jid, GENERATED, error="ยกเลิกโดยผู้ใช้")
+            return {"ok": True}
+
         @app.get("/api/reports")
         def reports():
             if not self.db:

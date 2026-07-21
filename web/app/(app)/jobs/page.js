@@ -70,6 +70,7 @@ export default function JobsPage() {
   const postNow = async (id) => { setBusy(id); try { await api.postJob(id) } catch {}; setTimeout(() => { setBusy(null); load() }, 1500) }
   const dryNow  = async (id) => { setDryBusy(id); try { await api.dryPostJob(id) } catch {}; setTimeout(() => setDryBusy(null), 3000) }
   const remove  = async (id) => { setBusy(id); try { await api.deleteJob(id) } catch {}; setBusy(null); load() }
+  const cancel  = async (id) => { setBusy(id); try { await api.cancelJob(id) } catch {}; setBusy(null); load() }
 
   const q = query.trim().toLowerCase()
   const shown = jobs
@@ -177,7 +178,7 @@ export default function JobsPage() {
                   <AnimatePresence initial={false}>
                     {notPosted.map(j => (
                       <JobCard key={j.id} job={j} busy={busy} dryBusy={dryBusy} copied={copied}
-                        onCopy={copy} onDry={dryNow} onPost={postNow} onRemove={remove} onOpen={setPreview} />
+                        onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onOpen={setPreview} />
                     ))}
                   </AnimatePresence>
                 </div>
@@ -190,7 +191,7 @@ export default function JobsPage() {
                   <AnimatePresence initial={false}>
                     {posted.map(j => (
                       <JobCard key={j.id} job={j} busy={busy} dryBusy={dryBusy} copied={copied}
-                        onCopy={copy} onDry={dryNow} onPost={postNow} onRemove={remove} onOpen={setPreview} />
+                        onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onOpen={setPreview} />
                     ))}
                   </AnimatePresence>
                 </div>
@@ -204,7 +205,7 @@ export default function JobsPage() {
       <AnimatePresence>
         {preview && (
           <ClipPreviewModal key="preview" job={preview} busy={busy} dryBusy={dryBusy} copied={copied}
-            onCopy={copy} onDry={dryNow} onPost={postNow} onRemove={remove} onClose={() => setPreview(null)} />
+            onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onClose={() => setPreview(null)} />
         )}
       </AnimatePresence>
     </div>
@@ -226,7 +227,7 @@ function GroupHeader({ title, count, tone }) {
 }
 
 // ── การ์ดงาน 1 ใบ ──
-const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, onCopy, onDry, onPost, onRemove, onOpen }) {
+const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, onCopy, onDry, onPost, onCancel, onRemove, onOpen }) {
   const s = JOB_STATUS[j.status] ?? JOB_STATUS.pending
   const isErr = j.status === 'error'
   return (
@@ -289,7 +290,8 @@ const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, onCopy, o
             </span>
           )}
         </div>
-        <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold shrink-0 ${s.cls}`}>
+        <span title={j.error || ''}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold shrink-0 ${s.cls}`}>
           {s.spin && <Loader2 size={11} className="animate-spin" />}{s.label}
         </span>
         {j.status === 'generated' && (
@@ -304,6 +306,20 @@ const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, onCopy, o
             </Button>
           </>
         )}
+        {/* งานค้าง (posting/generating/retry) หรือ error → ยกเลิก + ลองใหม่ */}
+        {['posting', 'generating', 'retry', 'error'].includes(j.status) && (
+          <>
+            <button onClick={() => onCancel(j.id)} disabled={busy === j.id}
+              title="ยกเลิกงานที่ค้าง → กลับเป็น 'พร้อมโพสต์' (ลองใหม่ได้)"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-[12px] font-semibold text-muted-foreground hover:text-danger hover:bg-danger/10 transition-all shrink-0 disabled:opacity-50">
+              {busy === j.id ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />} ยกเลิก
+            </button>
+            <Button size="sm" variant="outline" onClick={() => onPost(j.id)} disabled={busy === j.id}
+              title="สั่งโพสต์ใหม่อีกครั้ง" className="shrink-0">
+              <Send size={12} /> ลองใหม่
+            </Button>
+          </>
+        )}
         <button onClick={() => onRemove(j.id)} disabled={busy === j.id}
           className="p-2 rounded-lg text-muted-foreground hover:text-danger hover:bg-danger/10 transition-all shrink-0">
           <Trash2 size={14} />
@@ -314,7 +330,7 @@ const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, onCopy, o
 }, jobCardEqual)
 
 // ── โมดอลเล่นคลิป (รีเช็ค + ลงมือ) ──
-function ClipPreviewModal({ job: j, busy, dryBusy, copied, onCopy, onDry, onPost, onRemove, onClose }) {
+function ClipPreviewModal({ job: j, busy, dryBusy, copied, onCopy, onDry, onPost, onCancel, onRemove, onClose }) {
   useEffect(() => {
     const h = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', h)
