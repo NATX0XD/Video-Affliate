@@ -119,6 +119,15 @@ class WebServer:
             allow_headers=["*"],
         )
 
+        # HTML shell = no-store → Chrome ไม่ cache หน้าเก่า (เดิมอัปเวอร์ชันแล้วยังเห็นหน้าเก่า/setup ไม่ขึ้น)
+        # ไฟล์ JS/CSS ของ Next มี hash ในชื่อ (เปลี่ยนทุก build) → cache ได้ ไม่ต้องแตะ
+        @app.middleware("http")
+        async def _no_cache_html(request, call_next):
+            resp = await call_next(request)
+            if resp.headers.get("content-type", "").startswith("text/html"):
+                resp.headers["Cache-Control"] = "no-store, must-revalidate"
+            return resp
+
         # ── REST endpoints ──
 
         @app.get("/api/status")
