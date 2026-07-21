@@ -55,8 +55,14 @@ ShowUninstDetails show
 ; ---- หน้าตา MUI ----
 !define MUI_ABORTWARNING
 ; logo จริงของแอป (app.ico อยู่ใน payload จาก portable/) — ไอคอนตัวติดตั้ง .exe + wizard + uninstaller
-!define MUI_ICON "${PAYLOAD_DIR}\app.ico"
-!define MUI_UNICON "${PAYLOAD_DIR}\app.ico"
+; guard: ถ้าไม่มี app.ico ใน payload → ใช้ไอคอน NSIS default (กัน makensis ล้มทั้ง build)
+!if /FileExists "${PAYLOAD_DIR}\app.ico"
+  !define MUI_ICON "${PAYLOAD_DIR}\app.ico"
+  !define MUI_UNICON "${PAYLOAD_DIR}\app.ico"
+!else
+  !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
+  !define MUI_UNICON "${NSISDIR}\Contrib\Graphics\Icons\modern-uninstall.ico"
+!endif
 
 ; Welcome
 !define MUI_WELCOMEPAGE_TITLE "ติดตั้ง ${APP_NAME}"
@@ -134,14 +140,13 @@ FunctionEnd
 ; ============================================================================
 ;  ถอนการติดตั้ง
 ; ============================================================================
-; หมายเหตุ: ข้อมูลผู้ใช้ (ฐานข้อมูล/ตั้งค่า/คลิป) เก็บนอก install dir ที่ %USERPROFILE%\.vgap
-; (ดู config.py: VGAP_DATA_DIR หรือ ~/.vgap) → การถอนตรงนี้ "ไม่" ลบข้อมูลผู้ใช้
+; หมายเหตุ: ข้อมูลผู้ใช้ (ฐานข้อมูล/ตั้งค่า/setup_done) เก็บที่ %USERPROFILE%\.vgap
+; (config.py: VGAP_DATA_DIR หรือ ~/.vgap) — ตัวรันจากซอร์ส (_run-source.bat) ไม่ตั้ง VGAP_DATA_DIR
+; → data อยู่ ~/.vgap. ถอนแล้ว "ต้องลบ ~/.vgap ด้วย" ไม่งั้นลงใหม่จำ setup เก่า (หน้า setup ไม่ขึ้น)
 Section "Uninstall"
   SetShellVarContext current
 
   ; ปิดโปรแกรมก่อน (กันไฟล์ถูกล็อก) — เงียบ ๆ ไม่ error ถ้าไม่ได้เปิดอยู่
-  ; ★ ต้อง kill vgap-server.exe (โปรแกรมจริง frozen) ด้วย ไม่งั้นมันล็อก data\app.db,settings.json
-  ;   → RMDir ลบ data ไม่ได้ → ลงใหม่ยังจำ setup เก่า (หน้า setup ไม่ขึ้น)
   ExecWait 'taskkill /im vgap-server.exe /f'
   ExecWait 'taskkill /im python.exe /f'
   ExecWait 'taskkill /im pythonw.exe /f'
@@ -154,8 +159,11 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${APP_NAME}\ถอนการติดตั้ง.lnk"
   RMDir  "$SMPROGRAMS\${APP_NAME}"
 
-  ; ลบไฟล์โปรแกรมทั้งหมด (ไม่แตะ ~/.vgap)
+  ; ลบไฟล์โปรแกรมทั้งหมด
   RMDir /r "$INSTDIR"
+
+  ; ★ ลบข้อมูลผู้ใช้ (~/.vgap) ด้วย — ไม่งั้นลงใหม่ยังจำ setup เก่า หน้า setup ไม่ขึ้น
+  RMDir /r "$PROFILE\.vgap"
 
   ; ลบ registry
   DeleteRegKey HKCU "${UNINST_KEY}"
