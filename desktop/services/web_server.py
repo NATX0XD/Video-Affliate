@@ -1544,7 +1544,10 @@ class WebServer:
                 opened = (r.returncode == 0)
             except Exception:
                 opened = False
-        if not opened and chrome:
+        # Windows: การยิง chrome:// ทาง CLI ตอน Chrome รันอยู่ = เด้ง "profile picker" (ไม่เปิดหน้า extension)
+        #          + ไม่มีทาง auto-open chrome:// จากนอก Chrome ได้ (ข้อจำกัด security) → ข้าม (กันเด้ง picker)
+        # Linux: chromium บางตัวเปิด chrome:// จาก CLI ได้ → ลองได้
+        if not opened and chrome and os.name != "nt":
             try:
                 subprocess.Popen([chrome, "chrome://extensions/"]); opened = True
             except Exception:
@@ -1555,8 +1558,10 @@ class WebServer:
             else:                        subprocess.Popen(["xdg-open", str(ext)])
         except Exception:
             pass
-        return {"ok": True, "opened_chrome": opened, "path": str(ext),
-                "hint": "" if opened else "หา Chrome ไม่เจอ — เปิด chrome://extensions เองแล้ว Load unpacked โฟลเดอร์ที่เผยไว้"}
+        hint = "" if opened else (
+            "พิมพ์ chrome://extensions ในแถบที่อยู่ Chrome เอง → เปิด 'โหมดนักพัฒนา' (Developer mode) "
+            "→ กด 'Load unpacked' แล้วเลือกโฟลเดอร์ที่เพิ่งเผยใน Explorer")
+        return {"ok": True, "opened_chrome": opened, "path": str(ext), "hint": hint}
 
     def _touch_extension(self):
         """extension เพิ่งติดต่อเข้ามา (เรียก /api/flow/*) — จำเวลาไว้ให้ onboarding เช็ค 'เชื่อมแล้ว'."""
