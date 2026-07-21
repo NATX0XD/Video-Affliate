@@ -235,6 +235,93 @@ class WebServer:
                 self.db.set_config(f"dev_platforms:{serial}", ",".join(plats))
             return {"ok": True}
 
+        # ── พิกัดโพสต์ต่อเครื่อง (calibrate) — override ตายตัวของ AutoPoster ──
+        # additive: ไม่มี override ที่เซฟ → poster ใช้พิกัดเดิม 100%
+        def _post_coords_defaults():
+            from services.adb.autoposter import AutoPoster
+            defaults = {k: [rx, ry] for k, (rx, ry) in AutoPoster.R.items()}
+            keys = [{"key": k, "label": AutoPoster.LABELS.get(k, k)} for k in AutoPoster.R]
+            return defaults, keys
+
+        def _saved_coords(serial: str) -> dict:
+            if not self.db:
+                return {}
+            raw = self.db.get_config(f"post_coords:{serial}", "") or ""
+            if not raw.strip():
+                return {}
+            try:
+                d = json.loads(raw)
+                return d if isinstance(d, dict) else {}
+            except Exception:
+                return {}
+
+        def _device_resolution(serial: str):
+            """(w,h) ของเครื่อง — จาก device attr ถ้ามี ไม่งั้น query wm size. คืน (None,None) ถ้าไม่รู้."""
+            d = self.adb.devices.get(serial) if self.adb else None
+            w = getattr(d, "phoneW", None)
+            h = getattr(d, "phoneH", None)
+            if not (w and h) and self.adb and d and getattr(d, "status", "") == "device":
+                ok, out = self.adb._adb("shell", "wm", "size", serial=serial)
+                m = re.search(r"(\d+)x(\d+)", out) if ok else None
+                if m:
+                    w, h = int(m.group(1)), int(m.group(2))
+            return (w, h) if (w and h) else (None, None)
+
+        @app.get("/api/devices/{serial}/coords")
+        def get_device_coords(serial: str):
+            defaults, keys = _post_coords_defaults()
+            coords = _saved_coords(serial)
+            w, h = _device_resolution(serial)
+            is_tablet = False
+            if w and h:
+                aspect = max(w, h) / min(w, h)
+                is_tablet = aspect < 1.9   # มือถือ ~2.16 · แท็บเล็ต ~1.6 (4:3/16:10)
+            return {
+                "ok": True,
+                "coords": coords,
+                "defaults": defaults,
+                "keys": keys,
+                "calibrated": bool(coords),
+                "resolution": [w, h] if (w and h) else None,
+                "is_tablet": is_tablet,
+            }
+
+        @app.post("/api/devices/{serial}/coords")
+        def set_device_coords(serial: str, body: dict):
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            defaults, _ = _post_coords_defaults()
+            incoming = (body or {}).get("coords") or {}
+            if not isinstance(incoming, dict):
+                return {"ok": False, "error": "coords ต้องเป็น object {key:[rx,ry]}"}
+            clean = {}
+            for k, v in incoming.items():
+                if k not in defaults:
+                    return {"ok": False, "error": f"key ไม่ถูกต้อง: {k}"}
+                # รับ 2 shape: [rx,ry] (array) หรือ {rx,ry} (object) → เก็บเป็น [rx,ry]
+                if isinstance(v, dict):
+                    rxv, ryv = v.get("rx"), v.get("ry")
+                elif isinstance(v, (list, tuple)) and len(v) == 2:
+                    rxv, ryv = v[0], v[1]
+                else:
+                    return {"ok": False, "error": f"{k}: ต้องเป็น [rx,ry] หรือ {{rx,ry}}"}
+                try:
+                    rx, ry = float(rxv), float(ryv)
+                except (TypeError, ValueError):
+                    return {"ok": False, "error": f"{k}: rx,ry ต้องเป็นตัวเลข"}
+                if not (0.0 <= rx <= 1.0 and 0.0 <= ry <= 1.0):
+                    return {"ok": False, "error": f"{k}: rx,ry ต้องอยู่ 0..1"}
+                clean[k] = [rx, ry]
+            merged = {**_saved_coords(serial), **clean}   # merge กับที่เซฟไว้
+            self.db.set_config(f"post_coords:{serial}", json.dumps(merged, ensure_ascii=False))
+            return {"ok": True}
+
+        @app.delete("/api/devices/{serial}/coords")
+        def delete_device_coords(serial: str):
+            if self.db:
+                self.db.set_config(f"post_coords:{serial}", "")
+            return {"ok": True}
+
         @app.post("/api/mirror/start/{serial}")
         def mirror_start(serial: str):
             self._ensure_mirror(serial)

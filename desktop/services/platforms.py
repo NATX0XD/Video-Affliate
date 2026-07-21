@@ -36,7 +36,7 @@ class StubPoster:
         self.key = key
         self.log = log or print
 
-    def process(self, serial, video_path, product, dry_run=False):
+    def process(self, serial, video_path, product, dry_run=False, coords_override=None):
         self.log(f"[{self.key.upper()}] ไม่มีตัวโพสต์สำหรับแพลตฟอร์มนี้ — ข้าม")
         return None
 

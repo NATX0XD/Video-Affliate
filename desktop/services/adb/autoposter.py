@@ -42,6 +42,28 @@ class AutoPoster(BasePoster):
         "post_button":    (0.500, 0.900),  # ปุ่ม "โพสต์" ส้มแถบล่าง
     }
 
+    # ป้ายไทยต่อ key — ให้ API/หน้า calibrate โชว์ชื่อจุดที่เข้าใจง่าย (ลำดับ = ลำดับ flow)
+    LABELS = {
+        "live_video_tab": "แท็บ Live & Video",
+        "plus_button":    "ปุ่ม + สร้างวิดีโอ",
+        "gallery":        "เปิดแกลเลอรี",
+        "video_filter":   "กรองเฉพาะวิดีโอ",
+        "first_video":    "เลือกวิดีโออันล่าสุด",
+        "next_1":         "ปุ่มถัดไป (1)",
+        "next_2":         "ปุ่มถัดไป (2)",
+        "caption_field":  "ช่องแคปชั่น",
+        "add_product":    "เพิ่มสินค้า (ปุ่มส้ม)",
+        "link_icon":      "ไอคอนลิงก์ (มุมขวาบน)",
+        "link_field":     "ช่องวางลิงก์สินค้า",
+        "import_btn":     "ปุ่มนำเข้า",
+        "select_all":     "เลือกทั้งหมด",
+        "add_confirm":    "ปุ่มเพิ่ม (ยืนยันสินค้า)",
+        "duet_toggle":    "สลับ Duet (ปิด)",
+        "ai_label":       "ป้าย AI (เปิด)",
+        "caption_ok":     "ปุ่มตกลง แคปชั่น",
+        "post_button":    "ปุ่มโพสต์",
+    }
+
     def _tap_r(self, serial: str, key: str, settle: float = 2.0):
         rx, ry = self.R[key]
         self._tap_ratio(serial, rx, ry, name=key, settle=settle)
