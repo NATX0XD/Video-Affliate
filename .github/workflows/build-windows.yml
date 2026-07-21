@@ -142,6 +142,8 @@ jobs:
   # ═══════════════════════════════════════════════════════════════════════════
   build-source-installer:
     runs-on: windows-latest
+    permissions:
+      contents: write          # ให้ gh release upload อัป .exe ขึ้น release ได้
     steps:
       - uses: actions/checkout@v4
 
@@ -230,6 +232,15 @@ jobs:
           path: VDO-Gen-Setup.exe
           if-no-files-found: error
           retention-days: 30
+
+      # อัป .exe ขึ้น GitHub Release โดยตรง (GitHub→GitHub เร็ว · ไม่ต้องโหลด artifact มาอัปเอง)
+      - name: Publish .exe to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v1.0.0 "VDO-Gen-Setup.exe" --clobber --repo "${{ github.repository }}"
+          Write-Host "อัป VDO-Gen-Setup.exe ขึ้น release v1.0.0 แล้ว"
 
       # ── ถ้า push เป็น tag v* → แนบ installer เข้า GitHub Release ด้วย ──
       - name: Attach to Release
