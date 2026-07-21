@@ -136,6 +136,24 @@ if (window._flowAutomatorLoaded) {
     return [...document.querySelectorAll(getSelector("clickable", 'button,[role="button"],a,[tabindex]'))]
       .filter(isVisible);
   }
+  // DIAGNOSTIC: dump ปุ่ม/element ที่เห็นบนจอตอน step พัง → ส่งเข้า flow log ให้ดู selector จริงของ Flow UI ใหม่
+  function dumpBtns(log, tag) {
+    try {
+      const seen = new Set(); const out = [];
+      for (const el of allClickable()) {
+        const r = el.getBoundingClientRect();
+        const t = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 24);
+        const al = (el.getAttribute("aria-label") || "").slice(0, 20);
+        const key = t + "|" + al;
+        if ((!t && !al) || seen.has(key)) continue; seen.add(key);
+        out.push(`[${Math.round(r.left)},${Math.round(r.top)}${el.getAttribute("aria-pressed") ? " p=" + el.getAttribute("aria-pressed") : ""}]${t}${al ? "(al:" + al + ")" : ""}`);
+        if (out.length >= 28) break;
+      }
+      const s = out.join(" · ");
+      try { log && log(`[DUMP ${tag}] ` + s); } catch {}
+      return s;
+    } catch { return ""; }
+  }
   function findByText(words, scope = allClickable()) {
     const w = words.map(norm);
     return scope.find((el) => {
@@ -1677,7 +1695,7 @@ if (window._flowAutomatorLoaded) {
     if (!findModeBtn()) { log("รอแถบ prompt โหลด…"); await waitFor(findModeBtn, 25000, 800); }
     const modeOk = await setMode("รูปภาพ", null, count || null, log);   // โหมดรูปภาพ (nano banana · 0 เครดิต)
     // ★ guard #1: ยืนยันโหมดรูปภาพไม่ได้ → ยกเลิกก่อนแนบ/สร้าง (กันเผลอสร้างในโหมดวิดีโอเสีย 15 เครดิต/รูป)
-    if (!modeOk || !isImageMode()) return { ok: false, error: `ยกเลิกกันเสียเครดิต — ยืนยันโหมดรูปภาพ (0 เครดิต) ไม่ได้ (ปุ่มโหมด: "${modeBtnText().slice(0, 30)}")`, uploads: [] };
+    if (!modeOk || !isImageMode()) { const _d = dumpBtns(log, "image-mode-guard"); return { ok: false, error: `ยืนยันโหมดรูปภาพไม่ได้ (ปุ่มโหมด: "${modeBtnText().slice(0, 30)}") | ปุ่มบนจอ: ${_d}`, uploads: [] }; }
     await sleep(1500);                                          // ให้ UI นิ่งก่อนแนบ (กันรูปแรกแนบไม่ติด)
     const uploads = [];
     for (let i = 0; i < refs.length; i++) {
@@ -1875,11 +1893,11 @@ if (window._flowAutomatorLoaded) {
     let name = opts.name; try { const d = await chrome.storage.local.get("products"); name = name || ((d.products || [])[0]?.basic_info?.name); } catch {}
     await ensureChatPage(log);
     const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);
-    if (!fmOk) return { ok: false, error: "เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น", steps };
+    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: "เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มบนจอ: " + _d, steps }; }
     await sleep(900);
     log("เลือกเฟรมเริ่ม… (โมเดลรับเฉพาะเฟรมเริ่ม ไม่ใส่เฟรมจบ)");
     const okS = await pickFrame("เริ่ม", startUrl, log);
-    if (!okS) return { ok: false, error: "เลือกเฟรมเริ่มไม่สำเร็จ", steps };
+    if (!okS) { const _d = dumpBtns(log, "pick-frame"); return { ok: false, error: "เลือกเฟรมเริ่มไม่สำเร็จ | ปุ่มบนจอ: " + _d, steps }; }
     const motion = opts.prompt || defaultMotionPrompt(name);
     const box = await waitFor(findEditable, 15000);
     if (!box) return { ok: false, error: "ไม่พบช่องพิมพ์ prompt", steps };
