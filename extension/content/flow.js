@@ -132,9 +132,19 @@ if (window._flowAutomatorLoaded) {
     const s = getComputedStyle(el);
     return s.display !== "none" && s.visibility !== "hidden" && s.opacity !== "0";
   }
+  // ค้น element ทะลุ Shadow DOM (Flow ใหม่ render ป๊อปอัปโหมดใน shadow root → querySelector ปกติมองไม่เห็น)
+  function deepAll(selector) {
+    const out = []; const seen = new Set();
+    const walk = (root) => {
+      if (!root || seen.has(root)) return; seen.add(root);
+      try { out.push(...root.querySelectorAll(selector)); } catch {}
+      try { root.querySelectorAll("*").forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); }); } catch {}
+    };
+    walk(document);
+    return out;
+  }
   function allClickable() {
-    return [...document.querySelectorAll(getSelector("clickable", 'button,[role="button"],a,[tabindex]'))]
-      .filter(isVisible);
+    return deepAll(getSelector("clickable", 'button,[role="button"],a,[tabindex]')).filter(isVisible);
   }
   // DIAGNOSTIC: dump ปุ่ม/element ที่เห็นบนจอตอน step พัง → ส่งเข้า flow log ให้ดู selector จริงของ Flow UI ใหม่
   function dumpBtns(log, tag) {
@@ -160,7 +170,7 @@ if (window._flowAutomatorLoaded) {
   function dumpPopup() {
     try {
       const seen = new Set(); const out = [];
-      for (const el of document.querySelectorAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],[role="menuitemradio"],div,span')) {
+      for (const el of deepAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],[role="menuitemradio"],div,span')) {
         if (!isVisible(el)) continue;
         const r = el.getBoundingClientRect();
         if (r.left <= 40 || r.width <= 4 || r.width > 420 || r.height <= 4 || r.height > 140) continue;   // กันแค่ขอบ sidebar ซ้ายสุด
@@ -1536,12 +1546,13 @@ if (window._flowAutomatorLoaded) {
     "รูปภาพ": ["รูปภาพ", "image"], "วิดีโอ": ["วิดีโอ", "video"],
     "เฟรม": ["เฟรม", "frames"], "ส่วนผสม": ["ส่วนผสม", "ingredients"],
     "1x": ["1x"], "x2": ["x2"], "x3": ["x3"], "x4": ["x4"],
+    "9:16": ["9:16"], "16:9": ["16:9"], "1:1": ["1:1"],
   };
   // หาตัวเลือกในป๊อปอัปโหมด (รูปภาพ/วิดีโอ/เฟรม/ส่วนผสม/1x…) — รองรับทั้ง button และ div, เลือกตัวเล็กสุด (ไม่ใช่ container ครอบ)
   function findModeOption(label) {
     const want = norm(label);
     const wants = MODE_ALT[want] || [want];
-    const cands = [...document.querySelectorAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],div,span')]
+    const cands = deepAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],div,span')
       .filter(isVisible)
       .filter((el) => {
         const t = norm(el.innerText || el.textContent);
@@ -1600,7 +1611,7 @@ if (window._flowAutomatorLoaded) {
   function findFrameSlot(label) {
     const want = norm(label);
     const wants = FRAME_ALT[want] || [want];
-    return [...document.querySelectorAll('div,span,button,[role="button"]')]
+    return deepAll('div,span,button,[role="button"]')
       .filter(isVisible)
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 130 && r.height > 8 && r.height <= 130; })
       .find((el) => wants.includes(norm(el.innerText || el.textContent))) || null;
@@ -1648,6 +1659,9 @@ if (window._flowAutomatorLoaded) {
         }
       }
       if (countLabel) { await clickModeOption(countLabel, log); await sleep(500); }   // 1x/x2…
+      // บังคับสัดส่วน 9:16 (รูป+วิดีโอต้องแนวตั้ง) — กดเฉพาะเมื่อยังไม่ถูกเลือก
+      const asp = findModeOption("9:16");
+      if (asp && !isSelectedEl(asp)) { L("ตั้งสัดส่วน → 9:16"); await trustedClickEl(asp, log); await sleep(550); }
       // ยืนยันจากสถานะป๊อปอัป "ก่อนปิด" — เผื่อ slot เริ่ม/สิ้นสุด ตรวจไม่เจอ แต่เลือก เฟรม ถูกแล้ว
       const stFinal = readModeState();
       const subOk = !subLabel || stFinal.sub === (/เฟรม/.test(subLabel) ? "เฟรม" : "ส่วนผสม");
