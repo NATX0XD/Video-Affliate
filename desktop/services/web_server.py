@@ -1670,6 +1670,22 @@ class WebServer:
 
     EXT_ONLINE_WINDOW = 90   # วินาที — ถ้า extension ติดต่อภายในนี้ ถือว่า "เชื่อมอยู่"
 
+    def _chrome_last_profile(self):
+        """อ่านชื่อโฟลเดอร์ profile ที่ Chrome ใช้ล่าสุด (Windows) จาก Local State — กัน profile picker."""
+        import os, json
+        from pathlib import Path
+        try:
+            base = Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "User Data"
+            ls = base / "Local State"
+            if not ls.exists():
+                return None
+            d = json.loads(ls.read_text(encoding="utf-8", errors="ignore"))
+            prof = d.get("profile", {})
+            last = prof.get("last_used") or (prof.get("last_active_profiles") or [None])[0]
+            return last or "Default"
+        except Exception:
+            return None
+
     def _open_extensions_page(self) -> dict:
         """เปิด chrome://extensions + เผยโฟลเดอร์ extension ใน Finder/Explorer ให้ Load unpacked ง่าย."""
         import sys, os, shutil, subprocess
@@ -1705,12 +1721,18 @@ class WebServer:
                 opened = (r.returncode == 0)
             except Exception:
                 opened = False
-        # Windows: การยิง chrome:// ทาง CLI ตอน Chrome รันอยู่ = เด้ง "profile picker" (ไม่เปิดหน้า extension)
-        #          + ไม่มีทาง auto-open chrome:// จากนอก Chrome ได้ (ข้อจำกัด security) → ข้าม (กันเด้ง picker)
-        # Linux: chromium บางตัวเปิด chrome:// จาก CLI ได้ → ลองได้
-        if not opened and chrome and os.name != "nt":
+        # Windows/Linux: แอปเปิด Chrome เป็น "แท็บ" (Chrome รันอยู่แล้ว) → ยิง chrome://extensions/
+        #   เข้าแท็บใหม่ในหน้าต่างเดิมได้เลย ไม่เด้ง profile picker (picker เด้งเฉพาะตอน Chrome ยังไม่เปิด)
+        #   Windows เพิ่ม --profile-directory ตาม profile ที่เปิดล่าสุด ถ้าอ่านได้ (กัน picker กรณี Chrome เพิ่งปิด)
+        if not opened and chrome:
             try:
-                subprocess.Popen([chrome, "chrome://extensions/"]); opened = True
+                args = [chrome]
+                if os.name == "nt":
+                    prof = self._chrome_last_profile()
+                    if prof:
+                        args.append(f"--profile-directory={prof}")
+                args.append("chrome://extensions/")
+                subprocess.Popen(args); opened = True
             except Exception:
                 opened = False
         try:                                      # เผยโฟลเดอร์ให้ลาก/เลือก
