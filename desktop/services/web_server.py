@@ -967,6 +967,31 @@ class WebServer:
         def ext_open():
             return self._open_extensions_page()
 
+        # ── อัปเดต extension เอง (ปุ่มในหน้า Settings) — ดึงล่าสุดจาก GitHub ลงโฟลเดอร์ extension ──
+        # ใช้คำสั่งเดียวกับที่ผู้ใช้พิมพ์ใน Terminal (curl|tar) แต่รันให้จากเซิร์ฟเวอร์
+        @app.post("/api/ext/update")
+        def ext_update():
+            import subprocess, json as _json
+            from pathlib import Path
+            root = Path(__file__).resolve().parents[2]      # โฟลเดอร์ติดตั้ง (มี extension/ อยู่ข้างใน)
+            cmd = ("curl -fsSL https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz "
+                   "| tar xz --strip-components=1 'Video-Affliate-main/extension'")
+            try:
+                r = subprocess.run(cmd, shell=True, cwd=str(root), timeout=90,
+                                   capture_output=True, text=True)
+                if r.returncode != 0:
+                    return {"ok": False, "error": (r.stderr or "ดึงไฟล์ไม่สำเร็จ").strip()[:300]}
+                ver = _json.loads((root / "extension" / "manifest.json").read_text())["version"]
+                self._ext_reload_to = ver          # ตั้ง flag ให้ background reload ตัวเองเมื่อ poll เจอ
+                return {"ok": True, "version": ver}
+            except Exception as e:
+                return {"ok": False, "error": str(e)[:300]}
+
+        # background poll เอา flag นี้ไป reload ตัวเอง (unpacked reload อ่านไฟล์ใหม่จากดิสก์)
+        @app.get("/api/ext/latest")
+        def ext_latest():
+            return {"ok": True, "reload_to": getattr(self, "_ext_reload_to", None)}
+
         # ── Google Flow pipeline (extension สร้างคลิป + เขียน prompt เองในเบราว์เซอร์) ──
 
         @app.get("/api/flow/config")
