@@ -1550,6 +1550,31 @@ if (window._flowAutomatorLoaded) {
   }
   // ป๊อปอัปโหมด "เปิดอยู่" = เจอทั้งแท็บ "รูปภาพ" และ "วิดีโอ" (สองอันนี้อยู่ด้วยกันเฉพาะในป๊อปอัป)
   const popupOpen = () => !!(findModeOption("รูปภาพ") && findModeOption("วิดีโอ"));
+  // แท็บ "ถูกเลือกอยู่" ไหม — ไม่ fix ตายตัว: เช็ค aria/data-state ก่อน, ถ้าไม่มี → ดูพื้นหลัง "สว่าง" (pill ขาวบนป๊อปอัปดำ = active)
+  function isSelectedEl(el) {
+    try {
+      for (let n = el, i = 0; n && i < 3; n = n.parentElement, i++) {
+        if (!n.getAttribute) continue;
+        const a = (n.getAttribute("aria-selected") || n.getAttribute("aria-checked") || n.getAttribute("aria-pressed") || n.getAttribute("data-state") || "").toLowerCase();
+        if (["true", "active", "on", "checked", "selected"].includes(a)) return true;
+        const bg = getComputedStyle(n).backgroundColor || "";
+        const m = bg.match(/rgba?\(([^)]+)\)/);
+        if (m) { const p = m[1].split(",").map((s) => parseFloat(s)); const al = p[3] === undefined ? 1 : p[3]; if (al > 0.5 && (p[0] + p[1] + p[2]) / 3 > 150) return true; }  // พื้นหลังสว่าง = active
+      }
+    } catch {}
+    return false;
+  }
+  // อ่านสถานะป๊อปอัป "ตอนนี้" — ชนิด(รูปภาพ/วิดีโอ) + โหมดย่อย(เฟรม/ส่วนผสม) โดยดูจากที่ถูกเลือกจริง (ไม่ hardcode)
+  function readModeState() {
+    const img = findModeOption("รูปภาพ"), vid = findModeOption("วิดีโอ");
+    const frm = findModeOption("เฟรม"), ing = findModeOption("ส่วนผสม");
+    let type = null;
+    if (vid && isSelectedEl(vid)) type = "วิดีโอ"; else if (img && isSelectedEl(img)) type = "รูปภาพ";
+    else type = isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : null;   // fallback จากปุ่มโหมด
+    let sub = null;
+    if (frm && isSelectedEl(frm)) sub = "เฟรม"; else if (ing && isSelectedEl(ing)) sub = "ส่วนผสม";
+    return { open: !!(img && vid), type, sub, hasFrames: !!frm };
+  }
   async function clickModeOption(label, log) {
     const el = findModeOption(label);
     if (!el) return false;
@@ -1595,19 +1620,30 @@ if (window._flowAutomatorLoaded) {
       }
       _modePopupDump = dumpPopup();   // จับเนื้อป๊อปอัปตอนเปิด — diagnose
       if (!opened) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ รอบ ${attempt}/5 | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
-      // 2) กดแท็บชนิด (รูปภาพ/วิดีโอ)
-      await clickModeOption(typeLabel, log); await sleep(850);
-      // 3) กดโหมดย่อย (เฟรม/ส่วนผสม) — โผล่ "หลัง" กดวิดีโอ ต้องรอให้ขึ้นก่อน
+      // 2) อ่านสถานะ "ตอนนี้" แล้วกดเฉพาะที่ยังไม่ถูก (if/else — ไม่กดมั่ว)
+      let st = readModeState();
+      L(`สถานะป๊อปอัป: ชนิด=${st.type || "?"} · ย่อย=${st.sub || "?"}`);
+      const wantType = /วิดีโอ/.test(typeLabel) ? "วิดีโอ" : "รูปภาพ";
+      if (st.type !== wantType) { await clickModeOption(typeLabel, log); await sleep(850); st = readModeState(); }   // สลับชนิดเฉพาะเมื่อยังไม่ตรง
+      // 3) โหมดย่อย (เฟรม/ส่วนผสม) — โผล่หลังเลือกวิดีโอ · กดเฉพาะเมื่อ sub ยังไม่ตรง · ย้ำได้ 4 รอบ
       if (subLabel) {
-        let sub = null;
-        for (let j = 0; j < 4 && !sub; j++) { sub = findModeOption(subLabel); if (!sub) await sleep(450); }
-        if (sub) { await trustedClickEl(sub, log); await sleep(750); }
-        else L(`ไม่เจอโหมดย่อย "${subLabel}" ในป๊อปอัป | ป๊อปอัป: ${dumpPopup()}`);
+        const wantSub = /เฟรม/.test(subLabel) ? "เฟรม" : "ส่วนผสม";
+        for (let j = 0; j < 4; j++) {
+          st = readModeState();
+          if (st.sub === wantSub) break;                                  // ตรงแล้ว หยุด
+          const el = findModeOption(subLabel);
+          if (el) { await trustedClickEl(el, log); await sleep(750); }
+          else { await sleep(450); }                                       // ยังไม่โผล่ รออีก
+          if (j === 3 && readModeState().sub !== wantSub) L(`เลือกโหมดย่อย "${subLabel}" ไม่ตรง (ได้=${readModeState().sub || "?"}) | ป๊อปอัป: ${dumpPopup()}`);
+        }
       }
       if (countLabel) { await clickModeOption(countLabel, log); await sleep(500); }   // 1x/x2…
+      // ยืนยันจากสถานะป๊อปอัป "ก่อนปิด" — เผื่อ slot เริ่ม/สิ้นสุด ตรวจไม่เจอ แต่เลือก เฟรม ถูกแล้ว
+      const stFinal = readModeState();
+      const subOk = !subLabel || stFinal.sub === (/เฟรม/.test(subLabel) ? "เฟรม" : "ส่วนผสม");
       document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); // ปิดป๊อปอัป
       await sleep(650);
-      if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (ยืนยันแล้ว)`); return true; }
+      if (onTarget() || (/วิดีโอ/.test(typeLabel) && isVideoMode() && subOk)) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (ยืนยันแล้ว)`); return true; }
       L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") รอบ ${attempt}/5`);
       await sleep(700);
     }
