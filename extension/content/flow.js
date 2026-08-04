@@ -1563,7 +1563,10 @@ if (window._flowAutomatorLoaded) {
       // ตัด sidebar ซ้าย (x<110 เช่น "image ดูรูปภาพ") ออก — ป๊อปอัปโหมดอยู่กลาง/ขวาจอเสมอ
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 360 && r.height > 4 && r.height <= 130 && r.left > 110 && r.top > 60; });
     cands.sort((a, b) => (a.innerText || a.textContent || "").length - (b.innerText || b.textContent || "").length);
-    return cands[0] || null;
+    let el = cands[0] || null;
+    // ปีนขึ้นหา "ปุ่มจริง" ที่ครอบ (เผื่อ match โดน icon span ข้างใน) → CDP click แม่นกว่า
+    if (el) { const c = el.closest('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"]'); if (c && isVisible(c)) el = c; }
+    return el;
   }
   // ป๊อปอัปโหมด "เปิดอยู่" = เจอทั้งแท็บ "รูปภาพ" และ "วิดีโอ" (สองอันนี้อยู่ด้วยกันเฉพาะในป๊อปอัป)
   const popupOpen = () => !!(findModeOption("รูปภาพ") && findModeOption("วิดีโอ"));
