@@ -163,7 +163,7 @@ if (window._flowAutomatorLoaded) {
       for (const el of document.querySelectorAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],[role="menuitemradio"],div,span')) {
         if (!isVisible(el)) continue;
         const r = el.getBoundingClientRect();
-        if (r.left <= 110 || r.width <= 4 || r.width > 360 || r.height <= 4 || r.height > 140) continue;
+        if (r.left <= 40 || r.width <= 4 || r.width > 420 || r.height <= 4 || r.height > 140) continue;   // กันแค่ขอบ sidebar ซ้ายสุด
         // leaf-ish: ข้อความสั้น (ตัด container ที่รวมหลายปุ่ม)
         const t = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
         if (!t || t.length > 34) continue;
@@ -1610,21 +1610,25 @@ if (window._flowAutomatorLoaded) {
     };
     for (let attempt = 1; attempt <= 5; attempt++) {
       if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (อยู่โหมดถูกแล้ว)`); return true; }
-      // 1) เปิดป๊อปอัปให้ "ยืนยันว่าเปิดจริง" (เจอทั้งแท็บ รูปภาพ+วิดีโอ) — คลิกปุ่มโหมดซ้ำได้สูงสุด 4 ครั้ง
-      let opened = popupOpen();
-      for (let k = 0; k < 4 && !opened; k++) {
+      // 1) เปิดป๊อปอัป + ตามหา "แท็บชนิดเป้าหมาย" ตรง ๆ (ไม่ gate ด้วย popupOpen ที่อาจตรวจพลาด)
+      //    คลิกปุ่มโหมดซ้ำได้สูงสุด 5 ครั้ง จนเจอแท็บ typeLabel จริง
+      let typeTab = findModeOption(typeLabel);
+      let openDump = dumpPopup();
+      for (let k = 0; k < 5 && !typeTab; k++) {
         const btn = findModeBtn();
         if (!btn) { L("สลับโหมด: ไม่เจอปุ่มโหมด"); await sleep(600); continue; }
-        await trustedClickEl(btn, log); await sleep(850);
-        opened = popupOpen();
+        await trustedClickEl(btn, log); await sleep(900);
+        const d = dumpPopup();                                   // เก็บ dump ที่เห็นของเยอะสุด (=ตอนป๊อปอัปเปิด)
+        if (d.length > openDump.length) openDump = d;
+        typeTab = findModeOption(typeLabel);
       }
-      _modePopupDump = dumpPopup();   // จับเนื้อป๊อปอัปตอนเปิด — diagnose
-      if (!opened) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ รอบ ${attempt}/5 | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
+      _modePopupDump = openDump;   // diagnose
+      if (!typeTab) { L(`เปิดป๊อปอัป/หาแท็บ "${typeLabel}" ไม่เจอ รอบ ${attempt}/5 | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
       // 2) อ่านสถานะ "ตอนนี้" แล้วกดเฉพาะที่ยังไม่ถูก (if/else — ไม่กดมั่ว)
       let st = readModeState();
       L(`สถานะป๊อปอัป: ชนิด=${st.type || "?"} · ย่อย=${st.sub || "?"}`);
       const wantType = /วิดีโอ/.test(typeLabel) ? "วิดีโอ" : "รูปภาพ";
-      if (st.type !== wantType) { await clickModeOption(typeLabel, log); await sleep(850); st = readModeState(); }   // สลับชนิดเฉพาะเมื่อยังไม่ตรง
+      if (st.type !== wantType) { await trustedClickEl(typeTab, log); await sleep(900); st = readModeState(); }   // สลับชนิดเฉพาะเมื่อยังไม่ตรง
       // 3) โหมดย่อย (เฟรม/ส่วนผสม) — โผล่หลังเลือกวิดีโอ · กดเฉพาะเมื่อ sub ยังไม่ตรง · ย้ำได้ 4 รอบ
       if (subLabel) {
         const wantSub = /เฟรม/.test(subLabel) ? "เฟรม" : "ส่วนผสม";

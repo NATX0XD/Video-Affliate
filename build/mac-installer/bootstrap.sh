@@ -89,7 +89,7 @@ LAUNCH
 
 # ปิด Terminal + eject/ลบตัวติดตั้ง (.dmg) ให้เอง — ทำ detached หลัง bash จบ
 self_cleanup(){
-  local boot="$1" vol="" dmg="" wid=""
+  local boot="$1" vol="" dmg="" wid="" ppid="$PPID"
   wid=$(cat /tmp/vgap_win_id 2>/dev/null)
   if [[ "$boot" == /Volumes/* ]]; then
     vol="/Volumes/$(printf '%s' "$boot" | cut -d/ -f3)"
@@ -100,10 +100,12 @@ self_cleanup(){
     sleep 4
     [ -n \"$vol\" ] && hdiutil detach \"$vol\" -force >/dev/null 2>&1
     [ -n \"$dmg\" ] && rm -f \"$dmg\"
-    osascript -e 'tell application \"Terminal\"' -e 'try' -e 'close (every window whose id is $wid) saving no' -e 'end try' -e 'try' -e 'close (every window whose custom title is \"VGAP-INSTALLER\") saving no' -e 'end try' -e 'end tell' >/dev/null 2>&1
-    sleep 1
+    osascript -e 'tell application \"Terminal\"' -e 'try' -e 'close (every window whose id is $wid) saving no' -e 'end try' -e 'try' -e 'close (every window whose custom title is \"VGAP-INSTALLER\") saving no' -e 'end try' -e 'try' -e 'close front window saving no' -e 'end try' -e 'end tell' >/dev/null 2>&1
     open \"$HOME/Applications/$LAUNCHER_NAME.app\" >/dev/null 2>&1
     rm -f /tmp/vgap_win_id
+    # force: ฆ่า shell แม่ของหน้าต่างติดตั้ง (ปิดแท็บชัวร์แม้ osascript ไม่ติด)
+    sleep 1
+    kill -9 $ppid >/dev/null 2>&1
   " >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }

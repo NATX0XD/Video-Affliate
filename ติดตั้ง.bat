@@ -32,8 +32,9 @@ echo    2^) ดับเบิลคลิกไฟล์ "เปิดโปร
 echo.
 echo  (เบราว์เซอร์จะเปิดหน้าโปรแกรมให้เองที่ http://localhost:3001)
 echo.
-pause
-exit /b 0
+echo  หน้าต่างนี้จะปิดเองใน 6 วินาที...
+timeout /t 6 /nobreak >nul
+exit
 
 :setup_failed
 echo.

@@ -122,7 +122,7 @@ Section "ติดตั้งโปรแกรม" SecMain
   ; ติดตั้ง pip deps, และข้าม build web เพราะมี web\out (prebuilt) อยู่แล้ว.
   ; แสดงหน้าต่าง PowerShell ให้ผู้ใช้เห็น progress (ใช้เวลา ~5-10 นาที).
   DetailPrint "กำลังติดตั้ง Python และเครื่องมือที่จำเป็น (อาจใช้เวลา 5-10 นาที ห้ามปิด)..."
-  ExecWait 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup-prereqs.ps1"' $0
+  ExecWait 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$INSTDIR\setup-prereqs.ps1"' $0
   ${If} $0 != 0
     ; ไม่ fatal — ปล่อยให้ติดตั้งเสร็จ ผู้ใช้รัน "ติดตั้ง.bat" ซ้ำเองได้ถ้าเน็ตหลุด
     DetailPrint "! setup-prereqs ยังไม่สมบูรณ์ (code $0) — เปิดโฟลเดอร์แล้วดับเบิลคลิก ติดตั้ง.bat ซ้ำได้"

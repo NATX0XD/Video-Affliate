@@ -102,4 +102,5 @@ foreach ($c in "python","node","adb","scrcpy","ffmpeg") {
   Write-Host ("  {0,-8} {1}" -f $c, $mark)
 }
 
-Write-Host "`nDONE. Close this PowerShell, then double-click 'เปิดโปรแกรม.vbs' to start." -ForegroundColor Green
+Write-Host "`nDONE. เปิดโปรแกรมได้จากทางลัดบน Desktop / 'เปิดโปรแกรม.vbs'" -ForegroundColor Green
+exit 0
