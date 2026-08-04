@@ -86,6 +86,8 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState('')
   const [adapterVer, setAdapterVer]   = useState('')
   const [adapterBusy, setAdapterBusy] = useState(false)
+  const [extBusy, setExtBusy]         = useState(false)
+  const [extVer, setExtVer]           = useState('')
   const keySet = cfg.google_api_key === '********'   // public_load ส่ง mask มาถ้าตั้ง key แล้ว
 
   useEffect(() => { api.getSettings().then(setCfg).catch(() => {}) }, [])
@@ -112,6 +114,24 @@ export default function SettingsPage() {
       toast.error('อัปเดตตัวเชื่อมไม่สำเร็จ — ลองใหม่อีกครั้ง')
     } finally {
       setAdapterBusy(false)
+    }
+  }
+
+  const updateExt = async () => {
+    if (extBusy) return
+    setExtBusy(true)
+    try {
+      const res = await api.updateExt()
+      if (res.ok) {
+        setExtVer(res.version || '')
+        toast.success(`ดึง Extension ล่าสุดแล้ว (v${res.version}) — กำลังรีโหลดเองใน ~10 วิ`)
+      } else {
+        toast.error(res.error || 'อัปเดต Extension ไม่สำเร็จ — ลองใหม่อีกครั้ง')
+      }
+    } catch {
+      toast.error('อัปเดต Extension ไม่สำเร็จ — เปิดโปรแกรมค้างไว้แล้วลองใหม่')
+    } finally {
+      setExtBusy(false)
     }
   }
 
@@ -196,6 +216,22 @@ export default function SettingsPage() {
                 className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border border-border bg-secondary text-foreground transition-all hover:bg-secondary/70 active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none">
                 <RefreshCw size={14} className={adapterBusy ? 'animate-spin' : ''} />
                 {adapterBusy ? 'กำลังอัปเดต…' : 'อัปเดตตัวเชื่อม'}
+              </button>
+            </div>
+          </Row>
+          <Row icon={RefreshCw} delay={37}
+               title="อัปเดต Extension"
+               info="ดึงโค้ดส่วนขยาย (Extension) รุ่นล่าสุดจากเซิร์ฟเวอร์มาลงให้ แล้วส่วนขยายจะรีโหลดตัวเองอัตโนมัติ — ไม่ต้องพิมพ์คำสั่งใน Terminal หรือกดรีโหลดที่ chrome://extensions เอง"
+               desc="กดปุ่มนี้เมื่อมีเวอร์ชันใหม่ (เช่น แก้บั๊กสร้างคลิป) — ระบบจะดึงล่าสุด + รีโหลดส่วนขยายให้เอง ~10 วิ">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-muted-foreground text-xs">อัปเดตล่าสุด</span>
+                <span className="text-foreground text-sm font-semibold">{extVer ? `v${extVer}` : '—'}</span>
+              </div>
+              <button onClick={updateExt} disabled={extBusy}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold border border-border bg-secondary text-foreground transition-all hover:bg-secondary/70 active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none">
+                <RefreshCw size={14} className={extBusy ? 'animate-spin' : ''} />
+                {extBusy ? 'กำลังดึงล่าสุด…' : 'อัปเดต Extension'}
               </button>
             </div>
           </Row>

@@ -150,6 +150,20 @@ async function apiBase() {
   return `http://localhost:${_portCache}`;
 }
 
+// ── อัปเดตตัวเอง: poll /api/ext/latest — ถ้าเวอร์ชันบนดิสก์ใหม่กว่าที่รันอยู่ → reload ตัวเอง ──
+// (ปุ่ม "อัปเดต Extension" ในหน้า Settings สั่ง desktop ดึงไฟล์ล่าสุด + ตั้ง flag → ตัวนี้เห็นแล้ว reload)
+async function checkSelfUpdate() {
+  try {
+    const cur = chrome.runtime.getManifest().version;
+    const r = await fetch(`${await apiBase()}/api/ext/latest`, { signal: AbortSignal.timeout(4000) });
+    const d = await r.json();
+    if (d && d.reload_to && d.reload_to !== cur) { console.log('[ext] self-update', cur, '→', d.reload_to); chrome.runtime.reload(); }
+  } catch {}
+}
+setInterval(checkSelfUpdate, 6000);         // ระหว่าง SW ยังตื่น
+chrome.runtime.onStartup?.addListener(checkSelfUpdate);
+chrome.runtime.onInstalled?.addListener(checkSelfUpdate);
+
 // ── mirror สินค้าไป desktop (G3) — additive อย่างเดียว ─────────────────────
 // แปลง product ทรงซ้อน (basic_info/commission/links/images) จาก scraper → flat dict
 // ที่ตาราง products ใน SQLite รับ (name/price/commission/image_url/cart_link/source).
