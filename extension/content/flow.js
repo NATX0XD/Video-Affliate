@@ -1539,14 +1539,17 @@ if (window._flowAutomatorLoaded) {
       .filter(isVisible)
       .filter((el) => {
         const t = norm(el.innerText || el.textContent);
-        if (/crop_9_16|·|nano banana|omni flash/i.test(t)) return false;   // ตัด "ปุ่มโหมด" เอง (ไม่ใช่ตัวเลือกในป๊อปอัป)
-        return wants.some((w) => t === w || t.split(/\s+/).includes(w) || (t.includes(w) && t.length <= w.length + 16));   // แยกคำ → เผื่อไอคอนนำหน้ายาว
+        if (/crop_9_16|crop_squa|·|nano banana|omni flash|arrow_forward/i.test(t)) return false;   // ตัด "ปุ่มโหมด"/ปุ่มส่ง เอง
+        const stripped = t.replace(/^[a-z_]{3,}\s+/, "");   // ตัด icon-ligature นำหน้า เช่น "image รูปภาพ"→"รูปภาพ", "videocam วิดีโอ"→"วิดีโอ"
+        return wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w) || (t.includes(w) && t.length <= w.length + 16));
       })
       // ตัด sidebar ซ้าย (x<110 เช่น "image ดูรูปภาพ") ออก — ป๊อปอัปโหมดอยู่กลาง/ขวาจอเสมอ
-      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 340 && r.height > 4 && r.height <= 130 && r.left > 110; });
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 360 && r.height > 4 && r.height <= 130 && r.left > 110 && r.top > 60; });
     cands.sort((a, b) => (a.innerText || a.textContent || "").length - (b.innerText || b.textContent || "").length);
     return cands[0] || null;
   }
+  // ป๊อปอัปโหมด "เปิดอยู่" = เจอทั้งแท็บ "รูปภาพ" และ "วิดีโอ" (สองอันนี้อยู่ด้วยกันเฉพาะในป๊อปอัป)
+  const popupOpen = () => !!(findModeOption("รูปภาพ") && findModeOption("วิดีโอ"));
   async function clickModeOption(label, log) {
     const el = findModeOption(label);
     if (!el) return false;
@@ -1580,24 +1583,33 @@ if (window._flowAutomatorLoaded) {
       if (/วิดีโอ/.test(typeLabel)) return isVideoMode() && (/เฟรม/.test(subLabel || "") ? framesSubReady() : true);  // เฟรม = ต้องมีปุ่มเริ่ม/สิ้นสุด
       return true;
     };
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
       if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (อยู่โหมดถูกแล้ว)`); return true; }
-      const btn = findModeBtn();
-      if (!btn) { L("สลับโหมด: ไม่เจอปุ่มโหมด (crop_9_16)"); await sleep(800); continue; }
-      // เปิดป๊อปอัปให้ชัวร์ — คลิกปุ่มโหมดจน "เห็นตัวเลือกเป้าหมาย" จริง (สูงสุด 3 ครั้ง) เผื่อคลิกแรกไม่เปิด
-      let opt = null;
-      for (let k = 0; k < 3 && !opt; k++) { await trustedClickEl(btn, log); await sleep(950); opt = findModeOption(typeLabel); }
-      // จับเนื้อป๊อปอัป "ตอนเปิด" ทุกครั้ง (ก่อนคลิก/Escape) — diagnose ปุ่ม วิดีโอ/เฟรม จริง
-      _modePopupDump = dumpPopup();
-      if (!opt) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ ลองรอบ ${attempt}/4 | ป๊อปอัป: ${_modePopupDump}`); await sleep(800); continue; }
-      await clickModeOption(typeLabel, log); await sleep(700);
-      if (subLabel) { await clickModeOption(subLabel, log); await sleep(650); }
-      if (countLabel) { await clickModeOption(countLabel, log); await sleep(550); }   // 1x/x2/x3/x4
+      // 1) เปิดป๊อปอัปให้ "ยืนยันว่าเปิดจริง" (เจอทั้งแท็บ รูปภาพ+วิดีโอ) — คลิกปุ่มโหมดซ้ำได้สูงสุด 4 ครั้ง
+      let opened = popupOpen();
+      for (let k = 0; k < 4 && !opened; k++) {
+        const btn = findModeBtn();
+        if (!btn) { L("สลับโหมด: ไม่เจอปุ่มโหมด"); await sleep(600); continue; }
+        await trustedClickEl(btn, log); await sleep(850);
+        opened = popupOpen();
+      }
+      _modePopupDump = dumpPopup();   // จับเนื้อป๊อปอัปตอนเปิด — diagnose
+      if (!opened) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ รอบ ${attempt}/5 | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
+      // 2) กดแท็บชนิด (รูปภาพ/วิดีโอ)
+      await clickModeOption(typeLabel, log); await sleep(850);
+      // 3) กดโหมดย่อย (เฟรม/ส่วนผสม) — โผล่ "หลัง" กดวิดีโอ ต้องรอให้ขึ้นก่อน
+      if (subLabel) {
+        let sub = null;
+        for (let j = 0; j < 4 && !sub; j++) { sub = findModeOption(subLabel); if (!sub) await sleep(450); }
+        if (sub) { await trustedClickEl(sub, log); await sleep(750); }
+        else L(`ไม่เจอโหมดย่อย "${subLabel}" ในป๊อปอัป | ป๊อปอัป: ${dumpPopup()}`);
+      }
+      if (countLabel) { await clickModeOption(countLabel, log); await sleep(500); }   // 1x/x2…
       document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); // ปิดป๊อปอัป
-      await sleep(600);
-      if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (ยืนยันจากปุ่มโหมด)`); return true; }
-      L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") ลองรอบ ${attempt}/4`);
-      await sleep(800);
+      await sleep(650);
+      if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (ยืนยันแล้ว)`); return true; }
+      L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") รอบ ${attempt}/5`);
+      await sleep(700);
     }
     return false;
   }
