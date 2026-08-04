@@ -36,7 +36,7 @@ async function pollStatus() {
 
 // ── เปิดแอป VDO Gen (โฟกัสแท็บเดิมถ้ามี) ──
 function openApp() {
-  const url = `${appBase()}/dashboard/`;
+  const url = `${appBase()}/products/`;   // เปิดหน้าดึงสินค้า/สร้างคลิปตรง ๆ (เดิม /dashboard/)
   chrome.tabs.query({}, tabs => {
     const ex = tabs.find(t => (t.url || '').startsWith(`${appBase()}/`));
     if (ex) { chrome.tabs.update(ex.id, { active: true, url }); chrome.windows.update(ex.windowId, { focused: true }); }

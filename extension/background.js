@@ -698,7 +698,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // เดิมเปิด dashboard.html ของ extension (ศูนย์ควบคุมซ้ำ) — ย้ายมาเปิดเว็บแอปแทน
   if (msg.action === 'open_dashboard' || msg.action === 'open_app') {
     const base = `http://localhost:${_portCache || '3001'}`;
-    const url = `${base}/dashboard/`;
+    const url = `${base}/products/`;   // เปิดหน้าดึงสินค้า/สร้างคลิปตรง ๆ (เดิม /dashboard/)
     chrome.tabs.query({}, tabs => {
       const ex = tabs.find(t => (t.url || '').startsWith(`${base}/`));
       if (ex) { chrome.tabs.update(ex.id, { active: true, url }); chrome.windows.update(ex.windowId, { focused: true }); }
