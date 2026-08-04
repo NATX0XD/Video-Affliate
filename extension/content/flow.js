@@ -19,6 +19,9 @@ if (window._flowAutomatorLoaded) {
 
   const { sleep, rand, human, sendTrusted } = window.SAUtil; // จาก content/util.js
 
+  // เลขเวอร์ชัน extension — ฝังลง log/dump ทุกครั้ง เพื่อ "ยืนยันว่ารันโค้ดเวอร์ชันไหนจริง" (เลิกเดา)
+  const EXT_VER = (() => { try { return chrome.runtime.getManifest().version; } catch { return "?"; } })();
+
   const norm = (s) => (s || "").trim().toLowerCase();
   const txt = (el) =>
     norm(el?.innerText || el?.textContent || el?.getAttribute?.("aria-label") || el?.placeholder);
@@ -1992,7 +1995,7 @@ if (window._flowAutomatorLoaded) {
     let name = opts.name; try { const d = await chrome.storage.local.get("products"); name = name || ((d.products || [])[0]?.basic_info?.name); } catch {}
     await ensureChatPage(log);
     const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);
-    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: "เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ป๊อปอัป: " + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
+    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
     await sleep(900);
     log("เลือกเฟรมเริ่ม… (โมเดลรับเฉพาะเฟรมเริ่ม ไม่ใส่เฟรมจบ)");
     const okS = await pickFrame("เริ่ม", startUrl, log);
