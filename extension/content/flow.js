@@ -170,8 +170,14 @@ if (window._flowAutomatorLoaded) {
         const key = Math.round(r.left) + "," + Math.round(r.top) + "|" + t.slice(0, 20);
         if (seen.has(key)) continue; seen.add(key);
         const role = el.getAttribute("role") || el.tagName.toLowerCase();
-        out.push(`[${Math.round(r.left)},${Math.round(r.top)} ${role}]${t.slice(0, 26)}`);
-        if (out.length >= 34) break;
+        // attribute นิ่ง (ไม่เปลี่ยนตามภาษา) — jsname/data-*/aria = ตัวเลือกที่ทนกว่าข้อความ
+        const at = [];
+        const jn = el.getAttribute("jsname"); if (jn) at.push("jsname=" + jn);
+        const dt = el.getAttribute("data-testid") || el.getAttribute("data-test-id"); if (dt) at.push("data=" + dt);
+        const al = el.getAttribute("aria-label"); if (al) at.push("aria=" + al.slice(0, 18));
+        const sel = el.getAttribute("aria-selected") || el.getAttribute("aria-checked"); if (sel) at.push("sel=" + sel);
+        out.push(`[${Math.round(r.left)},${Math.round(r.top)} ${role}${at.length ? " " + at.join(" ") : ""}]${t.slice(0, 22)}`);
+        if (out.length >= 30) break;
       }
       return out.join(" · ");
     } catch { return ""; }
