@@ -269,8 +269,12 @@ class WebServer:
 
         @app.get("/api/devices/{serial}/coords")
         def get_device_coords(serial: str):
+            from services.autopilot import _preset_coords
             defaults, keys = _post_coords_defaults()
-            coords = _saved_coords(serial)
+            coords = _saved_coords(serial)                 # DB (ผู้ใช้คาลิเบรตเอง)
+            preset = _preset_coords(serial) or {}          # preset ที่มากับโค้ด (กันหายหลังติดตั้งใหม่)
+            source = "db" if coords else ("preset" if preset else "default")
+            effective = coords or preset                    # ค่าที่ใช้จริง
             w, h = _device_resolution(serial)
             is_tablet = False
             if w and h:
@@ -278,10 +282,11 @@ class WebServer:
                 is_tablet = aspect < 1.9   # มือถือ ~2.16 · แท็บเล็ต ~1.6 (4:3/16:10)
             return {
                 "ok": True,
-                "coords": coords,
+                "coords": effective,                        # โชว์ค่าที่ใช้จริง (DB > preset)
                 "defaults": defaults,
                 "keys": keys,
-                "calibrated": bool(coords),
+                "calibrated": bool(effective),              # มี preset ก็ถือว่าคาลิเบรตแล้ว
+                "source": source,                           # db | preset | default
                 "resolution": [w, h] if (w and h) else None,
                 "is_tablet": is_tablet,
             }

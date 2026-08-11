@@ -17,6 +17,20 @@ import config as cfg
 from services.db import GENERATED, POSTING
 from services.platforms import make_poster, ready_enabled
 
+# พิกัดคาลิเบรตต่อเครื่องที่ "มากับโค้ด" (กันหายตอนติดตั้งใหม่ / ~/.vgap ถูกลบ)
+_PRESET_PATH = Path(__file__).resolve().parent / "adb" / "device_presets.json"
+_preset_cache = None
+def _preset_coords(serial: str):
+    """คืน dict {key:[rx,ry]} จาก device_presets.json ถ้ามี serial นี้ ไม่งั้น None."""
+    global _preset_cache
+    if _preset_cache is None:
+        try:
+            _preset_cache = json.loads(_PRESET_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            _preset_cache = {}
+    d = _preset_cache.get(serial)
+    return d if isinstance(d, dict) and d else None
+
 
 class AutoPilot:
     def __init__(self, db, adb):
@@ -253,17 +267,20 @@ class AutoPilot:
 
     def _coords_override(self, serial: str):
         """พิกัด calibrate ต่อเครื่อง (JSON {key:[rx,ry]}) — poster เอาไปทับ default.
-        ไม่มี/พังก็คืน None → poster ใช้พิกัดเดิม 100%."""
-        if not self.db:
-            return None
-        raw = self.db.get_config(f"post_coords:{serial}", "") or ""
-        if not raw.strip():
-            return None
-        try:
-            d = json.loads(raw)
-            return d if isinstance(d, dict) and d else None
-        except Exception:
-            return None
+        ลำดับ: DB (ผู้ใช้คาลิเบรตเอง) → preset file (มากับโค้ด กันหายตอนติดตั้งใหม่) → None (ใช้ default).
+        """
+        # 1) DB override (ผู้ใช้คาลิเบรตเองบนเครื่องนี้) — สำคัญสุด
+        if self.db:
+            raw = self.db.get_config(f"post_coords:{serial}", "") or ""
+            if raw.strip():
+                try:
+                    d = json.loads(raw)
+                    if isinstance(d, dict) and d:
+                        return d
+                except Exception:
+                    pass
+        # 2) preset ที่มากับโค้ด (เช่น tablet ที่คาลิเบรตไว้แล้ว) — กันหายหลังติดตั้งใหม่
+        return _preset_coords(serial)
 
     def _device_online(self, serial: str) -> bool:
         if not self.adb:

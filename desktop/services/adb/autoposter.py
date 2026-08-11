@@ -119,9 +119,11 @@ class AutoPoster(BasePoster):
         # 1. เปิด Shopee สะอาด ๆ
         self._open_app(serial, wait=6)
 
-        # 2. แท็บ Live & Video
+        # 2. แท็บ Live & Video (แตะแล้วรอหน้าโหลดก่อนกดต่อ — tablet เปลี่ยนหน้าช้า)
         self.log("[POST] เปิดแท็บ Live & Video...")
         self._tap_r(serial, "live_video_tab", settle=4)
+        self.log("[POST] รอหน้า Live & Video โหลด ~2 วิ ก่อนกดต่อ...")
+        time.sleep(2)
 
         # 3. กด + สร้าง
         self.log("[POST] กด + สร้างวิดีโอ...")
