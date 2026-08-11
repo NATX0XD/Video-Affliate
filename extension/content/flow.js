@@ -1609,6 +1609,11 @@ if (window._flowAutomatorLoaded) {
   const modeBtnText = () => { const b = findModeBtn(); return (b && b.innerText) || ""; };
   const isVideoMode = () => /วิดีโอ|\bvideo\b/i.test(modeBtnText());
   const isImageMode = () => !isVideoMode() && /รูปภาพ|\bimage\b|nano banana|🍌/i.test(modeBtnText());
+  // สัดส่วนปัจจุบันจากปุ่มโหมด: crop_9_16→9:16, crop_16_9→16:9, crop_square→1:1
+  const currentAspect = () => { const t = modeBtnText(); if (/crop_9_16|9:16/i.test(t)) return "9:16"; if (/crop_16_9|16:9/i.test(t)) return "16:9"; if (/crop_squa|1:1/i.test(t)) return "1:1"; return "?"; };
+  const is916 = () => currentAspect() === "9:16";
+  // ตรวจ "อยู่โหมดอะไร + สัดส่วนอะไร" ตอนนี้ — ใช้ log ให้ผู้ใช้เห็นก่อน/หลังทุกขั้น (จับข้าม/เลือกผิด)
+  const modeSummary = () => `${isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : "?"} · ${currentAspect()}`;
   // สลับโหมดสร้าง + ★ยืนยันจากปุ่มโหมดจริง★ retry 3 รอบ (กัน setMode หลุด → สร้างผิดโหมด/เสียเครดิต)
   // typeLabel = รูปภาพ/วิดีโอ · subLabel = เฟรม/ส่วนผสม · countLabel = 1x/x2… (ออปชั่น)
   // ช่องเฟรม "เริ่ม"/"สิ้นสุด" เป็น <div> เล็ก ~50x50 ข้อความตรงเป๊ะ (ไม่ใช่ปุ่ม → allClickable หาไม่เจอ)
@@ -1795,9 +1800,12 @@ if (window._flowAutomatorLoaded) {
     await ensureChatPage(log);
     // รอแถบ prompt (ปุ่มโหมด crop_9_16) โผล่ก่อน — เผื่อเพิ่งเปิดโปรเจ็คใหม่/หน้ายังโหลด (กัน setMode พังเพราะปุ่มโหมดยังว่าง)
     if (!findModeBtn()) { log("รอแถบ prompt โหลด…"); await waitFor(findModeBtn, 25000, 800); }
-    const modeOk = await setMode("รูปภาพ", null, count || null, log);   // โหมดรูปภาพ (nano banana · 0 เครดิต)
-    // ★ guard #1: ยืนยันโหมดรูปภาพไม่ได้ → ยกเลิกก่อนแนบ/สร้าง (กันเผลอสร้างในโหมดวิดีโอเสีย 15 เครดิต/รูป)
-    if (!modeOk || !isImageMode()) { const _d = dumpBtns(log, "image-mode-guard"); return { ok: false, error: `ยืนยันโหมดรูปภาพไม่ได้ (ปุ่มโหมด: "${modeBtnText().slice(0, 30)}") | ปุ่มบนจอ: ${_d}`, uploads: [] }; }
+    log(`ตรวจโหมดก่อนสร้างรูป: ${modeSummary()}`);                    // เช็คก่อน
+    const modeOk = await setMode("รูปภาพ", null, count || null, log);   // โหมดรูปภาพ (nano banana · 0 เครดิต) + บังคับ 9:16
+    // ★ guard #1: ยืนยันโหมดรูปภาพ + 9:16 ไม่ได้ → ยกเลิกก่อนแนบ/สร้าง (กันเผลอสร้างในโหมดวิดีโอเสีย 15 เครดิต/รูป หรือได้สัดส่วนผิด)
+    if (!modeOk || !isImageMode()) { const _d = dumpBtns(log, "image-mode-guard"); return { ok: false, error: `[v${EXT_VER}] ยืนยันโหมดรูปภาพไม่ได้ (ตรวจได้: ${modeSummary()}) | ปุ่มบนจอ: ${_d}`, uploads: [] }; }
+    if (!is916()) log(`⚠ สัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()}) — ลองตั้งใหม่`);
+    log(`โหมดหลังตั้งค่า: ${modeSummary()} ${is916() && isImageMode() ? "✓" : ""}`);   // เช็คหลัง
     await sleep(1500);                                          // ให้ UI นิ่งก่อนแนบ (กันรูปแรกแนบไม่ติด)
     const uploads = [];
     for (let i = 0; i < refs.length; i++) {
@@ -1994,8 +2002,11 @@ if (window._flowAutomatorLoaded) {
     if (!startUrl) return { ok: false, error: "ต้องมี startUrl", steps };
     let name = opts.name; try { const d = await chrome.storage.local.get("products"); name = name || ((d.products || [])[0]?.basic_info?.name); } catch {}
     await ensureChatPage(log);
-    const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);
-    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
+    log(`ตรวจโหมดก่อนทำวิดีโอ: ${modeSummary()}`);                      // เช็คก่อน (จับข้าม/เลือกผิด)
+    const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);            // วิดีโอ + เฟรม + บังคับ 9:16
+    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
+    if (!is916()) log(`⚠ วิดีโอสัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()})`);
+    log(`โหมดหลังตั้งค่า: ${modeSummary()} ${isVideoMode() ? "✓" : ""}`);   // เช็คหลัง
     await sleep(900);
     log("เลือกเฟรมเริ่ม… (โมเดลรับเฉพาะเฟรมเริ่ม ไม่ใส่เฟรมจบ)");
     const okS = await pickFrame("เริ่ม", startUrl, log);
