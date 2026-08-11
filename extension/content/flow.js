@@ -702,11 +702,19 @@ if (window._flowAutomatorLoaded) {
     } catch (e) { L("ensureAgentOff: " + (e && e.message)); }
   }
 
-  // agent กำลังสร้างอยู่ไหม (best-effort: spinner/progress ที่มองเห็น)
+  // agent/Flow กำลังสร้างอยู่ไหม (best-effort: spinner/progress/% ที่มองเห็น)
   function isGenerating() {
     try {
       const els = document.querySelectorAll('[role="progressbar"],[aria-busy="true"],progress,[class*="oading"],[class*="enerating"],[class*="pinner"]');
       for (const el of els) if (el.offsetParent !== null) return true;
+      // Flow โชว์ "N%" บน tile ตอนเรนเดอร์ (ไม่มี progressbar element) — ถ้ายัง <100% = ยังไม่เสร็จ
+      for (const el of document.querySelectorAll("div,span")) {
+        if (el.children.length || el.offsetParent === null) continue;   // leaf ที่มองเห็นเท่านั้น
+        const t = (el.textContent || "").trim();
+        if (t.length > 6) continue;
+        const m = t.match(/^(\d{1,3})%$/);
+        if (m && +m[1] < 100) return true;
+      }
     } catch {}
     return false;
   }
@@ -873,8 +881,6 @@ if (window._flowAutomatorLoaded) {
       log(dl.ok ? `ดาวน์โหลดคลิป ${i + 1}/${srcs.length} ✓ (${uuid(srcs[i])})` : `คลิป ${i + 1} โหลดไม่ได้: ${dl.error}`);
     }
     if (!files.length) return { ok: false, error: "ดาวน์โหลดวิดีโอไม่สำเร็จ" };
-
-    // defensive: ไฟล์ผลลัพธ์ต้องเป็นวิดีโอจริง ไม่ใช่ภาพนิ่ง → ถ้าไม่ใช่ หยุด ไม่ส่งไป desktop, ไม่ retry (กันเสียเครดิตซ้ำ)
     const vfy = verifyOutputs(dlResults);
     if (!vfy.ok) {
       const emsg = "ได้ภาพนิ่งแทนวิดีโอ — ลองสร้างใหม่";
@@ -882,7 +888,6 @@ if (window._flowAutomatorLoaded) {
       reportProgress("error", emsg, productId);
       return { ok: false, error: emsg, stillImage: true };
     }
-
     return { ok: true, videoSrcs: srcs, files };
   }
 
@@ -2066,6 +2071,12 @@ if (window._flowAutomatorLoaded) {
     if (!startUrl) return { ok: false, error: "ต้องมี startUrl", steps };
     let name = opts.name; try { const d = await chrome.storage.local.get("products"); name = name || ((d.products || [])[0]?.basic_info?.name); } catch {}
     await ensureChatPage(log);
+    // ★ รอรูปเรนเดอร์ให้ครบ 100% ก่อนสลับโหมด (คลิปที่ 2+ มักพังเพราะรูปยัง 99% → ปุ่มโหมดตาย กดไม่ติด)
+    if (isGenerating()) {
+      log("รอรูปเรนเดอร์ให้เสร็จ 100% ก่อนสลับโหมดวิดีโอ…");
+      await waitFor(() => (isGenerating() ? null : true), 90000, 1500);
+      await sleep(1200);
+    }
     log(`ตรวจโหมดก่อนทำวิดีโอ: ${modeSummary()}`);                      // เช็คก่อน (จับข้าม/เลือกผิด)
     const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);            // วิดีโอ + เฟรม + บังคับ 9:16
     if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }

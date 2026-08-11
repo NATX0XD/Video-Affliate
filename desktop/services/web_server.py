@@ -1274,21 +1274,29 @@ class WebServer:
             out_mp4 = cfg.PENDING_DIR / f"{pid}.mp4"
             dl_dir = Path.home() / "Downloads" / "flow"
 
-            # รวมรายชื่อไฟล์ (รองรับทั้ง files[] ใหม่ และ filename เดี่ยวแบบเก่า)
-            files = body.get("files") or ([body["filename"]] if body.get("filename") else [])
-
-            if body.get("video_b64"):
-                raw = body["video_b64"].split(",", 1)[-1]
-                out_mp4.write_bytes(base64.b64decode(raw))
-            elif not files:
-                return {"ok": False, "error": "ไม่มีไฟล์วิดีโอ"}
-            else:
+            # แหล่งวิดีโอ 3 แบบ (เรียงความสำคัญ):
+            #   files_b64[] / video_b64 = bytes ส่งตรงจาก extension (bypass chrome.downloads = ไม่มี save dialog)
+            #   files[] / filename       = ชื่อไฟล์ใน ~/Downloads/flow (chrome.downloads แบบเดิม)
+            files    = body.get("files") or ([body["filename"]] if body.get("filename") else [])
+            files_b64 = body.get("files_b64") or ([body["video_b64"]] if body.get("video_b64") else [])
+            srcs = []
+            if files_b64:
+                for i, b in enumerate(files_b64):
+                    raw = (b or "").split(",", 1)[-1]
+                    p = cfg.PENDING_DIR / f"{pid}_part{i + 1}.mp4"
+                    p.write_bytes(base64.b64decode(raw))
+                    srcs.append(p)
+            elif files:
                 srcs = [dl_dir / f for f in files]
                 missing = [str(s) for s in srcs if not s.exists()]
                 if missing:
                     return {"ok": False, "error": f"ไม่พบไฟล์: {missing}"}
+            else:
+                return {"ok": False, "error": "ไม่มีไฟล์วิดีโอ"}
+
+            if True:
                 if len(srcs) == 1:
-                    shutil.move(str(srcs[0]), str(out_mp4))   # ย้ายเข้าโปรเจ็กต์ (ลบตัวใน Downloads)
+                    shutil.move(str(srcs[0]), str(out_mp4))   # ย้ายเข้าโปรเจ็กต์ (ลบตัวต้นทาง)
                 else:
                     # ต่อหลายคลิปด้วย ffmpeg concat demuxer
                     listf = cfg.PENDING_DIR / f"{pid}_list.txt"

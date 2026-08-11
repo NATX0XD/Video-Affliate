@@ -862,6 +862,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // ── ส่งวิดีโอเข้า desktop "ตรง ๆ" (bypass chrome.downloads = ไม่มี native save dialog) ──
+  // background fetch วิดีโอจาก Flow (มี cookie/host permission) → base64 → POST /api/flow/video {files_b64}
+  if (msg.action === 'flow_video_to_desktop') {
+    (async () => {
+      try {
+        const urls = msg.urls || [];
+        if (!urls.length) return sendResponse({ ok: false, error: 'ไม่มี url วิดีโอ' });
+        const b64s = [];
+        for (const u of urls) {
+          const blob = await fetch(u, { credentials: 'include', signal: AbortSignal.timeout(120000) }).then(r => {
+            if (!r.ok) throw new Error('fetch วิดีโอไม่สำเร็จ (' + r.status + ')');
+            return r.blob();
+          });
+          const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error('อ่านไฟล์วิดีโอไม่ได้')); fr.readAsDataURL(blob); });
+          b64s.push(b64);
+        }
+        const base = await apiBase();
+        const r = await fetch(base + '/api/flow/video', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...(msg.meta || {}), files_b64: b64s }),
+          signal: AbortSignal.timeout(120000),
+        }).then(r => r.json());
+        sendResponse(r);
+      } catch (e) { sendResponse({ ok: false, error: String(e && e.message || e) }); }
+    })();
+    return true;
+  }
+
   // ── คุยกับ desktop (FastAPI) — เลี่ยง mixed-content ผ่าน service worker ──
   if (msg.action === 'flow_desktop') {
     (async () => {
