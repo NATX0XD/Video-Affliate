@@ -1591,7 +1591,7 @@ if (window._flowAutomatorLoaded) {
         return wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w) || (t.includes(w) && t.length <= w.length + 16));
       })
       // ตัด sidebar ซ้าย (x<110 เช่น "image ดูรูปภาพ") ออก — ป๊อปอัปโหมดอยู่กลาง/ขวาจอเสมอ
-      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 360 && r.height > 4 && r.height <= 130 && r.left > 110 && r.top > 60; });
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 360 && r.height > 4 && r.height <= 130 && r.left > 110 && r.top > 8; });
     cands.sort((a, b) => (a.innerText || a.textContent || "").length - (b.innerText || b.textContent || "").length);
     let el = cands[0] || null;
     // ปีนขึ้นหา "ปุ่มจริง" ที่ครอบ (เผื่อ match โดน icon span ข้างใน) → CDP click แม่นกว่า
@@ -1677,17 +1677,23 @@ if (window._flowAutomatorLoaded) {
   }
   // ป๊อปอัปโหมดโผล่ไหม = เจอแท็บ รูปภาพ/วิดีโอ/เฟรม (findModeOption ตัด sidebar x<110 แล้ว)
   const popupTabsShown = () => !!(findModeOption("รูปภาพ") || findModeOption("วิดีโอ") || findModeOption("เฟรม"));
-  // เปิดป๊อปอัปโหมดให้ชัวร์ — สลับวิธีคลิก (คู่=CDP trusted, คี่=native) จนเห็นแท็บจริง
+  // เปิดป๊อปอัปโหมดให้ชัวร์ — รอ UI นิ่งก่อน + scrollIntoView + re-fetch ปุ่ม + retry เยอะ
+  // (CDP click บางทีไม่ติดถ้าปุ่มยัง disabled ตอน Flow ยังเรนเดอร์ หรือปุ่มอยู่นอกจอ)
   async function openModePopup(log) {
     const L = (m) => { try { log && log(m); } catch {} };
     if (popupTabsShown()) return true;
-    for (let k = 0; k < 6; k++) {
+    // รอ Flow ไม่ "กำลังสร้าง" ก่อน (ปุ่มโหมดอาจกดไม่ติดตอนยังเรนเดอร์) — สูงสุด ~8 วิ
+    for (let w = 0; w < 8 && isGenerating(); w++) await sleep(1000);
+    for (let k = 0; k < 10; k++) {
       const btn = findModeBtn();
-      if (!btn) { await sleep(600); continue; }
-      if (k % 2 === 0) await trustedClickEl(btn, log); else nativeClickEl(btn);
-      await sleep(850);
+      if (!btn) { L("เปิดป๊อปอัป: ยังไม่เจอปุ่มโหมด รออีก"); await sleep(700); continue; }
+      try { btn.scrollIntoView({ block: "center", inline: "center" }); } catch {}
+      await sleep(150);
+      // ใช้ CDP trusted เป็นหลัก (ของจริง) · ทุก 3 รอบเสริม native (เผื่อ CDP พลาด) — ไม่ยิงซ้อนรอบเดียวกัน (toggle ปิดกลับ)
+      if (k % 3 === 2) nativeClickEl(btn); else await trustedClickEl(btn, log);
+      await sleep(1000);
       const d = dumpPopup(); if (d.length > (_modePopupDump || "").length) _modePopupDump = d;
-      if (popupTabsShown()) { L(`เปิดป๊อปอัปโหมดสำเร็จ (วิธี ${k % 2 === 0 ? "trusted" : "native"} รอบ ${k + 1})`); return true; }
+      if (popupTabsShown()) { L(`เปิดป๊อปอัปโหมดสำเร็จ (รอบ ${k + 1})`); return true; }
     }
     return false;
   }
@@ -1733,6 +1739,9 @@ if (window._flowAutomatorLoaded) {
       const subOk = !subLabel || stFinal.sub === (/เฟรม/.test(subLabel) ? "เฟรม" : "ส่วนผสม");
       document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); // ปิดป๊อปอัป
       await sleep(650);
+      // ★ ยืนยันชัดเจน: โหมด + เฟรม(ถ้าขอ) + แนวตั้ง 9:16
+      const framesOK = !/เฟรม/.test(subLabel || "") || framesSubReady() || subOk;
+      L(`ตรวจหลังตั้งค่า: ชนิด=${isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : "?"} · เฟรม=${/เฟรม/.test(subLabel || "") ? (framesOK ? "✓" : "✗") : "-"} · สัดส่วน=${currentAspect()}${is916() ? " ✓" : " (ไม่ใช่ 9:16!)"}`);
       if (onTarget() || (/วิดีโอ/.test(typeLabel) && isVideoMode() && subOk)) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (ยืนยันแล้ว)`); return true; }
       L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") รอบ ${attempt}/5`);
       await sleep(700);
