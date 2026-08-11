@@ -564,6 +564,25 @@ if (window._flowAutomatorLoaded) {
     return t.length < 4000 &&
       /เกิดข้อผิดพลาด|ขออภัย[\s\S]{0,25}ผิดพลาด|something went wrong|an error occurred|went wrong/i.test(t);
   }
+  // ปิด modal/แบนเนอร์โปรโม (เช่น "Daily Bonus") ที่ลอยบังปุ่ม "โปรเจ็กต์ใหม่" บนหน้า home
+  // → ถ้าไม่ปิด กด "โปรเจ็กต์ใหม่" ไม่ได้ = เข้าโปรเจกต์ไม่ได้ = ไม่มีปุ่มโหมด
+  async function closePromoModal(log) {
+    try {
+      const closers = allClickable().filter((el) => {
+        const t = txt(el); const r = el.getBoundingClientRect();
+        return /(^|\s)close(\s|$)|(^|\s)ปิด(\s|$)|dismiss|ไม่ใช่ตอนนี้|maybe later|later/i.test(t) &&
+               r.width > 6 && r.width < 130 && r.height > 6 && r.height < 130;
+      });
+      for (const c of closers.slice(0, 3)) { log && log("ปิด popup/แบนเนอร์โปรโมที่บังปุ่ม"); await trustedClickEl(c, log); await sleep(450); }
+    } catch {}
+  }
+  // คลิกให้ชัวร์ — CDP trusted ก่อน ถ้า cond ยังไม่จริง ลอง native (เผื่อบางปุ่ม CDP click ไม่ติด)
+  async function robustClick(el, log, cond) {
+    if (!el) return false;
+    await trustedClickEl(el, log); await sleep(900);
+    if (cond && !cond()) { log && log("CDP click ไม่ติด → ลอง native click"); nativeClickEl(el); await sleep(900); }
+    return true;
+  }
   async function ensureChatPage(log) {
     // มีช่องแชตอยู่แล้ว → จำหน้านี้ไว้ (ทั้งแบบ global + แยกตามอีเมล) แล้วจบเลย
     if (hasChatBox()) {
@@ -606,8 +625,10 @@ if (window._flowAutomatorLoaded) {
         return allClickable().find(isStart) || null;
       }, 14000, 600);
       if (found && found !== "chat") {
-        log(`หน้า landing → กด "${txt(found).slice(0, 26)}"…`);
-        await trustedClickEl(found, log);
+        await closePromoModal(log);                                   // ★ ปิด Daily Bonus ฯลฯ ที่บังปุ่มก่อน
+        const startBtn = allClickable().find(isStart) || found;       // หาปุ่มใหม่หลังปิด modal (DOM อาจเปลี่ยน)
+        log(`หน้า landing → กด "${txt(startBtn).slice(0, 26)}"…`);
+        await robustClick(startBtn, log, hasChatBox);                 // trusted + native fallback
         await waitFor(() => (hasChatBox() ? true : null), 12000);
         await sleep(1200);
       }
