@@ -992,10 +992,38 @@ class WebServer:
             except Exception as e:
                 return {"ok": False, "error": str(e)[:300]}
 
-        # background poll เอา flag นี้ไป reload ตัวเอง (unpacked reload อ่านไฟล์ใหม่จากดิสก์)
+        # ── auto-pull extension ล่าสุด "ตอนเปิดแอป" (best-effort, ไม่บล็อก) ──
+        # เปิดแอปครั้งใด = ได้ extension ล่าสุด → background reload เอง (ไม่ต้องลบ+Load unpacked ทุกรอบ)
+        def _auto_pull_ext():
+            import subprocess
+            from pathlib import Path
+            root = Path(__file__).resolve().parents[2]
+            cmd = ("curl -fsSL https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz "
+                   "| tar xz --strip-components=1 'Video-Affliate-main/extension'")
+            try:
+                subprocess.run(cmd, shell=True, cwd=str(root), timeout=90, capture_output=True)
+            except Exception:
+                pass
+        try:
+            if not getattr(self, "_ext_autopull_started", False):
+                self._ext_autopull_started = True
+                import threading as _th
+                _th.Thread(target=_auto_pull_ext, daemon=True).start()
+        except Exception:
+            pass
+
+        # background poll เทียบเวอร์ชัน "ไฟล์บนดิสก์" กับที่รันอยู่ → ต่างเมื่อไหร่ reload ตัวเอง
+        # (ครอบทุกวิธีอัป: ปุ่ม Settings / dmg / curl / auto-pull ตอนเปิดแอป → ไม่ต้องลบ+Load unpacked เอง)
         @app.get("/api/ext/latest")
         def ext_latest():
-            return {"ok": True, "reload_to": getattr(self, "_ext_reload_to", None)}
+            import json as _json
+            from pathlib import Path
+            ver = None
+            try:
+                ver = _json.loads((Path(__file__).resolve().parents[2] / "extension" / "manifest.json").read_text())["version"]
+            except Exception:
+                pass
+            return {"ok": True, "reload_to": ver}
 
         # ── Google Flow pipeline (extension สร้างคลิป + เขียน prompt เองในเบราว์เซอร์) ──
 
