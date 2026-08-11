@@ -1803,7 +1803,7 @@ if (window._flowAutomatorLoaded) {
     log(`ตรวจโหมดก่อนสร้างรูป: ${modeSummary()}`);                    // เช็คก่อน
     const modeOk = await setMode("รูปภาพ", null, count || null, log);   // โหมดรูปภาพ (nano banana · 0 เครดิต) + บังคับ 9:16
     // ★ guard #1: ยืนยันโหมดรูปภาพ + 9:16 ไม่ได้ → ยกเลิกก่อนแนบ/สร้าง (กันเผลอสร้างในโหมดวิดีโอเสีย 15 เครดิต/รูป หรือได้สัดส่วนผิด)
-    if (!modeOk || !isImageMode()) { const _d = dumpBtns(log, "image-mode-guard"); return { ok: false, error: `[v${EXT_VER}] ยืนยันโหมดรูปภาพไม่ได้ (ตรวจได้: ${modeSummary()}) | ปุ่มบนจอ: ${_d}`, uploads: [] }; }
+    if (!modeOk || !isImageMode()) { const _d = dumpBtns(log, "image-mode-guard"); return { ok: false, error: `[v${EXT_VER}] ยืนยันโหมดรูปภาพไม่ได้ (ตรวจได้: ${modeSummary()}) | ป๊อปอัป: ${_modePopupDump || "(ไม่เปิด)"} | ปุ่มบนจอ: ${_d}`, uploads: [] }; }
     if (!is916()) log(`⚠ สัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()}) — ลองตั้งใหม่`);
     log(`โหมดหลังตั้งค่า: ${modeSummary()} ${is916() && isImageMode() ? "✓" : ""}`);   // เช็คหลัง
     await sleep(1500);                                          // ให้ UI นิ่งก่อนแนบ (กันรูปแรกแนบไม่ติด)
