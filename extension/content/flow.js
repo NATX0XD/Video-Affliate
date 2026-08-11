@@ -584,12 +584,14 @@ if (window._flowAutomatorLoaded) {
     return true;
   }
   async function ensureChatPage(log) {
-    // มีช่องแชตอยู่แล้ว → จำหน้านี้ไว้ (ทั้งแบบ global + แยกตามอีเมล) แล้วจบเลย
+    // ★ เช็คก่อน: อยู่ในโปรเจกต์แล้ว (มีช่องแชต) → ข้าม ไม่กดสร้างโปรเจกต์ใหม่ (กันสร้างซ้ำ/รีเซ็ต)
     if (hasChatBox()) {
+      try { log && log("อยู่ในโปรเจกต์ Google Flow แล้ว → ข้ามการสร้างโปรเจกต์"); } catch {}
       try { chrome.storage.local.set({ flow_project_url: location.href }); } catch {}
       await rememberProjectForEmail();
       return true;
     }
+    try { log && log("ยังไม่อยู่ในโปรเจกต์ → จะปิด popup + กดสร้างโปรเจกต์ใหม่"); } catch {}
     // 0) หน้า Flow ขึ้น error → กู้บน "หน้าเดิม" ก่อน (กดลองอีกครั้ง/รีโหลด)
     //    ★ ต้องกู้ก่อน fallback ไปโปรเจ็คที่จำไว้ ไม่งั้นจะเด้งไปทำคลิปต่อใน "โปรเจ็คคลิปก่อน" = สร้างซ้ำ
     if (isFlowErrorPage() && Date.now() - _errReloadAt > 25000) {
@@ -1563,7 +1565,11 @@ if (window._flowAutomatorLoaded) {
 
   // ปุ่มโหมด (มุมขวาแถบ prompt) — ข้อความมี "crop_9_16" ทั้งโหมด video และ image
   function findModeBtn() {
-    return allClickable().find((el) => /crop_9_16|nano banana|วิดีโอ ·/i.test(el.innerText || "")) || null;
+    // จับทุกโหมด/สัดส่วน: image(nano banana crop_9_16/16_9/square) · video(วิดีโอ · / omni flash)
+    const cands = allClickable().filter((el) => /crop_9_16|crop_16_9|crop_squa|nano banana|omni flash|วิดีโอ ·/i.test(el.innerText || ""));
+    // ★ เลือก "pill จริง" = เล็กสุดที่ขนาดสมเหตุผล (ไม่ใช่ container ครอบทั้งแถบ → คลิก center โดนที่ว่าง = ป๊อปอัปไม่เปิด)
+    cands.sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width);
+    return cands.find((el) => { const r = el.getBoundingClientRect(); return r.width >= 60 && r.width <= 480 && r.height >= 20 && r.height <= 90; }) || cands[0] || null;
   }
   // Flow UI ใหม่ใช้ป้ายอังกฤษ (Image/Video/Frames/Ingredients) — map ไทย↔อังกฤษ ให้ตัวเลือกเจอทั้งคู่
   const MODE_ALT = {
