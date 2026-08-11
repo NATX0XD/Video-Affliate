@@ -2094,6 +2094,7 @@ if (window._flowAutomatorLoaded) {
       if (sendBtn) { await trustedClickEl(sendBtn, log); await sleep(1500); }
     }
     log("ส่งสร้างคลิปแล้ว (15 เครดิต) — รอ Veo สร้างวิดีโอ…");
+    startRenderTicker(opts.productId);   // ★ i2v ก็ต้องรายงาน "กำลังเรนเดอร์" ให้ step tracker ขยับ (เดิมมีแต่ agent)
     // ── รอ Veo + ดาวน์โหลด (reuse logic จาก runGenerate) ──
     const newSrcs = () => [...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter((s) => s && !beforeSrcs.has(s));
     const first = await waitFor(() => (newSrcs().length ? newSrcs() : null), 6 * 60 * 1000, 4000);
@@ -2110,7 +2111,9 @@ if (window._flowAutomatorLoaded) {
     }
     const srcs = [...collected];
     const shortId = (s) => (s.match(/name=([^&]+)/)?.[1] || s).slice(-12);
+    stopRenderTicker();                                            // ★ ออกจากเฟสเรนเดอร์
     log(`วิดีโอเสร็จ ✓ ${srcs.length} คลิป`);
+    reportProgress("downloading", `${srcs.length} คลิป`, opts.productId);   // ★ ขยับ step → "ดาวน์โหลดคลิป"
     const stamp = Date.now(); const files = []; const dlResults = [];
     for (let i = 0; i < srcs.length; i++) {
       const fname = `flow/${opts.productId || "clip"}_${stamp}_${i + 1}.mp4`;
