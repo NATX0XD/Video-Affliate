@@ -1629,6 +1629,41 @@ if (window._flowAutomatorLoaded) {
   }
   // โหมด "เฟรม" พร้อม = มีช่องสลอต "เริ่ม/Start" โผล่ที่แถบ prompt
   const framesSubReady = () => !!findFrameSlot("เริ่ม");
+  // รายละเอียดปุ่มโหมด (diagnose ตอนเปิดป๊อปอัปไม่ได้) — tag/jsname/aria/rect
+  function modeBtnInfo() {
+    const b = findModeBtn(); if (!b) return "no-btn";
+    const r = b.getBoundingClientRect();
+    const jn = b.getAttribute("jsname"); const al = b.getAttribute("aria-label");
+    return `${b.tagName}${jn ? " jsname=" + jn : ""}${al ? " aria=" + al.slice(0, 16) : ""} @${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+  }
+  // คลิกแบบ native (dispatch pointer/mouse events) — เผื่อ CDP trusted click อย่างเดียวไม่เปิดป๊อปอัป
+  function nativeClickEl(el) {
+    try {
+      const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      const o = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+      el.dispatchEvent(new PointerEvent("pointerdown", { ...o, pointerId: 1, isPrimary: true, button: 0 }));
+      el.dispatchEvent(new MouseEvent("mousedown", { ...o, button: 0 }));
+      el.dispatchEvent(new PointerEvent("pointerup", { ...o, pointerId: 1, isPrimary: true, button: 0 }));
+      el.dispatchEvent(new MouseEvent("mouseup", { ...o, button: 0 }));
+      el.dispatchEvent(new MouseEvent("click", { ...o, button: 0 }));   // ★ ยิง click ครั้งเดียว (อย่าเรียก el.click() ซ้ำ — ปุ่ม toggle จะปิดกลับ)
+    } catch {}
+  }
+  // ป๊อปอัปโหมดโผล่ไหม = เจอแท็บ รูปภาพ/วิดีโอ/เฟรม (findModeOption ตัด sidebar x<110 แล้ว)
+  const popupTabsShown = () => !!(findModeOption("รูปภาพ") || findModeOption("วิดีโอ") || findModeOption("เฟรม"));
+  // เปิดป๊อปอัปโหมดให้ชัวร์ — สลับวิธีคลิก (คู่=CDP trusted, คี่=native) จนเห็นแท็บจริง
+  async function openModePopup(log) {
+    const L = (m) => { try { log && log(m); } catch {} };
+    if (popupTabsShown()) return true;
+    for (let k = 0; k < 6; k++) {
+      const btn = findModeBtn();
+      if (!btn) { await sleep(600); continue; }
+      if (k % 2 === 0) await trustedClickEl(btn, log); else nativeClickEl(btn);
+      await sleep(850);
+      const d = dumpPopup(); if (d.length > (_modePopupDump || "").length) _modePopupDump = d;
+      if (popupTabsShown()) { L(`เปิดป๊อปอัปโหมดสำเร็จ (วิธี ${k % 2 === 0 ? "trusted" : "native"} รอบ ${k + 1})`); return true; }
+    }
+    return false;
+  }
   async function setMode(typeLabel, subLabel, countLabel, log) {
     const L = (m) => { try { log && log(m); } catch {} };
     const onTarget = () => {
@@ -1638,20 +1673,13 @@ if (window._flowAutomatorLoaded) {
     };
     for (let attempt = 1; attempt <= 5; attempt++) {
       if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (อยู่โหมดถูกแล้ว)`); return true; }
-      // 1) เปิดป๊อปอัป + ตามหา "แท็บชนิดเป้าหมาย" ตรง ๆ (ไม่ gate ด้วย popupOpen ที่อาจตรวจพลาด)
-      //    คลิกปุ่มโหมดซ้ำได้สูงสุด 5 ครั้ง จนเจอแท็บ typeLabel จริง
+      // 1) เปิดป๊อปอัปโหมดให้ชัวร์ (หลายวิธีคลิก) แล้วหาแท็บเป้าหมาย
+      _modePopupDump = "";
+      const opened = await openModePopup(log);
+      if (!_modePopupDump) _modePopupDump = dumpPopup();
+      if (!opened) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ รอบ ${attempt}/5 (ปุ่มโหมด: ${modeBtnInfo()}) | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
       let typeTab = findModeOption(typeLabel);
-      let openDump = dumpPopup();
-      for (let k = 0; k < 5 && !typeTab; k++) {
-        const btn = findModeBtn();
-        if (!btn) { L("สลับโหมด: ไม่เจอปุ่มโหมด"); await sleep(600); continue; }
-        await trustedClickEl(btn, log); await sleep(900);
-        const d = dumpPopup();                                   // เก็บ dump ที่เห็นของเยอะสุด (=ตอนป๊อปอัปเปิด)
-        if (d.length > openDump.length) openDump = d;
-        typeTab = findModeOption(typeLabel);
-      }
-      _modePopupDump = openDump;   // diagnose
-      if (!typeTab) { L(`เปิดป๊อปอัป/หาแท็บ "${typeLabel}" ไม่เจอ รอบ ${attempt}/5 | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
+      if (!typeTab) { L(`เปิดป๊อปอัปได้แต่ไม่เจอแท็บ "${typeLabel}" รอบ ${attempt}/5 | ป๊อปอัป: ${_modePopupDump}`); await sleep(600); continue; }
       // 2) อ่านสถานะ "ตอนนี้" แล้วกดเฉพาะที่ยังไม่ถูก (if/else — ไม่กดมั่ว)
       let st = readModeState();
       L(`สถานะป๊อปอัป: ชนิด=${st.type || "?"} · ย่อย=${st.sub || "?"}`);
@@ -1803,7 +1831,7 @@ if (window._flowAutomatorLoaded) {
     log(`ตรวจโหมดก่อนสร้างรูป: ${modeSummary()}`);                    // เช็คก่อน
     const modeOk = await setMode("รูปภาพ", null, count || null, log);   // โหมดรูปภาพ (nano banana · 0 เครดิต) + บังคับ 9:16
     // ★ guard #1: ยืนยันโหมดรูปภาพ + 9:16 ไม่ได้ → ยกเลิกก่อนแนบ/สร้าง (กันเผลอสร้างในโหมดวิดีโอเสีย 15 เครดิต/รูป หรือได้สัดส่วนผิด)
-    if (!modeOk || !isImageMode()) { const _d = dumpBtns(log, "image-mode-guard"); return { ok: false, error: `[v${EXT_VER}] ยืนยันโหมดรูปภาพไม่ได้ (ตรวจได้: ${modeSummary()}) | ป๊อปอัป: ${_modePopupDump || "(ไม่เปิด)"} | ปุ่มบนจอ: ${_d}`, uploads: [] }; }
+    if (!modeOk || !isImageMode()) { const _d = dumpBtns(log, "image-mode-guard"); return { ok: false, error: `[v${EXT_VER}] ยืนยันโหมดรูปภาพไม่ได้ (ตรวจได้: ${modeSummary()}) | ปุ่มโหมด: ${modeBtnInfo()} | ป๊อปอัป: ${_modePopupDump || "(ไม่เปิด)"} | ปุ่มบนจอ: ${_d}`, uploads: [] }; }
     if (!is916()) log(`⚠ สัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()}) — ลองตั้งใหม่`);
     log(`โหมดหลังตั้งค่า: ${modeSummary()} ${is916() && isImageMode() ? "✓" : ""}`);   // เช็คหลัง
     await sleep(1500);                                          // ให้ UI นิ่งก่อนแนบ (กันรูปแรกแนบไม่ติด)
