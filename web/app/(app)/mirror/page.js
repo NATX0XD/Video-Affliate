@@ -38,17 +38,26 @@ export default function MirrorFarmPage() {
 
   // จอสด scrcpy (H.264 ผ่าน WebSocket) — ต้องมีทั้ง WebCodecs ในเบราว์เซอร์ และ scrcpy ในเครื่อง
   // ขาดอย่างใดอย่างหนึ่ง → ตกไปใช้ MJPEG เดิม
-  const [live, setLive] = useState(false)
+  // null = ยังไม่รู้ผล — ห้ามเริ่ม MJPEG ระหว่างนี้ ไม่งั้นทุกเครื่องจะรัน screenrecord+ffmpeg
+  // ค้างคู่ scrcpy (มือถือ encode สองชุด ร้อน/แบตหมดเร็ว) และไม่มีใครสั่งหยุดจนกว่าจะออกจากหน้า
+  const [live, setLive] = useState(null)
   useEffect(() => {
-    if (!hasWebCodecs()) return
+    if (!hasWebCodecs()) { setLive(false); return }
     api.scrcpyAvailable()
       .then(r => setLive(!!r.available))
       .catch(() => setLive(false))
   }, [])
 
+  // พอรู้ว่าใช้ scrcpy ได้ → ดับ MJPEG ที่อาจค้างอยู่จากรอบก่อน
+  useEffect(() => {
+    if (live !== true) return
+    started.current.clear()
+    api.mirrorStopAll?.().catch(() => {})
+  }, [live])
+
   // โหมด MJPEG เท่านั้นที่ต้องสั่ง mirror start + tick ภาพ (scrcpy ต่อเองในแต่ละการ์ด)
   useEffect(() => {
-    if (live) return
+    if (live !== false) return
     online.forEach(d => {
       if (!d.streaming && !started.current.has(d.serial)) {
         started.current.add(d.serial)
@@ -72,7 +81,7 @@ export default function MirrorFarmPage() {
     try { await api.wifiConnect(ip.trim()); setIp('') } catch { setError('เชื่อมต่อไม่สำเร็จ') }
   }
 
-  if (fs) return <MirrorFullscreen device={online.find(d => d.serial === fs)} platforms={platforms} live={live} onBack={() => setFs(null)} />
+  if (fs) return <MirrorFullscreen device={online.find(d => d.serial === fs)} platforms={platforms} live={live === true} onBack={() => setFs(null)} />
 
   const posting = online.filter(d => d.activity === 'posting').length
   const cooling = online.filter(d => d.activity === 'cooldown').length
@@ -127,7 +136,7 @@ export default function MirrorFarmPage() {
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {Array.from({ length: Math.max(FARM_SIZE, online.length) }).map((_, i) => (
           online[i]
-            ? <PhoneCard key={online[i].serial} device={online[i]} ts={ts} live={live} index={i} onOpen={() => setFs(online[i].serial)} />
+            ? <PhoneCard key={online[i].serial} device={online[i]} ts={ts} live={live === true} index={i} onOpen={() => setFs(online[i].serial)} />
             : <EmptySlot key={`slot-${i}`} n={i + 1} />
         ))}
       </div>
@@ -139,6 +148,9 @@ function PhoneCard({ device, ts, live, index, onOpen }) {
   const { serial, model, label, battery, charging, temp, activity, streaming, platforms = [] } = device
   const thumb = streaming && ts ? `${BASE}/snapshot/${serial}?_=${ts}` : null
   const [scrcpyOn, setScrcpyOn] = useState(false)
+  const [scrcpyErr, setScrcpyErr] = useState('')
+  const [retryKey, setRetryKey]   = useState(0)
+  const retryScrcpy = () => { setScrcpyErr(''); setRetryKey(k => k + 1) }
   const isLive = live ? scrcpyOn : streaming
   const act = activity === 'posting' ? { label: 'กำลังโพสต์', cls: 'bg-accent text-white' }
     : activity === 'cooldown' ? { label: 'พักเครื่อง', cls: 'bg-amber-500 text-white' }
@@ -155,14 +167,35 @@ function PhoneCard({ device, ts, live, index, onOpen }) {
               interactive={false}
               maxSize={640}
               maxFps={20}
-              onStatus={s => setScrcpyOn(s === 'live')}
+              retryKey={retryKey}
+              onStatus={(s, msg) => {
+                setScrcpyOn(s === 'live')
+                setScrcpyErr(s === 'error' ? (msg || 'เชื่อมจอไม่ได้') : '')
+              }}
               style={{ width: '100%', height: '100%', objectFit: 'cover', aspectRatio: 'auto' }}
             />
-            {!scrcpyOn && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-ink-mute pointer-events-none">
-                <Smartphone size={26} /><span className="text-[10px]">กำลังเชื่อมจอ…</span>
-              </div>
-            )}
+            {!scrcpyOn && (scrcpyErr
+              ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 text-center bg-black/70">
+                  <AlertCircle size={22} className="text-danger" />
+                  <span className="text-[10px] text-white/85 leading-snug line-clamp-3">{scrcpyErr}</span>
+                  {/* การ์ดชั้นนอกเป็น <button> อยู่แล้ว — ซ้อน <button> ไม่ได้ ต้องคุม keyboard เอง */}
+                  <span role="button" tabIndex={0}
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); retryScrcpy() }}
+                        onKeyDown={e => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return
+                          e.preventDefault(); e.stopPropagation(); retryScrcpy()
+                        }}
+                        className="mt-0.5 text-[10px] font-bold text-white bg-accent px-2.5 py-1 rounded-full cursor-pointer">
+                    ลองใหม่
+                  </span>
+                </div>
+              )
+              : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-ink-mute pointer-events-none">
+                  <Smartphone size={26} /><span className="text-[10px]">กำลังเชื่อมจอ…</span>
+                </div>
+              ))}
           </>
         ) : thumb
           ? <img src={thumb} alt="" className="w-full h-full object-cover" />

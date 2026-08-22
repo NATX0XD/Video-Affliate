@@ -1571,13 +1571,16 @@ class WebServer:
                              "python": sys.executable}
             if not self.adb:
                 return JSONResponse(results)
-            ok, msg = self.adb._adb("shell", "screencap", "-p", "/sdcard/screen_web.png",
+            # ใช้ SNAP_REMOTE (/data/local/tmp) — เขียนลง /sdcard/screen_web.png จะไปโผล่ในคลังภาพ
+            # ของผู้ใช้ และ cleanup ของ flow โพสต์ก็ลบไปแล้วก่อนหน้า (เขียนกลับซ้ำอีกไม่มีประโยชน์)
+            from services.adb.manager import SNAP_REMOTE
+            ok, msg = self.adb._adb("shell", "screencap", "-p", SNAP_REMOTE,
                                      serial=serial, timeout=12)
             results["screencap_ok"]  = ok
             results["screencap_msg"] = msg
             if ok:
                 local_png = os.path.join(tempfile.gettempdir(), f"vgap_diag_{serial}.png")
-                r = sp.run([adb_bin(self.adb.log), "-s", serial, "pull", "/sdcard/screen_web.png",
+                r = sp.run([adb_bin(self.adb.log), "-s", serial, "pull", SNAP_REMOTE,
                              local_png], capture_output=True, timeout=12)
                 results["pull_ok"]     = r.returncode == 0
                 results["pull_stderr"] = r.stderr.decode(errors="ignore").strip()
@@ -1647,8 +1650,26 @@ class WebServer:
             loop = asyncio.get_running_loop()
             mgr  = self._scrcpy_manager()
 
-            sess = await loop.run_in_executor(
-                None, lambda: mgr.get_or_start(serial, max_size=max_size, max_fps=max_fps))
+            # executor แยก: start() = adb push (30s) + handshake (20s) และถือ serial lock ทั้งช่วง
+            # ถ้าใช้ default pool ร่วมกับ /snapshot และ /stream เปิดฟาร์ม 20 การ์ดพร้อมกัน
+            # จะดันงานยาว 20 ตัวเข้าคิวจนสองอันนั้นหยุดตอบไปหลายสิบวินาที
+            # pool มี 4 worker — เปิดฟาร์ม 20 การ์ดพร้อมกันแปลว่าการ์ดท้ายคิวต้องรอหลายรอบ
+            # ฝั่งเว็บมี watchdog 12 วิ ("ต่อได้แต่ไม่มีภาพ") จึงต้องส่งสัญญาณระหว่างรอ
+            # ไม่งั้นการ์ดที่ 5 ขึ้นไปจะขึ้น error แล้วต่อใหม่ → ต่อท้ายคิวใหม่ วนไปทั้งที่ backend ปกติ
+            await ws.send_text(json.dumps({"type": "starting"}))
+            fut = loop.run_in_executor(
+                self._scrcpy_executor(),
+                lambda: mgr.get_or_start(serial, max_size=max_size, max_fps=max_fps))
+            while True:
+                done_, _ = await asyncio.wait({fut}, timeout=3)
+                if done_:
+                    break
+                await ws.send_text(json.dumps({"type": "starting", "queued": True}))
+            try:
+                sess = fut.result()
+            except Exception as e:
+                self.log(f"[scrcpy] เปิดสตรีม {serial} ล้มเหลว: {type(e).__name__}: {e}")
+                sess = None
             if not sess:
                 await ws.send_text(json.dumps({"type": "error",
                                                "message": "เปิดสตรีมไม่ได้ — ตรวจว่าติดตั้ง scrcpy แล้ว"}))
@@ -1676,13 +1697,32 @@ class WebServer:
                     pass
 
             sid = sess.subscribe(on_event)
+            if sid < 0 or not sess.running:
+                # session โดน stop ระหว่างช่องว่างระหว่าง get_or_start กับ subscribe
+                # (คนอื่นขอความละเอียดสูงกว่า / timer ของ release ทำงานพอดี)
+                # ต้องปิด ws ให้เบราว์เซอร์รู้ตัว ไม่งั้นค้างรอเฟรมที่ไม่มีวันมา = จอดำถาวร
+                self.log(f"[scrcpy] ws {serial} เข้า session ที่ปิดไปแล้ว — ให้ต่อใหม่")
+                if sid >= 0:
+                    # ต้องถอน subscriber ออกก่อน ไม่งั้น subscriber_count ค้าง ≥ 1 ตลอดกาล
+                    # → release()._later() ไม่มีวันผ่านเงื่อนไข = app_process/forward/thread ค้างยันปิดโปรแกรม
+                    if sess.unsubscribe(sid) == 0:
+                        mgr.release(serial, sess)
+                await ws.send_text(json.dumps({"type": "error",
+                                               "message": "สตรีมถูกปิดระหว่างเชื่อมต่อ — กดลองใหม่"}))
+                await ws.close()
+                return
             if sess.width:
                 await ws.send_text(json.dumps({"type": "meta", "codec": sess.codec,
                                                "width": sess.width, "height": sess.height}))
 
             async def pump():
+                """คนเดียวที่เขียน WebSocket — ASGI ไม่ serialize ให้ ถ้า recv() ส่งเองพร้อมกัน
+                เฟรมจะสลับกันหรือได้ RuntimeError จาก ASGI layer"""
                 while True:
                     kind, payload = await q.get()
+                    if kind == "text":                 # ข้อความจาก recv() ฝากมาส่ง
+                        await ws.send_text(json.dumps(payload))
+                        continue
                     if kind == "meta":
                         if payload.get("closed"):
                             await ws.send_text(json.dumps({"type": "closed"}))
@@ -1708,20 +1748,36 @@ class WebServer:
                         sess.scroll(float(msg.get("x", 0)), float(msg.get("y", 0)),
                                     float(msg.get("h", 0)), float(msg.get("v", 0)))
                     elif t == "key":
-                        sess.key(msg.get("code", "KEYCODE_HOME"))
+                        code = msg.get("code", "KEYCODE_HOME")
+                        # sess.key() อาจตกไปเรียก adb (บล็อก) → ห้ามรันในลูป event
+                        ok = await loop.run_in_executor(None, sess.key, code)
+                        if not ok:
+                            # เดิมเงียบสนิท — ผู้ใช้กดปุ่มบนเว็บแล้วไม่มีอะไรเกิดขึ้นและไม่มี log
+                            self.log(f"[scrcpy] ส่งปุ่ม {code} ไม่สำเร็จ ({serial})")
+                            _put(("text", {"type": "warn",
+                                           "message": f"ส่งปุ่ม {code} ไม่สำเร็จ"}))
                     elif t == "key_frame":
                         sess.request_key_frame()
 
             tasks = [asyncio.create_task(pump()), asyncio.create_task(recv())]
             try:
-                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            except Exception:
-                pass
+                # asyncio.wait ไม่ raise — task ที่ตายเพราะ exception จริง (struct.error จาก
+                # touch พิกัดเกิน, JSONDecodeError, ValueError) จะถูก cancel ทิ้งใน finally
+                # แล้ว exception หายไปเลย → จอดับเงียบ log ว่างเปล่า จึงต้องอ่านออกมาก่อน
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for t in done:
+                    if t.cancelled():
+                        continue
+                    exc = t.exception()
+                    if exc and not isinstance(exc, (WebSocketDisconnect, asyncio.CancelledError)):
+                        self.log(f"[scrcpy] ws {serial} หลุด: {type(exc).__name__}: {exc}")
+            except Exception as e:
+                self.log(f"[scrcpy] ws {serial} พัง: {type(e).__name__}: {e}")
             finally:
                 for t in tasks:
                     t.cancel()
                 if sess.unsubscribe(sid) == 0:
-                    mgr.release(serial)
+                    mgr.release(serial, sess)      # ส่ง session ที่ ws ตัวนี้ผูกอยู่ไปด้วย
                 try: await ws.close()
                 except Exception: pass
 
@@ -1799,6 +1855,14 @@ class WebServer:
             from services.adb.scrcpy_stream import ScrcpyManager
             self.scrcpy = ScrcpyManager(log=self.log)
         return self.scrcpy
+
+    def _scrcpy_executor(self):
+        """pool แยกสำหรับ start สตรีม (งานยาว ~50 วิ) — ห้ามไปเบียด /snapshot กับ /stream"""
+        ex = getattr(self, "_scrcpy_pool", None)
+        if ex is None:
+            from concurrent.futures import ThreadPoolExecutor
+            ex = self._scrcpy_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="scrcpy-start")
+        return ex
 
     def _ensure_mirror(self, serial: str):
         if serial not in self.mirrors and self.adb:
@@ -1957,3 +2021,7 @@ class WebServer:
     def stop(self):
         if self.scrcpy:
             self.scrcpy.stop_all()
+        pool = getattr(self, "_scrcpy_pool", None)
+        if pool:
+            pool.shutdown(wait=False)
+            self._scrcpy_pool = None

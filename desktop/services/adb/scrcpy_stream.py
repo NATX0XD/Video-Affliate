@@ -24,11 +24,13 @@ import random
 from typing import Optional, Callable
 
 from services.adb.adb_path import adb_bin
-from services.adb.scrcpy_control import _find_server_jar, SERVER_REMOTE
+from services.adb.scrcpy_control import (_find_server_jar, _free_port, SERVER_REMOTE,
+                                         CLIPBOARD_TEXT_MAX, DeviceMsgReader)
 
 # scrcpy server jar ต้องได้ version string ตรงกับตัว jar ไม่งั้นมันจะปฏิเสธการรัน
 _FALLBACK_VERSION = "4.1"
-_version_cache: Optional[str] = None
+_version_cache: dict = {}       # path ของ jar (หรือ "") → version — แยกต่อ jar เพราะเครื่องเดียว
+                                # มีได้หลาย scrcpy (~/.vgap 4.0 กับ brew 4.1) คนละเวอร์ชันกัน
 
 # keycode Android ที่ใช้บ่อย — ยิงผ่าน control socket เร็วกว่า `adb shell input keyevent` มาก
 KEYCODES = {
@@ -62,16 +64,17 @@ def scrcpy_version(log=print, jar: Optional[str] = None) -> str:
     ลำดับการหา: env → binary scrcpy ที่อยู่ข้างๆ jar (สำคัญ: เครื่องนี้มีทั้ง ~/.vgap 4.0
     และ brew 4.1) → scrcpy บน PATH
     """
-    global _version_cache
-    if _version_cache:
-        return _version_cache
+    key = jar or ""
+    hit = _version_cache.get(key)
+    if hit:
+        return hit
     import os
     from pathlib import Path
 
     env = os.environ.get("VGAP_SCRCPY_VERSION")
     if env:
-        _version_cache = env.strip()
-        return _version_cache
+        _version_cache[key] = env.strip()
+        return _version_cache[key]
 
     if jar:
         d = Path(jar).resolve().parent
@@ -81,25 +84,39 @@ def scrcpy_version(log=print, jar: Optional[str] = None) -> str:
             if cand.exists():
                 v = _version_of(cand)
                 if v:
-                    _version_cache = v
+                    _version_cache[key] = v
                     return v
 
     v = _version_of("scrcpy")
     if v:
-        _version_cache = v
+        _version_cache[key] = v
         return v
 
-    _version_cache = _FALLBACK_VERSION
-    log(f"[scrcpy] อ่านเวอร์ชันไม่ได้ — ใช้ค่าเริ่มต้น {_version_cache}")
-    return _version_cache
+    _version_cache[key] = _FALLBACK_VERSION
+    log(f"[scrcpy] อ่านเวอร์ชันไม่ได้ — ใช้ค่าเริ่มต้น {_FALLBACK_VERSION}")
+    return _FALLBACK_VERSION
 
 
-def _free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+def apply_server_version_hint(out: str, jar: Optional[str], log=print) -> Optional[str]:
+    """server ปฏิเสธด้วย "The server version (X) does not match the client (Y)"
+    → เอา X ที่ server บอกมาใส่ cache เลย รอบหน้าจะ start ติดโดยผู้ใช้ไม่ต้องแก้ env
+    (ล้าง cache เฉยๆ ไม่ช่วย เพราะตรรกะเดิมจะได้ค่าเดิมเป๊ะ)"""
+    m = re.search(r"server version \(?([0-9]+(?:\.[0-9]+)+)\)? does not match", out or "")
+    if not m:
+        return None
+    v = m.group(1)
+    _version_cache[jar or ""] = v
+    log(f"[scrcpy] server บอกว่าเวอร์ชันคือ {v} — ใช้ค่านี้ในการเชื่อมครั้งถัดไป")
+    return v
+
+
+def forget_scrcpy_version(jar: Optional[str] = None):
+    """ล้าง cache เวอร์ชัน — เรียกเมื่อ server ปฏิเสธด้วย "server version does not match"
+    หรือเมื่อผู้ใช้เปลี่ยน SCRCPY_SERVER_PATH / VGAP_SCRCPY_VERSION ระหว่างโปรแกรมยังรันอยู่"""
+    if jar is None:
+        _version_cache.clear()
+    else:
+        _version_cache.pop(jar, None)
 
 
 class ScrcpySession:
@@ -131,6 +148,8 @@ class ScrcpySession:
         self._subs_lock = threading.Lock()
         self._ctl_lock  = threading.Lock()
         self._start_lock = threading.Lock()
+        self._clip_seq = 0
+        self._dev: Optional[DeviceMsgReader] = None   # อ่าน DeviceMessage ขากลับ (ack + กัน buffer เต็ม)
         self._config_pkt: Optional[bytes] = None   # SPS/PPS ล่าสุด (ส่งให้ subscriber ใหม่)
         self._reader: Optional[threading.Thread] = None
 
@@ -187,12 +206,20 @@ class ScrcpySession:
                     try: out = (self._proc.stdout.read() or b"").decode("utf-8", "ignore")[-400:]
                     except Exception: pass
                 self.log(f"[scrcpy] ต่อ video socket ไม่ได้{(' — ' + out.strip()) if out.strip() else ''}")
+                if "does not match" in out:
+                    # server บอกเวอร์ชันที่ถูกมาในข้อความ error → จำไว้ใช้รอบหน้า
+                    if not apply_server_version_hint(out, jar, self.log):
+                        forget_scrcpy_version(jar)
                 self._teardown()
                 return False
 
             self._control = self._connect(timeout=5)
             if not self._control:
                 self.log("[scrcpy] ต่อ control socket ไม่ได้ — ดูได้แต่คุมไม่ได้")
+            else:
+                # session จอสดอยู่ยาวเป็นชั่วโมง — ถ้าไม่มีใครอ่านขากลับ buffer เต็มแล้ว
+                # server บล็อกตอนเขียน = touch injection ตายทั้ง session
+                self._dev = DeviceMsgReader(self._control, self.log, tag=f":{self.serial}")
 
             self.running = True
             self._reader = threading.Thread(target=self._read_loop, daemon=True,
@@ -206,10 +233,14 @@ class ScrcpySession:
         proc = self._proc
         if not proc or not proc.stdout:
             return
-        for raw in iter(proc.stdout.readline, b""):
-            line = raw.decode("utf-8", "ignore").strip()
-            if line and ("ERROR" in line or "WARN" in line):
-                self.log(f"[scrcpy:{self.serial}] {line}")
+        try:
+            for raw in iter(proc.stdout.readline, b""):
+                line = raw.decode("utf-8", "ignore").strip()
+                if line and ("ERROR" in line or "WARN" in line):
+                    self.log(f"[scrcpy:{self.serial}] {line}")
+        except Exception:
+            pass          # _teardown ปิด stdout ระหว่างนี้ได้ — ไม่ใช่ error
+
 
     def _handshake_video(self, timeout: float) -> Optional[socket.socket]:
         deadline = time.time() + timeout
@@ -239,16 +270,30 @@ class ScrcpySession:
         return None
 
     def _teardown(self):
+        if self._dev:
+            self._dev.stop()
+            self._dev = None
         for s in (self._video, self._control):
             try:
                 if s: s.close()
             except Exception:
                 pass
         self._video = self._control = None
-        if self._proc:
-            try: self._proc.terminate()
+        proc, self._proc = self._proc, None
+        if proc:
+            # ต้อง wait() ไม่งั้น `adb shell` กลายเป็น zombie ค้างทุกครั้งที่เปิด-ปิดสตรีม
+            try: proc.terminate()
             except Exception: pass
-            self._proc = None
+            try:
+                proc.wait(timeout=3)
+            except Exception:
+                try: proc.kill()
+                except Exception: pass
+                try: proc.wait(timeout=2)
+                except Exception: pass
+            try:
+                if proc.stdout: proc.stdout.close()
+            except Exception: pass
         if self._port:
             try: self._adb("forward", "--remove", f"tcp:{self._port}", timeout=5)
             except Exception: pass
@@ -262,11 +307,25 @@ class ScrcpySession:
     # ── subscribers ──────────────────────────────────────────
 
     def subscribe(self, cb: Callable) -> int:
-        """cb(kind, payload) — kind: 'meta' | 'packet'; payload: dict | (flags, bytes)"""
+        """cb(kind, payload) — kind: 'meta' | 'packet'; payload: dict | (flags, bytes)
+
+        คืน -1 ถ้า session ตายไปแล้ว (โดนแทนที่/ถูก stop ระหว่างที่ caller ถือ ref อยู่)
+        ต้องบอก caller ให้รู้ทันที ไม่งั้น WS จะค้างรอ frame ที่ไม่มีวันมา (จอดำถาวร ไม่มีปุ่มลองใหม่)
+        """
+        if not self.running:
+            try: cb("meta", {"closed": True})
+            except Exception: pass
+            return -1
         with self._subs_lock:
             self._sub_seq += 1
             sid = self._sub_seq
             self._subs[sid] = cb
+        if not self.running:          # โดน stop ระหว่างกำลังลงทะเบียน
+            with self._subs_lock:
+                self._subs.pop(sid, None)
+            try: cb("meta", {"closed": True})
+            except Exception: pass
+            return -1
         # subscriber ใหม่ต้องได้ SPS/PPS + key frame ทันที ไม่งั้นภาพไม่ขึ้น
         # (ถ้ายังไม่มี config = encoder เพิ่งเริ่ม เดี๋ยวมันส่ง config+key frame มาเองอยู่แล้ว
         #  ห้ามสั่ง reset ตอนนี้ — server จะโยน exception ใน thread control-recv แล้วสตรีมไม่เริ่ม)
@@ -385,11 +444,55 @@ class ScrcpySession:
         vs = int(max(-1.0, min(1.0, vscroll / 16)) * 0x7FFF)
         self._send_ctl(struct.pack(">biiHHhhi", 3, x, y, w, h, hs, vs, 0))
 
+    ACK_TIMEOUT = 2.0
+
+    def set_clipboard(self, text: str, paste: bool = True) -> bool:
+        """type=9 SET_CLIPBOARD — ทางเดียวที่พิมพ์ไทยได้บนเครื่องที่ไม่มี ADBKeyboard
+        wire: type(1B) | sequence(8B) | paste(1B) | len(4B) | utf-8 → '>bqBI' (หัว 14 ไบต์)
+
+        True = ได้ ACK_CLIPBOARD ของ sequence นี้ (หรืออ่าน ack ไม่ได้แต่เขียน socket ผ่าน)
+        **ไม่การันตีว่าข้อความลงช่องที่ต้องการ** — paste ลงเฉพาะ view ที่โฟกัสอยู่
+        """
+        if text is None:
+            return False
+        data = text.encode("utf-8") or b" "     # ClipData ว่างบางรุ่นถูกเมิน → ใช้ช่องว่างแทน
+        if len(data) > CLIPBOARD_TEXT_MAX:
+            self.log(f"[scrcpy] ข้อความยาว {len(data)} ไบต์ เกินลิมิตคลิปบอร์ด {CLIPBOARD_TEXT_MAX}")
+            return False
+        self._clip_seq += 1
+        seq = self._clip_seq
+        if not self._send_ctl(struct.pack(">bqBI", 9, seq, 1 if paste else 0, len(data)) + data):
+            return False
+        dev = self._dev
+        if dev is None or not dev.synced:
+            return True
+        if dev.wait_ack(seq, self.ACK_TIMEOUT):
+            return True
+        self.log(f"[scrcpy] ตั้งคลิปบอร์ดแล้วไม่ได้ ack ใน {self.ACK_TIMEOUT:.0f} วิ")
+        return False
+
+    def clear_clipboard(self) -> bool:
+        """ล้างคลิปบอร์ดเครื่อง (ช่องว่างเดียว, ไม่ paste) — เรียกหลังพิมพ์เสร็จ
+        ไม่งั้นแคปชั่น+ลิงก์ affiliate ค้างในคลิปบอร์ดของผู้ใช้"""
+        return self.set_clipboard(" ", paste=False)
+
     def key(self, code, meta_state: int = 0) -> bool:
-        """code = ชื่อ KEYCODE_* หรือเลข — ส่ง down+up"""
+        """code = ชื่อ KEYCODE_* หรือเลข — ส่ง down+up
+
+        ชื่อที่ไม่อยู่ใน KEYCODES จะตกไปใช้ `adb shell input keyevent <name>` แทน
+        (เดิมคืน False เงียบๆ → ผู้ใช้กดปุ่มบนเว็บแล้วไม่มีอะไรเกิดขึ้น ไม่มี log)
+        """
         kc = KEYCODES.get(code) if isinstance(code, str) else int(code)
         if kc is None:
-            return False
+            try:
+                r = self._adb("shell", "input", "keyevent", str(code), timeout=8)
+                ok = r.returncode == 0
+            except Exception as e:
+                self.log(f"[scrcpy] keyevent {code} ไม่สำเร็จ: {e}")
+                return False
+            if not ok:
+                self.log(f"[scrcpy] keycode ไม่รู้จัก: {code}")
+            return ok
         ok = self._send_ctl(struct.pack(">bbiii", 0, 0, kc, 0, meta_state))
         ok = self._send_ctl(struct.pack(">bbiii", 0, 1, kc, 0, meta_state)) and ok
         return ok
@@ -404,41 +507,76 @@ class ScrcpyManager:
         self.log = log
         self._sessions: dict = {}
         self._lock = threading.Lock()
+        self._serial_locks: dict = {}      # serial → lock ที่คลุมตั้งแต่ "ตรวจ" ถึง "start เสร็จ"
+        self._closed = False               # ตั้งใน stop_all() — กัน get_or_start ที่ค้างอยู่ใส่ session กลับ
+
+    def _lock_for(self, serial: str) -> threading.Lock:
+        with self._lock:
+            lk = self._serial_locks.get(serial)
+            if lk is None:
+                lk = self._serial_locks[serial] = threading.Lock()
+            return lk
+
+    def _drop_if_current(self, serial: str, s: "ScrcpySession") -> bool:
+        """ถอด session ออกจาก dict เฉพาะเมื่อยังเป็นตัวเดิมจริงๆ (กันไปลบของคนอื่น)"""
+        with self._lock:
+            if self._sessions.get(serial) is s:
+                del self._sessions[serial]
+                return True
+            return False
 
     def get_or_start(self, serial: str, **kw) -> Optional[ScrcpySession]:
-        old = None
-        with self._lock:
-            s = self._sessions.get(serial)
-            if s and s.running:
+        # ต้องล็อกคลุมถึง start() ไม่งั้น WS สองตัวของ serial เดียวกัน (การ์ด 20 ใบ reconnect พร้อมกัน)
+        # จะสร้าง session ซ้อนกัน ตัวแรกกลายเป็น orphan ที่ไม่มีใครเรียก stop
+        # (ล็อกแยกต่อ serial — เครื่องอื่นไม่ต้องรอ และ self._lock ไม่เคยถูกถือคร่อม adb)
+        if self._closed:
+            return None
+        with self._lock_for(serial):
+            with self._lock:
+                old = self._sessions.get(serial)
+            if old is not None:
                 # คนดูใหม่ขอความละเอียดสูงกว่าที่สตรีมอยู่ (เช่น เปิดเต็มจอจากกริด) → เปิดใหม่ให้คมขึ้น
                 # คนดูเดิมจะโดนตัดแล้ว reconnect เองอัตโนมัติ
-                if kw.get("max_size", 0) > s.max_size:
-                    old = self._sessions.pop(serial, None)
-                else:
-                    return s
-        if old:
-            old.stop()
-        with self._lock:
+                if old.running and kw.get("max_size", 0) <= old.max_size:
+                    return old
+                # ตัวเก่าตายไปแล้ว (เครื่องหลุด → _read_loop จบ) ก็ยังต้อง stop()
+                # ไม่งั้น adb forward / app_process / reader thread ค้างสะสมทุกครั้งที่ถอด-เสียบสาย
+                self._drop_if_current(serial, old)
+                old.stop()
+
             s = ScrcpySession(serial, log=self.log, **kw)
-            self._sessions[serial] = s
-        if not s.start():
             with self._lock:
-                self._sessions.pop(serial, None)
-            return None
-        return s
+                if self._closed:            # โปรแกรมสั่งปิดระหว่างที่เรารอ lock
+                    return None
+                self._sessions[serial] = s
+            if not s.start():
+                self._drop_if_current(serial, s)
+                return None
+            return s
 
     def get(self, serial: str) -> Optional[ScrcpySession]:
         return self._sessions.get(serial)
 
-    def release(self, serial: str):
-        """เรียกตอน subscriber ตัวสุดท้ายหลุด — รอ grace ก่อนปิดจริง"""
+    def release(self, serial: str, sess: Optional[ScrcpySession] = None):
+        """เรียกตอน subscriber ตัวสุดท้ายหลุด — รอ grace ก่อนปิดจริง
+
+        ผู้เรียกต้องส่ง `sess` ที่ตัวเองผูกอยู่มาด้วย ไม่งั้นจะไปตั้งเวลาฆ่า session ตัวที่
+        บังเอิญอยู่ใน dict ตอนนั้น (เช่นตัวใหม่ที่เพิ่งสลับ 640 → 1080)
+        """
+        s = sess if sess is not None else self._sessions.get(serial)
+        if s is None or self._sessions.get(serial) is not s:
+            return                      # ตัวที่เราถืออยู่ไม่ใช่ตัวปัจจุบันแล้ว — ไม่ต้องยุ่ง
+
         def _later():
             time.sleep(self.IDLE_GRACE)
-            with self._lock:
-                s = self._sessions.get(serial)
-                if s and s.subscriber_count == 0:
-                    self._sessions.pop(serial, None)
-                    s.stop()
+            # ต้องถือ serial lock ตอนตัดสินใจ ไม่งั้นชนกับ get_or_start ที่กำลังส่ง session
+            # ตัวเดียวกันนี้ให้คนดูใหม่ (เขายังไม่ทัน subscribe → count ยัง 0 → เราไป stop ทิ้ง)
+            with self._lock_for(serial):
+                if not (self._sessions.get(serial) is s and s.subscriber_count == 0):
+                    return
+                dropped = self._drop_if_current(serial, s)
+            if dropped:
+                s.stop()
         threading.Thread(target=_later, daemon=True).start()
 
     def stop(self, serial: str):
@@ -449,7 +587,10 @@ class ScrcpyManager:
 
     def stop_all(self):
         with self._lock:
+            self._closed = True             # get_or_start ที่ค้างอยู่จะไม่ใส่ session กลับเข้า dict
             items = list(self._sessions.values())
             self._sessions.clear()
+            # ห้าม clear _serial_locks: thread อื่นอาจถือ lock ตัวเดิมอยู่ ถ้าลบทิ้งคนถัดไป
+            # จะได้ lock object ใหม่ = mutual exclusion หายไป (ปล่อยให้ GC เก็บพร้อม manager)
         for s in items:
             s.stop()

@@ -32,6 +32,9 @@ export function MirrorFullscreen({ device, platforms = [], live: liveProp, onBac
   const [idx, setIdx]               = useState(0)     // ขั้นปัจจุบัน
   const [armed, setArmed]           = useState(false) // จับ tap ถัดไป
   const [savedNote, setSavedNote]   = useState('')
+  // จอสด scrcpy พังต้องบอกผู้ใช้ + มีทางสั่งต่อใหม่ (ตัวคอมโพเนนต์หยุดต่อเองหลังถอยหลังครบรอบ)
+  const [liveErr, setLiveErr]   = useState('')
+  const [liveTry, setLiveTry]   = useState(0)
   useEffect(() => {
     setCalibMode(false); setArmed(false); setIdx(0)
     if (!device?.serial) { setCoordsInfo(null); setWork({}); return }
@@ -180,15 +183,28 @@ export function MirrorFullscreen({ device, platforms = [], live: liveProp, onBac
             </div>
           )}
           {live ? (
-            <ScrcpyScreen
-              serial={device.serial}
-              maxSize={1080}
-              maxFps={30}
-              onSize={(w, h) => setAr(w / h)}
-              onTapRatio={onTapRatio}
-              className="max-w-full max-h-full w-auto h-auto rounded-[1.5rem] border-[3px] border-border select-none"
-              style={{ boxShadow: '0 40px 100px rgba(0,0,0,0.7)' }}
-            />
+            <>
+              <ScrcpyScreen
+                serial={device.serial}
+                maxSize={1080}
+                maxFps={30}
+                retryKey={liveTry}
+                onSize={(w, h) => setAr(w / h)}
+                onStatus={(s, msg) => setLiveErr(s === 'error' ? (msg || 'เชื่อมจอไม่ได้') : '')}
+                onTapRatio={onTapRatio}
+                className="max-w-full max-h-full w-auto h-auto rounded-[1.5rem] border-[3px] border-border select-none"
+                style={{ boxShadow: '0 40px 100px rgba(0,0,0,0.7)' }}
+              />
+              {liveErr && (
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-danger/15 border border-danger/30 text-danger text-xs max-w-[90%]">
+                  <span className="truncate">{liveErr}</span>
+                  <button onClick={() => { setLiveErr(''); setLiveTry(n => n + 1) }}
+                          className="shrink-0 flex items-center gap-1 font-bold bg-danger text-white px-2.5 py-1 rounded-full">
+                    <RefreshCw size={11} /> ลองใหม่
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
           <img
             ref={imgRef}
