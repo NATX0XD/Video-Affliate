@@ -81,6 +81,7 @@ export const api = {
   videoFileUrl:    (folder, name) => `${BASE}/video/${folder}/${name}`,
   postResults:     ()         => req('GET',  '/api/post-results'),
   streamUrl:       (serial)   => `${BASE}/stream/${serial}`,
+  scrcpyAvailable: ()         => req('GET',  '/api/scrcpy/available'),   // มี scrcpy-server ในเครื่องไหม
   snapshotUrl:     (serial)   => `${BASE}/snapshot/${serial}`,
   licenseStatus:   ()         => req('GET',  '/api/license/status'),
   licenseActivate: (key)      => req('POST', '/api/license/activate', { key }),

@@ -115,6 +115,10 @@ class ScrcpyControl:
             self.log(f"[scrcpy] ไม่พบ scrcpy-server jar — {hint}")
             return False
 
+        # เวอร์ชันต้องตรงกับ jar ที่ติดตั้งจริง ไม่งั้น server ปฏิเสธการรัน
+        from services.adb.scrcpy_stream import scrcpy_version
+        version = scrcpy_version(self.log, jar)
+
         # Push server (idempotent — fast if unchanged)
         self._adb("push", jar, SERVER_REMOTE)
         self._adb("forward", f"tcp:{self._port}", f"localabstract:scrcpy_{self._scid}")
@@ -122,32 +126,43 @@ class ScrcpyControl:
         self._proc = subprocess.Popen(
             [adb_bin(self.log), "-s", self.serial, "shell",
              f"CLASSPATH={SERVER_REMOTE}",
-             "app_process", "/", "com.genymobile.scrcpy.Server", SCRCPY_VERSION,
+             "app_process", "/", "com.genymobile.scrcpy.Server", version,
              f"scid={self._scid}", "log_level=error", "tunnel_forward=true",
              "video=false", "audio=false", "control=true",
              "cleanup=false", "send_dummy_byte=true", "raw_stream=false"],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         )
-        time.sleep(1.5)
-
-        for _ in range(12):
+        # ต้องได้ dummy byte จริงถึงจะถือว่าต่อติด
+        # (adb forward รับ TCP ให้ตั้งแต่ server ยังไม่ listen หรือ server ตายไปแล้ว
+        #  ถ้าไม่เช็ค byte นี้ จะได้ socket ลวง ที่ tap แล้วเงียบหายไปเฉยๆ)
+        deadline = time.time() + 12
+        while time.time() < deadline:
             try:
-                self._sock = socket.create_connection(("127.0.0.1", self._port), timeout=2)
-                break
+                sock = socket.create_connection(("127.0.0.1", self._port), timeout=2)
             except Exception:
-                time.sleep(0.3)
+                time.sleep(0.25)
+                continue
+            try:
+                sock.settimeout(2)
+                if sock.recv(1) == b"\x00":
+                    sock.settimeout(None)
+                    self._sock = sock
+                    break
+            except Exception:
+                pass
+            try: sock.close()
+            except Exception: pass
+            time.sleep(0.25)
 
         if not self._sock:
-            self.log("[scrcpy] control socket เชื่อมต่อไม่ได้")
+            err = ""
+            if self._proc and self._proc.poll() is not None:
+                try: err = (self._proc.stdout.read() or b"").decode("utf-8", "ignore")[-300:]
+                except Exception: pass
+            self.log(f"[scrcpy] control socket เชื่อมต่อไม่ได้{(' — ' + err.strip()) if err.strip() else ''}")
             self.stop()
             return False
 
-        # Consume dummy byte
-        self._sock.settimeout(2)
-        try:
-            self._sock.recv(1)
-        except Exception:
-            pass
         self.log("[scrcpy] control session พร้อม")
         return True
 

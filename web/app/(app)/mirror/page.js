@@ -8,6 +8,7 @@ import { GatedButton }      from '@/components/ui/GatedButton'
 import { Input }            from '@/components/ui/input'
 import { InfoTooltip }      from '@/components/ui/InfoTooltip'
 import { api }              from '@/lib/api'
+import { ScrcpyScreen, hasWebCodecs } from '@/components/mirror/ScrcpyScreen'
 import { termHint, MSG }    from '@/lib/copy'
 import { PLAT_META }        from '@/lib/platform-meta'
 import { deviceReadiness }  from '@/lib/device-readiness'
@@ -35,8 +36,19 @@ export default function MirrorFarmPage() {
 
   useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
 
-  // auto-stream ทุกเครื่องที่ออนไลน์ + tick ภาพทุก ~1.2 วิ
+  // จอสด scrcpy (H.264 ผ่าน WebSocket) — ต้องมีทั้ง WebCodecs ในเบราว์เซอร์ และ scrcpy ในเครื่อง
+  // ขาดอย่างใดอย่างหนึ่ง → ตกไปใช้ MJPEG เดิม
+  const [live, setLive] = useState(false)
   useEffect(() => {
+    if (!hasWebCodecs()) return
+    api.scrcpyAvailable()
+      .then(r => setLive(!!r.available))
+      .catch(() => setLive(false))
+  }, [])
+
+  // โหมด MJPEG เท่านั้นที่ต้องสั่ง mirror start + tick ภาพ (scrcpy ต่อเองในแต่ละการ์ด)
+  useEffect(() => {
+    if (live) return
     online.forEach(d => {
       if (!d.streaming && !started.current.has(d.serial)) {
         started.current.add(d.serial)
@@ -45,7 +57,7 @@ export default function MirrorFarmPage() {
     })
     const id = setInterval(() => setTs(Date.now()), 1200)
     return () => clearInterval(id)
-  }, [online.map(d => d.serial).join(',')])
+  }, [live, online.map(d => d.serial).join(',')])
 
   useEffect(() => () => { api.mirrorStopAll?.().catch(() => {}) }, [])
 
@@ -60,7 +72,7 @@ export default function MirrorFarmPage() {
     try { await api.wifiConnect(ip.trim()); setIp('') } catch { setError('เชื่อมต่อไม่สำเร็จ') }
   }
 
-  if (fs) return <MirrorFullscreen device={online.find(d => d.serial === fs)} platforms={platforms} onBack={() => setFs(null)} />
+  if (fs) return <MirrorFullscreen device={online.find(d => d.serial === fs)} platforms={platforms} live={live} onBack={() => setFs(null)} />
 
   const posting = online.filter(d => d.activity === 'posting').length
   const cooling = online.filter(d => d.activity === 'cooldown').length
@@ -115,7 +127,7 @@ export default function MirrorFarmPage() {
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {Array.from({ length: Math.max(FARM_SIZE, online.length) }).map((_, i) => (
           online[i]
-            ? <PhoneCard key={online[i].serial} device={online[i]} ts={ts} index={i} onOpen={() => setFs(online[i].serial)} />
+            ? <PhoneCard key={online[i].serial} device={online[i]} ts={ts} live={live} index={i} onOpen={() => setFs(online[i].serial)} />
             : <EmptySlot key={`slot-${i}`} n={i + 1} />
         ))}
       </div>
@@ -123,9 +135,11 @@ export default function MirrorFarmPage() {
   )
 }
 
-function PhoneCard({ device, ts, index, onOpen }) {
+function PhoneCard({ device, ts, live, index, onOpen }) {
   const { serial, model, label, battery, charging, temp, activity, streaming, platforms = [] } = device
   const thumb = streaming && ts ? `${BASE}/snapshot/${serial}?_=${ts}` : null
+  const [scrcpyOn, setScrcpyOn] = useState(false)
+  const isLive = live ? scrcpyOn : streaming
   const act = activity === 'posting' ? { label: 'กำลังโพสต์', cls: 'bg-accent text-white' }
     : activity === 'cooldown' ? { label: 'พักเครื่อง', cls: 'bg-amber-500 text-white' }
     : { label: 'ว่าง', cls: 'bg-black/55 text-white' }
@@ -134,7 +148,23 @@ function PhoneCard({ device, ts, index, onOpen }) {
     <div className="group lift rounded-3xl overflow-hidden border border-border bg-card shadow-card animate-fade-up"
          style={{ animationDelay: `${Math.min(index, 16) * 40}ms` }}>
       <button onClick={onOpen} className="relative block w-full aspect-[9/19.5] bg-black overflow-hidden">
-        {thumb
+        {live ? (
+          <>
+            <ScrcpyScreen
+              serial={serial}
+              interactive={false}
+              maxSize={640}
+              maxFps={20}
+              onStatus={s => setScrcpyOn(s === 'live')}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', aspectRatio: 'auto' }}
+            />
+            {!scrcpyOn && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-ink-mute pointer-events-none">
+                <Smartphone size={26} /><span className="text-[10px]">กำลังเชื่อมจอ…</span>
+              </div>
+            )}
+          </>
+        ) : thumb
           ? <img src={thumb} alt="" className="w-full h-full object-cover" />
           : <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-ink-mute">
               <Smartphone size={26} /><span className="text-[10px]">กำลังเชื่อมจอ…</span>
@@ -144,7 +174,7 @@ function PhoneCard({ device, ts, index, onOpen }) {
         <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/55 to-transparent pointer-events-none" />
 
         <div className="absolute top-2 left-2 right-2 flex items-center justify-between">
-          {streaming
+          {isLive
             ? <span className="flex items-center gap-1 bg-black/55 rounded-full px-2 py-0.5"><span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse-dot" /><span className="text-[8px] text-success font-black tracking-wide">LIVE</span></span>
             : <span />}
           {battery > 0 && (

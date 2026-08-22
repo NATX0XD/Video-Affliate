@@ -6,11 +6,12 @@ import {
   X, Check, Tablet, RefreshCw,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { ScrcpyScreen, hasWebCodecs } from '@/components/mirror/ScrcpyScreen'
 import { ratioFromRect, normalizeCoords } from '@/lib/calib'
 import { PLAT_META } from '@/lib/platform-meta'
 import { deviceReadiness } from '@/lib/device-readiness'
 
-export function MirrorFullscreen({ device, platforms = [], onBack }) {
+export function MirrorFullscreen({ device, platforms = [], live: liveProp, onBack }) {
   const imgRef  = useRef(null)
   const dragRef = useRef(null)
   const [label, setLabel] = useState(device?.label || '')
@@ -121,6 +122,22 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
 
   const key = code => api.adbKey(device.serial, code)
 
+  // จอสด scrcpy (ดีเลย์ต่ำ + คุมผ่าน control socket) — ถ้าเบราว์เซอร์ไม่มี WebCodecs ค่อยตกไปใช้ MJPEG เดิม
+  const [live, setLive] = useState(false)
+  useEffect(() => {
+    if (liveProp !== undefined) { setLive(!!liveProp && hasWebCodecs()); return }
+    if (!hasWebCodecs()) return
+    api.scrcpyAvailable().then(r => setLive(!!r.available)).catch(() => setLive(false))
+  }, [liveProp])
+
+  // ตอนคาลิเบรต: scrcpy แตะให้จริงอยู่แล้ว เราแค่จดสัดส่วนพิกัดที่แตะ
+  const onTapRatio = r => {
+    if (!(calibMode && armed && curKey)) return
+    setWork(w => ({ ...w, [curKey]: r }))
+    setArmed(false)
+    setIdx(i => Math.min(i + 1, total - 1))
+  }
+
   if (!device) return (
     <div className="flex-1 flex items-center justify-center">
       <p className="text-muted-foreground text-sm">ไม่พบเครื่อง</p>
@@ -162,6 +179,17 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
                 : <>โหมดคาลิเบรต — กด “จับตำแหน่งปุ่มนี้” ในแผงขวา</>}
             </div>
           )}
+          {live ? (
+            <ScrcpyScreen
+              serial={device.serial}
+              maxSize={1080}
+              maxFps={30}
+              onSize={(w, h) => setAr(w / h)}
+              onTapRatio={onTapRatio}
+              className="max-w-full max-h-full w-auto h-auto rounded-[1.5rem] border-[3px] border-border select-none"
+              style={{ boxShadow: '0 40px 100px rgba(0,0,0,0.7)' }}
+            />
+          ) : (
           <img
             ref={imgRef}
             src={api.streamUrl(device.serial)}
@@ -174,6 +202,7 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
             onPointerUp={onPointerUp}
             onContextMenu={e => { e.preventDefault(); key('KEYCODE_BACK') }}
           />
+          )}
         </div>
 
         {/* Controls panel */}

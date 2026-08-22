@@ -86,7 +86,8 @@ class WebServer:
         self.budget = None        # BudgetGuard (A1.4)
         self.autopilot = None     # AutoPilot loop (auto-post)
         self._budget_blocked = False   # throttle log เตือนงบเต็ม
-        self.mirrors: dict = {}   # serial → ScreenMirror
+        self.mirrors: dict = {}   # serial → ScreenMirror (MJPEG เดิม — ใช้เป็น fallback)
+        self.scrcpy = None        # ScrcpyManager (H.264 ดีเลย์ต่ำ) — สร้างเมื่อใช้ครั้งแรก
 
         # Pre-capture cache: background thread continuously screenshots each device
         # so /snapshot requests respond immediately (<10ms) with the latest frame
@@ -1633,6 +1634,97 @@ class WebServer:
                          "Access-Control-Allow-Origin": "*"}
             )
 
+        # ── scrcpy live stream (H.264 ดิบ → เบราว์เซอร์ decode เองด้วย WebCodecs) ──
+
+        @app.get("/api/scrcpy/available")
+        def scrcpy_available():
+            from services.adb.scrcpy_control import _find_server_jar
+            return {"available": bool(_find_server_jar())}
+
+        @app.websocket("/ws/scrcpy/{serial}")
+        async def scrcpy_ws(ws: WebSocket, serial: str, max_size: int = 1024, max_fps: int = 30):
+            await ws.accept()
+            loop = asyncio.get_running_loop()
+            mgr  = self._scrcpy_manager()
+
+            sess = await loop.run_in_executor(
+                None, lambda: mgr.get_or_start(serial, max_size=max_size, max_fps=max_fps))
+            if not sess:
+                await ws.send_text(json.dumps({"type": "error",
+                                               "message": "เปิดสตรีมไม่ได้ — ตรวจว่าติดตั้ง scrcpy แล้ว"}))
+                await ws.close()
+                return
+
+            q: asyncio.Queue = asyncio.Queue(maxsize=300)
+            state = {"need_key": False, "closed": False}
+
+            def _put(item):
+                if q.full():
+                    # เน็ต/เบราว์เซอร์ตามไม่ทัน → ทิ้งคิวเก่าแล้วรอ key frame ใหม่ (กันภาพแตก)
+                    while not q.empty():
+                        try: q.get_nowait()
+                        except Exception: break
+                    state["need_key"] = True
+                    sess.request_key_frame()
+                try: q.put_nowait(item)
+                except Exception: pass
+
+            def on_event(kind, payload):
+                try:
+                    loop.call_soon_threadsafe(_put, (kind, payload))
+                except RuntimeError:
+                    pass
+
+            sid = sess.subscribe(on_event)
+            if sess.width:
+                await ws.send_text(json.dumps({"type": "meta", "codec": sess.codec,
+                                               "width": sess.width, "height": sess.height}))
+
+            async def pump():
+                while True:
+                    kind, payload = await q.get()
+                    if kind == "meta":
+                        if payload.get("closed"):
+                            await ws.send_text(json.dumps({"type": "closed"}))
+                            return
+                        await ws.send_text(json.dumps({"type": "meta", **payload}))
+                        continue
+                    flags, data = payload
+                    if state["need_key"]:
+                        if not (flags & 0b11):      # ข้ามจนกว่าจะเจอ config/key frame
+                            continue
+                        state["need_key"] = False
+                    await ws.send_bytes(bytes([flags]) + data)
+
+            async def recv():
+                while True:
+                    msg = json.loads(await ws.receive_text())
+                    t = msg.get("t")
+                    if t == "touch":
+                        sess.touch(int(msg.get("action", 0)),
+                                   float(msg.get("x", 0)), float(msg.get("y", 0)),
+                                   int(msg.get("pointerId", 0xFFFFFFFFFFFFFFFF)))
+                    elif t == "scroll":
+                        sess.scroll(float(msg.get("x", 0)), float(msg.get("y", 0)),
+                                    float(msg.get("h", 0)), float(msg.get("v", 0)))
+                    elif t == "key":
+                        sess.key(msg.get("code", "KEYCODE_HOME"))
+                    elif t == "key_frame":
+                        sess.request_key_frame()
+
+            tasks = [asyncio.create_task(pump()), asyncio.create_task(recv())]
+            try:
+                await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            except Exception:
+                pass
+            finally:
+                for t in tasks:
+                    t.cancel()
+                if sess.unsubscribe(sid) == 0:
+                    mgr.release(serial)
+                try: await ws.close()
+                except Exception: pass
+
         # ── WebSocket ──
 
         @app.websocket("/ws")
@@ -1700,6 +1792,13 @@ class WebServer:
             state['active'] = False
 
     # ── Mirror management ─────────────────────────────────────
+
+    def _scrcpy_manager(self):
+        """ScrcpyManager ตัวเดียวทั้งโปรแกรม — สร้างตอนใช้ครั้งแรก"""
+        if self.scrcpy is None:
+            from services.adb.scrcpy_stream import ScrcpyManager
+            self.scrcpy = ScrcpyManager(log=self.log)
+        return self.scrcpy
 
     def _ensure_mirror(self, serial: str):
         if serial not in self.mirrors and self.adb:
@@ -1856,4 +1955,5 @@ class WebServer:
         self.log(f"[WEB] Next.js UI → http://localhost:3000")
 
     def stop(self):
-        pass
+        if self.scrcpy:
+            self.scrcpy.stop_all()
