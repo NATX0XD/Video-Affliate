@@ -105,7 +105,9 @@ def main():
     print("─" * 50 + "\n")
 
     # เปิดเป็น "หน้าต่างแอป" (Chrome --app) เมื่อ server พร้อม — เหมือนแอปจริง ไม่ใช่แท็บ
-    if os.getenv("VGAP_OPEN_BROWSER"):
+    # หมายเหตุ: ต้องเทียบค่าจริง ไม่ใช่แค่ getenv() — สตริง "0" ก็ truthy ทำให้ปิดไม่ได้
+    _ob = (os.getenv("VGAP_OPEN_BROWSER") or "").strip().lower()
+    if _ob not in ("", "0", "false", "no"):
         import threading
         threading.Timer(2.0, lambda: _open_app_window(url)).start()
 
