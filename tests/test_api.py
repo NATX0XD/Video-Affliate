@@ -194,6 +194,30 @@ def test_gen_store_roundtrip(web):
     assert client.get("/api/gen/store/draft").json()["value"] is None
 
 
+def test_bulk_post_route_reaches_autopilot(web):
+    """/api/jobs/post ต้องไม่โดน /api/jobs/{jid}/post กลืน — 'post' เป็น jid ไม่ได้"""
+    client, ws, db = web
+    seen = {}
+
+    class _Ap:
+        def post_jobs_now(self, ids, serial):
+            seen["args"] = (ids, serial)
+            return {"ok": True, "queued": len(ids)}
+
+    ws.autopilot = _Ap()
+    r = client.post("/api/jobs/post", json={"ids": [1, 2], "serial": "SER1"})
+    assert r.json() == {"ok": True, "queued": 2}
+    assert seen["args"] == ([1, 2], "SER1")
+
+
+def test_gen_store_holds_footage(web):
+    """footage ของฉัน (B-roll) ต้องเก็บได้เหมือนที่เก็บอื่น — โปรแกรมหลักอ่านจากตรงนี้ตอนตัดต่อ"""
+    client, ws, db = web
+    clips = [{"id": "ftg_1", "name": "โชว์สินค้า.mp4", "kind": "video", "data": "data:video/mp4;base64,AAA", "at": 1}]
+    assert client.post("/api/gen/store/footage", json={"value": clips}).json()["ok"] is True
+    assert client.get("/api/gen/store/footage").json()["value"] == clips
+
+
 def test_gen_store_rejects_unknown_name(web):
     client, ws, db = web
     r = client.get("/api/gen/store/hack")

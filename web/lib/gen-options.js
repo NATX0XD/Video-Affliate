@@ -110,7 +110,18 @@ export const GEN_DEFAULT = {
   moodImage: null,    // dataURL รูปอ้างอิง "โทนสี/อารมณ์ภาพ" ที่ผู้ใช้อัป
   moodImageName: '',
   faceId: '',         // id รูปหน้าที่บันทึกไว้ (ไว้ไฮไลต์การ์ด)
+  // footage แทรก (B-roll) — ปิดเป็นค่าเริ่มต้น เปิดเองเท่านั้น
+  brollOn: false,
+  brollSources: [],   // 'shopee' | 'upload' | 'flow'
+  brollClips: [],     // dataURL ของ footage ที่ผู้ใช้อัปเอง (รูปหรือคลิปสั้น)
+  brollCount: 2,      // จำนวนภาพที่ให้ Flow วาดเพิ่ม (เมื่อเลือกแหล่ง 'flow')
 }
+
+export const BROLL_SOURCES = [
+  { id: 'shopee', name: 'รูปสินค้าจากร้าน',  hint: 'ใช้รูปสินค้าที่ดูดมาแล้ว — ฟรี ไม่ต้องทำอะไรเพิ่ม' },
+  { id: 'upload', name: 'footage ของฉัน',   hint: 'อัปคลิป/รูปที่ถ่ายเอง — ตรงสินค้าจริงที่สุด' },
+  { id: 'flow',   name: 'ให้ Flow วาดเพิ่ม', hint: 'วาดภาพสินค้ามุมใหม่ในโหมดรูปภาพ — ไม่เสียเครดิตวิดีโอ แต่ใช้เวลาสร้างนานขึ้นต่อคลิป' },
+]
 
 // เก็บเฉพาะหัวข้อที่พิมพ์จริง (ตัดช่องว่าง/ค่าว่างทิ้ง)
 export function cleanPrompts(prompts = {}) {
@@ -191,6 +202,11 @@ export function buildGen(o, snapshot = null) {
     prompts, promptLines: promptLinesOf(prompts), motionLines: motionLinesOf(prompts),
     bgImage: o.bgImage || null,
     moodImage: o.moodImage || null,
+    // footage แทรก — ส่งไปก็ต่อเมื่อเปิดจริงและเลือกแหล่งแล้ว (ปิดอยู่ = null, พฤติกรรมเดิมทุกอย่าง)
+    broll: (o.brollOn && (o.brollSources || []).length)
+      ? { on: true, sources: [...o.brollSources], count: o.brollCount || 2 } : null,
+    brollClips: (o.brollOn && (o.brollSources || []).includes('upload'))
+      ? (o.brollClips || []).slice(0, 4) : [],
   }
   // หัวข้อที่มี override → ทับค่าพรีเซ็ต เพื่อให้ทุกขั้น (Gemini + compose เฟรม) ใช้ข้อความเดียวกัน
   for (const f of GEN_PROMPT_FIELDS) {

@@ -116,6 +116,60 @@ class AutoPilot:
                          daemon=True).start()
         return True
 
+    def post_jobs_now(self, job_ids, serial: str = "") -> dict:
+        """โพสต์หลายคลิปรวดเดียว — เลือกคลิป เลือกเครื่อง แล้วสั่งทีเดียว.
+
+        serial ที่ส่งมาใช้ทับ assignment เดิม (ผู้ใช้เพิ่งเลือกเครื่องในหน้าจอ) ปล่อยว่าง = ใช้ที่ assign ไว้
+        ต่อคลิป ไม่มีก็เลือกเครื่องที่ต่ออยู่ให้
+
+        คลิปที่รับไว้จะขึ้นสถานะ posting ทันทีทั้งชุด (ผู้ใช้เห็นว่าเข้าคิวแล้ว) แล้วโพสต์
+        ทีละคลิปในเธรดเดียวต่อเครื่อง — ยิงขนานบนเครื่องเดียวกันไม่ได้อยู่ดี (ติด _device_lock)
+        และแยกเธรดต่อเครื่องไว้เพื่อให้หลายเครื่องยังโพสต์พร้อมกันได้
+        """
+        ids = [i for i in (job_ids or []) if isinstance(i, int)]
+        if not ids:
+            return {"ok": False, "error": "ยังไม่ได้เลือกคลิป"}
+        if not ready_enabled(cfg.load()):
+            return {"ok": False, "error": "ยังไม่ได้เลือกแพลตฟอร์มปลายทาง (ตั้งค่า)"}
+        want = (serial or "").strip()
+        if want and not self._device_online(want):
+            return {"ok": False, "error": f"เครื่องที่เลือก ({want}) ออฟไลน์"}
+
+        by_device, skipped = {}, []
+        for jid in ids:
+            job = self.db.get(jid)
+            if not job or job["status"] != GENERATED:
+                skipped.append(jid)
+                continue
+            tgt = want or (job.get("assigned_serial") or "").strip() or self._pick_device()
+            if not tgt or not self._device_online(tgt):
+                skipped.append(jid)
+                continue
+            by_device.setdefault(tgt, []).append(jid)
+
+        if not by_device:
+            return {"ok": False, "error": "ไม่มีคลิปที่โพสต์ได้ (ต้องพร้อมโพสต์ + มีเครื่องออนไลน์)",
+                    "skipped": skipped}
+
+        s = cfg.load()
+        queued = 0
+        for tgt, jids in by_device.items():
+            for jid in jids:
+                self.db.set_status(jid, POSTING)   # ตั้งก่อนเข้าคิว ผู้ใช้จะเห็นทันทีว่ารับงานแล้ว
+            queued += len(jids)
+
+            def run(tgt=tgt, jids=list(jids)):
+                self.log(f"[AUTO] โพสต์ชุด {len(jids)} คลิป → {tgt}")
+                for jid in jids:
+                    job = self.db.get(jid)
+                    if job:
+                        self._post_one(job, tgt, s)
+
+            threading.Thread(target=run, daemon=True,
+                             name=f"PostBatch-{tgt}").start()
+        return {"ok": True, "queued": queued, "skipped": skipped,
+                "devices": {k: len(v) for k, v in by_device.items()}}
+
     def dry_post_job(self, job_id: int) -> bool:
         """ทดสอบโพสต์ (dry) — รัน ADB flow ถึง caption แล้วหยุดก่อนโพสต์จริง.
         ไม่เปลี่ยนสถานะคลิป ไม่ย้ายไฟล์ ไม่นับสถิติ — ใช้จูน flow ปลอดภัย."""
