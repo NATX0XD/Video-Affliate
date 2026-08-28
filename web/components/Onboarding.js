@@ -160,7 +160,7 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
       if (d.review_mode === 'auto' || d.review_mode === 'hold') setReviewMode(d.review_mode)
       setKeySet(!!d.google_api_key_set)
     }).catch(() => {})
-    api.platforms().then(d => setPlats(d.platforms || [])).catch(() => {})
+    api.platforms().then(d => setPlats(d.platforms || [])).catch(() => {})   // api.platforms กรองเฉพาะตัวที่จูนแล้วให้ตั้งแต่ต้นทาง
   }, [initialShop])
 
   // โหลด path โฟลเดอร์ extension (โชว์ให้ก๊อป / Load unpacked)
@@ -645,7 +645,7 @@ function StepPhone({
 function StepPlatforms({ plats, selected, onToggle, reviewMode, setReviewMode }) {
   return (
     <StepBody icon={Share2} title={termTh('platform')}
-              desc="เลือกช่องทางที่จะนำคลิปไปโพสต์ (เลือกได้หลายที่)">
+              desc="เลือกช่องทางที่จะนำคลิปไปโพสต์ — ตอนนี้รองรับ Shopee Video ช่องทางอื่นจะเปิดเพิ่มเมื่อจูนเสร็จ">
       <div className="flex items-center gap-1.5 mb-2">
         <p className="text-muted-foreground text-xs">{termTh('platform')}</p>
         <InfoTooltip text={termHint('platform')} />

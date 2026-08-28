@@ -35,7 +35,10 @@ export const api = {
   devices:         ()         => req('GET',  '/api/devices'),   // รายการมือถือ + รุ่น/ยี่ห้อ
   getSettings:     ()         => req('GET',  '/api/settings'),
   saveSettings:    (data)     => req('POST', '/api/settings', data),
-  platforms:       ()         => req('GET',  '/api/platforms'),
+  // โชว์เฉพาะแพลตฟอร์มที่จูนกับเครื่องจริงแล้ว (ตอนนี้ = Shopee)
+  // ตัวที่ยัง "ต้องจูน" มีโค้ดโพสต์อยู่แต่ยังไม่เคยจูนพิกัด กดเลือกได้แล้วโพสต์ล้ม
+  // กรองที่จุดเดียวตรงนี้ ทุกหน้าจะเห็นตรงกัน — จูนเสร็จเมื่อไหร่ค่อยตั้ง tuned=True ใน platforms.py
+  platforms:       async ()   => { const d = await req('GET', '/api/platforms'); return { ...d, platforms: (d.platforms || []).filter(p => p.tuned) } },
   reports:         ()         => req('GET',  '/api/reports'),
   jobs:            ()         => req('GET',  '/api/jobs'),
   deleteJob:       (id)       => req('DELETE', `/api/jobs/${id}`),
