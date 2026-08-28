@@ -171,6 +171,7 @@ if (window._flowAutomatorLoaded) {
   // ใช้ diagnose ว่าปุ่ม วิดีโอ/เฟรม จริงอยู่พิกัดไหน + ข้อความอะไร (allClickable จับ div ไม่ครบ)
   let _modePopupDump = "";
   let _probeLog = "";               // ผลการไล่กดปุ่มในแถบเครื่องมือ — แนบไปกับ error เลย
+  let _modeTrace = "";              // บันทึกทุกขั้นของ setMode — แนบไปกับ error (ไม่งั้นต้องไปงมในหน้า Logs)
   // เครื่องนี้สลับโหมดเองไม่ได้ (Flow เปลี่ยน layout) → ครั้งต่อไปขอให้กดมือเลย
   // ไม่งั้นเสียเวลาลองอัตโนมัติ 5 รอบ (~60 วิ) ทุกครั้งทั้งที่รู้อยู่แล้วว่าไม่ได้
   let _modeManualOnly = false;
@@ -2048,7 +2049,8 @@ if (window._flowAutomatorLoaded) {
     return false;
   }
   async function setMode(typeLabel, subLabel, countLabel, log) {
-    const L = (m) => { try { log && log(m); } catch {} };
+    _modeTrace = "";
+    const L = (m) => { _modeTrace += `${_modeTrace ? " · " : ""}${m}`; try { log && log(m); } catch {} };
     const onTarget = () => {
       if (/รูปภาพ/.test(typeLabel)) return isImageMode();
       if (/วิดีโอ/.test(typeLabel)) return isVideoMode() && (/เฟรม/.test(subLabel || "") ? framesSubReady() : true);  // เฟรม = ต้องมีปุ่มเริ่ม/สิ้นสุด
@@ -2543,7 +2545,7 @@ if (window._flowAutomatorLoaded) {
     }
     log(`ตรวจโหมดก่อนทำวิดีโอ: ${modeSummary()}`);                      // เช็คก่อน (จับข้าม/เลือกผิด)
     const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);            // วิดีโอ + เฟรม + บังคับ 9:16
-    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มโหมด: ${modeBtnInfo()} | แถบ prompt: ${dumpComposer()} | ไล่กดปุ่ม: ${_probeLog || "(ไม่ได้ไล่)"} | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
+    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มโหมด: ${modeBtnInfo()} | แถบ prompt: ${dumpComposer()} | ขั้นตอนสลับโหมด: ${_modeTrace || "(ไม่มี)"} | ไล่กดปุ่ม: ${_probeLog || "(ไม่ได้ไล่)"} | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
     if (!is916()) log(`⚠ วิดีโอสัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()})`);
     log(`โหมดหลังตั้งค่า: ${modeSummary()} ${isVideoMode() ? "✓" : ""}`);   // เช็คหลัง
     await sleep(900);
