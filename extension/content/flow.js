@@ -1780,6 +1780,36 @@ if (window._flowAutomatorLoaded) {
   }
   // ป๊อปอัปโหมดโผล่ไหม = เจอแท็บ รูปภาพ/วิดีโอ/เฟรม (findModeOption ตัด sidebar x<110 แล้ว)
   const popupTabsShown = () => !!(findModeOption("รูปภาพ") || findModeOption("วิดีโอ") || findModeOption("เฟรม"));
+
+  // ปุ่มทุกตัวใน "แถบเครื่องมือใต้ช่องพิมพ์" — ตัวเปิดเมนูโหมดอยู่ในแถวนี้แน่นอน
+  // findModeBtn เดาจากข้อความ ซึ่งพลาดได้ถ้า Flow เปลี่ยนชิป (เคยได้ชิปเลือกรุ่นแทนตัวเปิดเมนู)
+  function composerButtons() {
+    const ed = findEditable();
+    if (!ed) return [];
+    const er = ed.getBoundingClientRect();
+    return allClickable().filter((el) => {
+      // ★ ห้ามแตะปุ่มส่ง — พลาดกดตอนอยู่โหมดวิดีโอ = เสีย 15 เครดิตต่อครั้ง
+      if (/arrow_forward|arrow_upward|\bsend\b|^ส่ง/i.test((el.innerText || "") + " " + (el.getAttribute("aria-label") || ""))) return false;
+      const r = el.getBoundingClientRect();
+      return r.left > 110 && r.width >= 24 && r.width <= 420 && r.height >= 16 && r.height <= 60
+        && r.top >= er.top - 20 && r.top <= er.bottom + 140;
+    }).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  }
+  // ข้อความสั้น ๆ ที่มองเห็นบนจอตอนนี้ — ใช้เทียบก่อน/หลังคลิก เพื่อรู้ว่า "กดแล้วมีอะไรโผล่"
+  function visibleTexts() {
+    const s = new Set();
+    try {
+      for (const el of deepAll('button,[role="button"],[role="tab"],[role="radio"],[role="menuitem"],div,span')) {
+        if (!isVisible(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 8 || r.width > 420 || r.height < 8 || r.height > 120) continue;
+        const t = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+        if (t && t.length <= 28) s.add(t);
+      }
+    } catch {}
+    return s;
+  }
+  const newTextsAfter = (before) => [...visibleTexts()].filter((t) => !before.has(t)).slice(0, 14).join(" | ");
   // dump ทุก element ในโซนแถบ prompt (ล่างจอ) พร้อม tag/พิกัด — ใช้หาว่าปุ่มโหมดจริงคือชิ้นไหน
   // ปุ่มโหมดหลบอยู่ล่างจอเสมอ ส่วน "🍌 Nano Banana 2 / crop_free 768×1376" ที่ขวาจอเป็นป้ายกำกับรูปที่สร้างแล้ว ไม่ใช่ปุ่ม
   function dumpComposer() {
@@ -1825,7 +1855,24 @@ if (window._flowAutomatorLoaded) {
       await sleep(1000);
       const d = dumpPopup(); if (d.length > (_modePopupDump || "").length) _modePopupDump = d;
       if (popupTabsShown()) { L(`เปิดป๊อปอัปโหมดสำเร็จ (รอบ ${k + 1} วิธี "${s.name}")`); return true; }
-      if (k === STRATS.length - 1) L(`ลองครบทุกวิธีแล้วยังไม่เปิด (ปุ่มโหมด: ${modeBtnInfo()}) | แถบ prompt: ${dumpComposer()}`);
+      if (k === STRATS.length - 1) {
+        L(`ลองครบทุกวิธีแล้วยังไม่เปิด (ปุ่มโหมด: ${modeBtnInfo()}) | แถบ prompt: ${dumpComposer()}`);
+        // ★ ปุ่มที่เดาไว้ไม่ใช่ตัวเปิดเมนู → ไล่กดทุกปุ่มในแถบเครื่องมือ แล้วรายงานว่าอันไหนทำให้อะไรโผล่
+        //   Flow ย้าย/เปลี่ยนชิปบ่อย การไล่กดจะเจอตัวจริงเองโดยไม่ต้องรอเราไปเดาใหม่ทุกครั้ง
+        const btns = composerButtons();
+        L(`ไล่กดปุ่มในแถบเครื่องมือ ${btns.length} ตัว`);
+        for (const b of btns) {
+          const r = b.getBoundingClientRect();
+          const label = `${(b.innerText || "").replace(/\s+/g, " ").trim().slice(0, 20) || "(ไม่มีข้อความ)"} @${Math.round(r.left)},${Math.round(r.top)}`;
+          const before = visibleTexts();
+          await trustedClickEl(b, log);
+          await sleep(900);
+          if (popupTabsShown()) { L(`★ เจอตัวเปิดเมนูโหมดแล้ว: "${label}"`); return true; }
+          L(`กด "${label}" → โผล่: ${newTextsAfter(before) || "(ไม่มีอะไรเปลี่ยน)"}`);
+          document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));   // ปิดสิ่งที่เผลอเปิด
+          await sleep(400);
+        }
+      }
     }
     return false;
   }
