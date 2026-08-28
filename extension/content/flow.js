@@ -1728,8 +1728,18 @@ if (window._flowAutomatorLoaded) {
     // จับทุกโหมด/สัดส่วน: image(nano banana crop_9_16/16_9/square) · video(วิดีโอ · / omni flash)
     // crop_free = Nano Banana 2 ตั้งสัดส่วนอิสระ (โชว์ "crop_free 768×1376") — ไม่จับตัวนี้ = หาปุ่มโหมดไม่เจอ
     // ตั้งแต่คลิปที่ 2 (ที่สลับไป Nano Banana 2 แล้ว) → เปิดป๊อปอัปไม่ได้ → เข้าโหมดเฟรมไม่ได้
-    const cands = allClickable().filter((el) => /crop_9_16|crop_16_9|crop_squa|crop_free|nano banana|omni flash|วิดีโอ ·/i.test(el.innerText || ""));
-    // ★ เลือก "pill จริง" = เล็กสุดที่ขนาดสมเหตุผล (ไม่ใช่ container ครอบทั้งแถบ → คลิก center โดนที่ว่าง = ป๊อปอัปไม่เปิด)
+    let cands = allClickable().filter((el) => /crop_9_16|crop_16_9|crop_squa|crop_free|nano banana|omni flash|วิดีโอ ·/i.test(el.innerText || ""));
+    // ★★ ต้องอยู่ใน "แถบพิมพ์" เท่านั้น
+    //    แท็บในเมนูโหมดเขียนว่า "crop_free เฟรม" ซึ่งเข้า regex ข้างบนด้วย และกว้าง 132 < ปุ่มโหมดจริง 142
+    //    พอเรียงตามความกว้างจากน้อยไปมาก ตอนเมนูเปิดมันจะเลือกแท็บ "เฟรม" มาเป็นปุ่มโหมด
+    //    แล้ว findModeOption ก็ตัดแท็บนั้นทิ้งเพราะนึกว่าเป็นปุ่มโหมด → หาตัวเลือก "เฟรม" ไม่เจอตลอด
+    const ed = findEditable();
+    if (ed) {
+      const er = ed.getBoundingClientRect();
+      const inBar = cands.filter((el) => { const r = el.getBoundingClientRect(); return r.top >= er.top - 20 && r.top <= er.bottom + 140; });
+      if (inBar.length) cands = inBar;
+    }
+    // เลือก "pill จริง" = เล็กสุดที่ขนาดสมเหตุผล (ไม่ใช่ container ครอบทั้งแถบ → คลิก center โดนที่ว่าง = ป๊อปอัปไม่เปิด)
     cands.sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width);
     return cands.find((el) => { const r = el.getBoundingClientRect(); return r.width >= 60 && r.width <= 480 && r.height >= 20 && r.height <= 90; }) || cands[0] || null;
   }
@@ -2074,7 +2084,7 @@ if (window._flowAutomatorLoaded) {
           st = readModeState();
           if (st.sub === wantSub) { if (j) L(`เลือก "${subLabel}" ติดด้วยวิธี "${SUB_WAYS[j - 1][0]}" ✓`); break; }
           const el = findModeOption(subLabel);
-          if (!el) { L(`ยังไม่เจอตัวเลือก "${subLabel}" รออีก`); await sleep(450); continue; }
+          if (!el) { L(`ยังไม่เจอตัวเลือก "${subLabel}" | ทำไมไม่เจอ: ${whyNoModeOption(subLabel)}`); await sleep(450); continue; }
           const [wayName, run] = SUB_WAYS[j];
           await run(el);
           await sleep(750);

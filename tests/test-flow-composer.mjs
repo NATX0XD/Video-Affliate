@@ -121,5 +121,34 @@ check('พิกัดเลยไปโดนปุ่มส่ง → เต�
 check('พิกัดนอกจอ → บอกว่าไม่โดนอะไรเลย',
   /ไม่โดน element ใดเลย/.test(F.hitCheck(bMode, 5000, 5000)), true)
 
+// ── เมนูโหมดเปิดอยู่: แท็บในเมนูต้องไม่ถูกเข้าใจผิดว่าเป็นปุ่มโหมด ──────────
+// เคสจริง: แท็บ "crop_free เฟรม" กว้าง 132 · ปุ่มโหมดจริง "วิดีโอ · 720p · 10s crop_9_16" กว้าง 142
+// findModeBtn เรียงตามความกว้างน้อยไปมาก → เคยเลือกแท็บเฟรมมาเป็นปุ่มโหมด
+// แล้ว findModeOption ก็ตัดแท็บนั้นทิ้ง → หาตัวเลือก "เฟรม" ไม่เจอตลอด
+for (const old of [...window.document.body.children]) {
+  const t = old.textContent
+  if (t === 'วิดีโอ' || t === 'เฟรม') old.remove()   // แท็บจำลองจากเคสก่อนหน้า ข้อความสั้นกว่า จะชนะการเรียงตามความยาว
+}
+rects.set(bMode, { left: 475, top: 771, width: 142, height: 34, right: 617, bottom: 805 })
+bMode.textContent = 'วิดีโอ · 720p · 10s crop_9_16 x1'
+rects.set(edit, { left: 72, top: 731, width: 582, height: 36, right: 654, bottom: 767 })
+
+const tabImg   = el('button', 'image รูปภาพ',            353, 438, 132, 34, { role: 'tab' })
+const tabVideo = el('button', 'videocam วิดีโอ',          485, 438, 132, 34, { role: 'tab' })
+const tabFrame = el('button', 'crop_free เฟรม',           353, 476, 132, 34, { role: 'tab' })
+const tabMix   = el('button', 'chrome_extension ส่วนผสม', 485, 476, 132, 34, { role: 'tab' })
+const tab916   = el('button', 'crop_9_16 9:16',           353, 514, 132, 34, { role: 'tab' })
+
+check('เมนูเปิดอยู่ → findModeBtn ยังชี้ปุ่มในแถบพิมพ์ ไม่ใช่แท็บในเมนู',
+  F.findModeBtn() === bMode, true)
+check('หาแท็บ "เฟรม" เจอ (ข้อความ "crop_free เฟรม")',
+  F.findModeOption('เฟรม') === tabFrame, true)
+check('หาแท็บ "ส่วนผสม" เจอ',   F.findModeOption('ส่วนผสม') === tabMix, true)
+check('หาตัวเลือก "9:16" เจอ (ข้อความ "crop_9_16 9:16")',
+  F.findModeOption('9:16') === tab916, true)
+check('หาแท็บ "วิดีโอ" เจอ',    F.findModeOption('วิดีโอ') === tabVideo, true)
+check('หาแท็บ "รูปภาพ" เจอ',    F.findModeOption('รูปภาพ') === tabImg, true)
+
+
 console.log(fail ? `\n${fail} ข้อไม่ผ่าน` : '\nผ่านทั้งหมด')
 process.exit(fail ? 1 : 0)
