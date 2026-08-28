@@ -682,7 +682,38 @@ if (window._flowAutomatorLoaded) {
     L(`ตรวจความพร้อม Flow: ${passed.join(" · ") || "-"}${problems.length ? " | ติด: " + problems.join(" / ") : " — พร้อม ✓"}`);
     return { ok: problems.length === 0, problems, checks: passed };
   }
-  window._flowPreflight = flowPreflight;   // เทสมือ: _flowPreflight(console.log)
+  window._flowPreflight = flowPreflight;
+
+  // ── เทสเปิดเมนูโหมดตรง ๆ จาก Console (ไม่ต้องรันคลิปเต็ม) ────────────────
+  // ใช้: เปิด DevTools ที่แท็บ Flow → เลือก context เป็นส่วนขยาย → _flowTryMode()
+  // จะยิงทีละวิธี แล้วรายงานว่าวิธีไหนทำให้อะไรโผล่บ้าง
+  window._flowTryMode = async function () {
+    const out = [];
+    const say = (m) => { out.push(m); console.log("[โหมด]", m); };
+    const btn = findModeBtn();
+    if (!btn) { say("หาปุ่มโหมดไม่เจอ"); return out; }
+    say(`ปุ่มโหมด: ${modeBtnInfo()} · ข้อความ "${(btn.innerText || "").replace(/\s+/g, " ").trim()}"`);
+    const ways = [
+      ["ตาม element (quads)", () => trustedClickNodeEl(btn, say)],
+      ["พิกัดกลาง",           () => trustedClickXY(btn, say)],
+      ["โฟกัส+Enter",         () => trustedKeyActivate(btn, say)],
+      ["native event",        async () => nativeClickEl(btn)],
+      ["el.click()",          async () => btn.click()],
+    ];
+    for (const [name, run] of ways) {
+      const before = visibleTexts();
+      let res = null;
+      try { res = await run(); } catch (e) { say(`${name}: โยน error ${(e && e.message) || e}`); continue; }
+      await sleep(1200);
+      const opened = popupTabsShown();
+      say(`${name}: ${res && res.ok === false ? "ยิงไม่สำเร็จ (" + res.error + ")" : "ยิงแล้ว"} → เมนูเปิด=${opened ? "ใช่" : "ไม่"} · โผล่: ${newTextsAfter(before) || "(ไม่มีอะไรเปลี่ยน)"}`);
+      if (opened) { say(`★ วิธีที่ใช้ได้: ${name}`); return out; }
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await sleep(500);
+    }
+    say(`ไม่มีวิธีไหนเปิดได้ | แท็บวิดีโอ: ${whyNoModeOption("วิดีโอ")}`);
+    return out;
+  };   // เทสมือ: _flowPreflight(console.log)
 
   async function ensureChatPage(log) {
     // ★ เช็คก่อน: อยู่ในโปรเจกต์แล้ว (มีช่องแชต) → ข้าม ไม่กดสร้างโปรเจกต์ใหม่ (กันสร้างซ้ำ/รีเซ็ต)
@@ -1857,6 +1888,33 @@ if (window._flowAutomatorLoaded) {
   // ป๊อปอัปโหมดโผล่ไหม = เจอแท็บ รูปภาพ/วิดีโอ/เฟรม (findModeOption ตัด sidebar x<110 แล้ว)
   const popupTabsShown = () => !!(findModeOption("รูปภาพ") || findModeOption("วิดีโอ") || findModeOption("เฟรม"));
 
+  // หา element ที่ "ข้อความใช่" แต่ findModeOption ปัดตก แล้วบอกว่าตกเพราะเงื่อนไขข้อไหน
+  // ใช้ตอนป๊อปอัปเปิดอยู่จริง (เห็นปุ่ม x2/x3/x4 ของมันแล้ว) แต่หาแท็บ วิดีโอ ไม่เจอ
+  // ตัวกรองมีหลายชั้น (ตำแหน่ง/ขนาด/คำต้องห้าม) — เดาเองไม่ได้ว่าชั้นไหนตัดทิ้ง
+  function whyNoModeOption(label) {
+    try {
+      const want = norm(label);
+      const wants = MODE_ALT[want] || [want];
+      const hits = [];
+      for (const el of deepAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],div,span')) {
+        const t = norm(el.innerText || el.textContent);
+        const stripped = t.replace(/^[a-z_]{3,}\s+/, "");
+        if (!wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w))) continue;
+        const r = el.getBoundingClientRect();
+        const why = [];
+        if (!isVisible(el)) why.push("มองไม่เห็น");
+        if (/crop_9_16|crop_squa|crop_free|·|nano banana|omni flash|arrow_forward/i.test(t)) why.push("ติดคำต้องห้าม");
+        if (!(r.width > 4 && r.width <= 360)) why.push(`กว้าง ${Math.round(r.width)}`);
+        if (!(r.height > 4 && r.height <= 130)) why.push(`สูง ${Math.round(r.height)}`);
+        if (!(r.left > 110)) why.push(`ซ้ายเกิน x=${Math.round(r.left)}`);
+        if (!(r.top > 8)) why.push(`บนเกิน y=${Math.round(r.top)}`);
+        hits.push(`<${el.tagName.toLowerCase()} ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}>"${t.slice(0, 20)}"${why.length ? " ตกเพราะ: " + why.join("+") : " ← ผ่านหมด"}`);
+        if (hits.length >= 6) break;
+      }
+      return hits.length ? hits.join(" · ") : `ไม่มี element ไหนมีข้อความ "${label}" เลย`;
+    } catch (e) { return `ตรวจไม่ได้: ${(e && e.message) || e}`; }
+  }
+
   // ปุ่มทุกตัวใน "แถบเครื่องมือใต้ช่องพิมพ์" — ตัวเปิดเมนูโหมดอยู่ในแถวนี้แน่นอน
   // findModeBtn เดาจากข้อความ ซึ่งพลาดได้ถ้า Flow เปลี่ยนชิป (เคยได้ชิปเลือกรุ่นแทนตัวเปิดเมนู)
   function composerButtons() {
@@ -1936,7 +1994,7 @@ if (window._flowAutomatorLoaded) {
       const d = dumpPopup(); if (d.length > (_modePopupDump || "").length) _modePopupDump = d;
       if (popupTabsShown()) { L(`เปิดป๊อปอัปโหมดสำเร็จ (รอบ ${k + 1} วิธี "${s.name}")`); return true; }
       if (k === STRATS.length - 1) {
-        L(`ลองครบทุกวิธีแล้วยังไม่เปิด (ปุ่มโหมด: ${modeBtnInfo()}) | แถบ prompt: ${dumpComposer()}`);
+        L(`ลองครบทุกวิธีแล้วยังไม่เปิด (ปุ่มโหมด: ${modeBtnInfo()}) | แท็บวิดีโอ: ${whyNoModeOption("วิดีโอ")} | แถบ prompt: ${dumpComposer()}`);
         // ★ ปุ่มที่เดาไว้ไม่ใช่ตัวเปิดเมนู → ไล่กดทุกปุ่มในแถบเครื่องมือ แล้วรายงานว่าอันไหนทำให้อะไรโผล่
         //   Flow ย้าย/เปลี่ยนชิปบ่อย การไล่กดจะเจอตัวจริงเองโดยไม่ต้องรอเราไปเดาใหม่ทุกครั้ง
         const btns = composerButtons();
@@ -1975,7 +2033,7 @@ if (window._flowAutomatorLoaded) {
       if (!_modePopupDump) _modePopupDump = dumpPopup();
       if (!opened) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ รอบ ${attempt}/5 (ปุ่มโหมด: ${modeBtnInfo()}) | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
       let typeTab = findModeOption(typeLabel);
-      if (!typeTab) { L(`เปิดป๊อปอัปได้แต่ไม่เจอแท็บ "${typeLabel}" รอบ ${attempt}/5 | ป๊อปอัป: ${_modePopupDump}`); await sleep(600); continue; }
+      if (!typeTab) { L(`เปิดป๊อปอัปได้แต่ไม่เจอแท็บ "${typeLabel}" รอบ ${attempt}/${maxTry} | ทำไมไม่เจอ: ${whyNoModeOption(typeLabel)} | ป๊อปอัป: ${_modePopupDump}`); await sleep(600); continue; }
       // 2) อ่านสถานะ "ตอนนี้" แล้วกดเฉพาะที่ยังไม่ถูก (if/else — ไม่กดมั่ว)
       let st = readModeState();
       L(`สถานะป๊อปอัป: ชนิด=${st.type || "?"} · ย่อย=${st.sub || "?"}`);
