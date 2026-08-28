@@ -37,6 +37,22 @@ class BasePoster:
         self._h = 2340
         self._scrcpy = None
         self._clip_last = None   # ข้อความล่าสุดที่เขียนลงคลิปบอร์ดเครื่อง (ไว้ล้างคืนตอนจบ)
+        # พิกัดที่ "จับได้จากหน้าจอจริง" ระหว่างรอบนี้ (key → [rx, ry])
+        # autopilot เก็บลง DB ต่อเครื่อง → รอบหน้าถ้าหา node ไม่เจอ จะมีพิกัดสำรองของเครื่องนั้นเอง
+        # แทนที่จะตกไปใช้ค่ากลางที่วัดจากเครื่องอื่น
+        self._learned = {}
+
+    def _remember(self, key: str, x: int, y: int):
+        """บันทึกพิกัดที่แตะสำเร็จเป็นสัดส่วนจอ — ข้ามถ้าค่าเพี้ยน (จอหมุน/อ่านขนาดจอไม่ได้)"""
+        if not (self._w and self._h):
+            return
+        rx, ry = x / self._w, y / self._h
+        if 0.0 < rx < 1.0 and 0.0 < ry < 1.0:
+            self._learned[key] = [round(rx, 4), round(ry, 4)]
+
+    def learned_coords(self) -> dict:
+        """พิกัดที่เรียนรู้ได้รอบนี้ — {} ถ้าไม่ได้อะไรเลย"""
+        return dict(self._learned)
 
     # ── Device helpers ────────────────────────────────────────
 

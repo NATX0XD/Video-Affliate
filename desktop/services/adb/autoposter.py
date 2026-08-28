@@ -254,6 +254,7 @@ class AutoPoster(BasePoster):
             return False          # หน้าที่วิดีโอเล่นตลอด dump ไม่ได้ → ใช้พิกัดแทน
         x, y = node.center
         self.log(f"[{self.TAG}] tap {key} → ({x},{y}) [จับจากหน้าจอจริง]")
+        self._remember(key, x, y)      # จำไว้เป็นพิกัดสำรองของเครื่องนี้รอบหน้า
         self._tap_xy(serial, x, y)
         time.sleep(settle)
         return True

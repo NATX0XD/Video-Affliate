@@ -244,10 +244,10 @@ class WebServer:
             keys = [{"key": k, "label": AutoPoster.LABELS.get(k, k)} for k in AutoPoster.R]
             return defaults, keys
 
-        def _saved_coords(serial: str) -> dict:
+        def _saved_coords(serial: str, key: str = "post_coords") -> dict:
             if not self.db:
                 return {}
-            raw = self.db.get_config(f"post_coords:{serial}", "") or ""
+            raw = self.db.get_config(f"{key}:{serial}", "") or ""
             if not raw.strip():
                 return {}
             try:
@@ -272,10 +272,12 @@ class WebServer:
         def get_device_coords(serial: str):
             from services.autopilot import _preset_coords
             defaults, keys = _post_coords_defaults()
-            coords = _saved_coords(serial)                 # DB (ผู้ใช้คาลิเบรตเอง)
-            preset = _preset_coords(serial) or {}          # preset ที่มากับโค้ด (กันหายหลังติดตั้งใหม่)
-            source = "db" if coords else ("preset" if preset else "default")
-            effective = coords or preset                    # ค่าที่ใช้จริง
+            coords = _saved_coords(serial)                          # ผู้ใช้คาลิเบรตเอง
+            auto   = _saved_coords(serial, "post_coords_auto")      # ระบบจำจากหน้าจอจริงตอนโพสต์
+            preset = _preset_coords(serial) or {}                   # preset ที่มากับโค้ด
+            # ค่าที่ใช้จริง = ซ้อนจากอ่อนไปแรง (ตรงกับ AutoPilot._coords_override)
+            effective = {**preset, **auto, **coords}
+            source = "db" if coords else ("auto" if auto else ("preset" if preset else "default"))
             w, h = _device_resolution(serial)
             is_tablet = False
             if w and h:
@@ -283,11 +285,12 @@ class WebServer:
                 is_tablet = aspect < 1.9   # มือถือ ~2.16 · แท็บเล็ต ~1.6 (4:3/16:10)
             return {
                 "ok": True,
-                "coords": effective,                        # โชว์ค่าที่ใช้จริง (DB > preset)
+                "coords": effective,                        # ค่าที่ใช้จริง (ผู้ใช้ > จำเอง > preset)
                 "defaults": defaults,
                 "keys": keys,
-                "calibrated": bool(effective),              # มี preset ก็ถือว่าคาลิเบรตแล้ว
-                "source": source,                           # db | preset | default
+                "calibrated": bool(effective),              # มี preset/จำเองก็ถือว่าคาลิเบรตแล้ว
+                "source": source,                           # db | auto | preset | default
+                "auto_learned": len(auto),                  # ระบบจำเองได้กี่จุดจาก 18
                 "resolution": [w, h] if (w and h) else None,
                 "is_tablet": is_tablet,
             }
@@ -996,8 +999,11 @@ class WebServer:
         # ── auto-pull extension ล่าสุด "ตอนเปิดแอป" (best-effort, ไม่บล็อก) ──
         # เปิดแอปครั้งใด = ได้ extension ล่าสุด → background reload เอง (ไม่ต้องลบ+Load unpacked ทุกรอบ)
         def _auto_pull_ext():
-            import subprocess
+            import os as _os, subprocess
             from pathlib import Path
+            # รันจากซอร์ส (แก้ extension อยู่) → ตั้ง VGAP_NO_EXT_PULL=1 กันดึงของ main มาทับงานที่ยังไม่ push
+            if _os.environ.get("VGAP_NO_EXT_PULL") == "1":
+                return
             root = Path(__file__).resolve().parents[2]
             cmd = ("curl -fsSL https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz "
                    "| tar xz --strip-components=1 'Video-Affliate-main/extension'")
