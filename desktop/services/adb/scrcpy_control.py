@@ -52,11 +52,45 @@ def _candidates_near(dir_path) -> list:
     return [d / n for n in _SERVER_NAMES] + [d / "share" / "scrcpy" / n for n in _SERVER_NAMES]
 
 
+def _installer_dirs():
+    """โฟลเดอร์ที่ "ตัวติดตั้งของเราเอง" วาง scrcpy ไว้
+
+    ★ ที่ต้องมี: ตัวติดตั้งเติม PATH ให้ก็จริง แต่โปรเซสที่เปิดค้างอยู่ก่อน PATH เปลี่ยน
+    จะไม่เห็นค่าใหม่ → shutil.which("scrcpy") คืน None → ถือว่า "scrcpy ใช้ไม่ได้"
+    → แคปชั่นไทยตกไปใช้ `input text` ซึ่งพิมพ์ไทยไม่ได้ → ตัวไทยหายหมด → ไม่กดโพสต์
+    (อาการที่เจอบน Windows: "ไม่มี ADBKeyboard และ scrcpy ใช้ไม่ได้ ... ตัดอักขระที่ไม่ใช่ ASCII")
+    """
+    home = Path.home()
+    yield home / ".vgap" / "bin"                                  # แมค: ตัวติดตั้ง DMG
+    la = os.environ.get("LOCALAPPDATA") or str(home / "AppData" / "Local")
+    tools = Path(la) / "vgap-tools"
+    yield tools
+    sc = tools / "scrcpy"                                         # วินโดวส์: แตก zip ไว้ในโฟลเดอร์ตามเวอร์ชัน
+    try:
+        if sc.is_dir():
+            yield sc
+            for d in sc.iterdir():
+                yield d
+    except Exception:
+        pass
+    # ไบนารีที่แถมมากับโปรแกรม (workflow ก๊อป scrcpy ทั้งชุดลง electron/bin)
+    parents = Path(__file__).resolve().parents   # .../desktop/services/adb/scrcpy_control.py
+    for base in (parents[3] if len(parents) > 3 else parents[-1],
+                 parents[2] if len(parents) > 2 else parents[-1]):
+        yield base / "electron" / "bin"
+        yield base / "bin"
+
+
 def _find_server_jar() -> Optional[str]:
     # 1) env override — SCRCPY_SERVER_PATH เป็นตัวแปรที่ scrcpy เองก็อ่าน (ชี้ไฟล์ตรงสุด)
     env = os.environ.get("SCRCPY_SERVER_PATH") or os.environ.get("VGAP_SCRCPY_SERVER")
     if env and Path(env).exists():
         return env
+    # 1.5) ชุดที่ตัวติดตั้งของเราวางไว้ — มาก่อน PATH เพราะตรึงเวอร์ชันให้ตรงกับโค้ดแล้ว
+    for d in _installer_dirs():
+        for c in _candidates_near(d):
+            if c.exists():
+                return str(c)
     # 2) ข้างๆ ไฟล์ scrcpy บน PATH — ครอบ Windows (scoop/choco), Linux, และ portable zip
     exe = shutil.which("scrcpy") or shutil.which("scrcpy.exe")
     if exe:

@@ -27,6 +27,7 @@ _NODE_RE   = re.compile(r"<node[^>]*>")
 _BOUNDS_RE = re.compile(r'bounds="\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]"')
 
 _dump_seq = [0]
+_try_seq  = [0]   # นับทุกครั้งที่ยิง uiautomator — ใช้สลับ dump เต็ม / --compressed
 
 
 class UiNode:
@@ -110,15 +111,24 @@ def dump_nodes(serial: str, log: Callable = print, tries: int = 2,
     ด้วย node ของหน้าที่ผ่านไปแล้ว (เคยทำให้ไปเจอแท็บ "วิดีโอ" ของหน้า feed)
     """
     adb = adb_bin(log)
+    why = ""
     for attempt in range(tries):
+        # --compressed ตัด node ที่ไม่มีข้อมูลออก → เบากว่ามาก
+        # หน้าแรก Shopee เล่นวิดีโอตลอด window ไม่เคย idle แล้ว dump เต็มจะล้ม
+        # ("could not get idle state") ตัว compressed ผ่านได้บ่อยกว่า → ลองสลับกันไป
+        # นับข้ามการเรียกด้วย — wait_for เรียกทีละ tries=1 ถ้านับแค่ในลูปนี้จะไม่เคยได้ใช้ compressed เลย
+        _try_seq[0] += 1
+        args = ["uiautomator", "dump"] + (["--compressed"] if _try_seq[0] % 2 else []) + [UI_REMOTE]
         try:
             subprocess.run([adb, "-s", serial, "shell", "rm", "-f", UI_REMOTE],
                            capture_output=True, timeout=8)
             # timeout สั้นลง: wait_for เช็ค deadline หลัง dump เสร็จเท่านั้น
             # ค่าเดิม 15/20/20 ทำให้ dump ที่ค้างรอบเดียวกิน 55 วิ ใน wait_for(timeout=6)
-            r = subprocess.run([adb, "-s", serial, "shell", "uiautomator", "dump", UI_REMOTE],
+            r = subprocess.run([adb, "-s", serial, "shell"] + args,
                                capture_output=True, text=True, timeout=12)
-            if "dumped" not in (r.stdout or "") + (r.stderr or ""):
+            out = (r.stdout or "") + (r.stderr or "")
+            if "dumped" not in out:
+                why = " ".join(out.split())[:120] or "ไม่มีข้อความตอบกลับ"
                 time.sleep(0.6)
                 continue
             c = subprocess.run([adb, "-s", serial, "exec-out", "cat", UI_REMOTE],
@@ -127,9 +137,15 @@ def dump_nodes(serial: str, log: Callable = print, tries: int = 2,
             if "<node" in xml:
                 _save_dump(xml, tag)
                 return parse_nodes(xml)
-        except Exception:
-            pass
+            why = "อ่านไฟล์ dump กลับมาแล้วไม่มี node"
+        except subprocess.TimeoutExpired:
+            why = "uiautomator ค้างเกินเวลา"
+        except Exception as e:
+            why = str(e)[:120]
         time.sleep(0.6)
+    # เดิมล้มแล้วเงียบ ผู้ใช้เห็นแค่ "ใช้พิกัดสำรอง" โดยไม่รู้ว่าทำไมอ่านหน้าจอไม่ได้
+    if why:
+        log(f"[ui] อ่านหน้าจอไม่สำเร็จ{f' ({tag})' if tag else ''}: {why}")
     return []
 
 
