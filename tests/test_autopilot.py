@@ -89,6 +89,8 @@ def _run_post_one(store, monkeypatch, tmp_path, results, max_attempts=1):
 
     ap = AutoPilot(store, adb=None)   # adb=None → ข้าม dev.posting flag
     ap.log = lambda *a, **k: None
+    ap.posted_events = []
+    ap.on_post_result = ap.posted_events.append
     ap._post_one(job, "SER1", settings, platforms)
     return store.get(jid), ap
 
@@ -123,6 +125,43 @@ def test_post_one_failure_retries_when_attempts_left(store, monkeypatch, tmp_pat
     job, ap = _run_post_one(store, monkeypatch, tmp_path, [False], max_attempts=3)
     assert job["status"] == GENERATED   # retry_status
     assert ap.err_count == 0
+
+
+# ── on_post_result: สัญญาณบอกหน้าเว็บว่าคลิปนี้จบยังไง ────────────────────────
+
+def test_post_result_fires_on_success(store, monkeypatch, tmp_path):
+    job, ap = _run_post_one(store, monkeypatch, tmp_path, [True, True])
+    assert len(ap.posted_events) == 1
+    ev = ap.posted_events[0]
+    assert ev["outcome"] == "posted"
+    assert ev["job_id"] == job["id"]
+    assert ev["serial"] == "SER1"
+    assert ev["platforms"] == ["shopee", "tiktok"]     # บอกด้วยว่าลงที่ไหนบ้าง
+
+
+def test_post_result_flags_unverified_separately(store, monkeypatch, tmp_path):
+    """ยืนยันไม่ได้ ≠ ล้มเหลว — หน้าเว็บต้องบอกให้ผู้ใช้ไปเปิดแอปตรวจเอง"""
+    _, ap = _run_post_one(store, monkeypatch, tmp_path, ["unverified", True])
+    assert [e["outcome"] for e in ap.posted_events] == ["unverified"]
+    assert "ยืนยันผลไม่ได้" in ap.posted_events[0]["detail"]
+
+
+def test_post_result_says_retry_not_error_when_attempts_left(store, monkeypatch, tmp_path):
+    _, ap = _run_post_one(store, monkeypatch, tmp_path, [False], max_attempts=3)
+    assert [e["outcome"] for e in ap.posted_events] == ["retry"]
+
+
+def test_post_result_fires_on_final_failure(store, monkeypatch, tmp_path):
+    _, ap = _run_post_one(store, monkeypatch, tmp_path, [False], max_attempts=1)
+    assert [e["outcome"] for e in ap.posted_events] == ["error"]
+
+
+def test_post_result_survives_broken_listener(store, monkeypatch, tmp_path):
+    """หน้าเว็บหลุด/ล้ม ต้องไม่ทำให้การโพสต์พังตาม"""
+    ap = AutoPilot(store, adb=None)
+    ap.log = lambda *a, **k: None
+    ap.on_post_result = lambda ev: (_ for _ in ()).throw(RuntimeError("ws ตาย"))
+    ap._post_result(1, "p", "ชื่อ", "posted", "SER1", ["shopee"])   # ต้องไม่ raise
 
 
 # ── post_jobs_now: เลือกหลายคลิป → เลือกเครื่อง → โพสต์ทีเดียว ────────────────

@@ -38,6 +38,8 @@ class AutoPilot:
         self.adb = adb
         self.log: Callable = print
         self.on_status_change: Optional[Callable] = None   # (pid, status)
+        # ผลโพสต์ต่อคลิป — หน้าเว็บเอาไปเด้งแจ้งเตือน ไม่ต้องนั่งจ้องรายการรอ poll
+        self.on_post_result:   Optional[Callable] = None   # (dict)
         self.on_stats_update:  Optional[Callable] = None   # (done, err, remaining)
 
         self._enabled = False
@@ -399,7 +401,9 @@ class AutoPilot:
             if not video or not video.exists():
                 self.db.mark_error(jid, "ไฟล์วิดีโอหาย")
                 if dev: dev.posting = False
-                self.err_count += 1; self._status(pid, "error"); self._stats(); return
+                self.err_count += 1; self._status(pid, "error")
+                self._post_result(jid, pid, name, "error", serial, [], "ไฟล์วิดีโอหาย")
+                self._stats(); return
 
             all_ready = ready_enabled(s)
             # เครื่องนี้รับเฉพาะแพลตฟอร์มที่กำหนด (ถ้าไม่ตั้ง → ทั้งหมด)
@@ -436,10 +440,13 @@ class AutoPilot:
                 if res["retrying"]:
                     self.log(f"[AUTO] {name} พลาด — ลองใหม่ใน {res['retry_in']}s")
                     self._status(pid, "retry")
+                    self._post_result(jid, pid, name, "retry", serial, plats,
+                                      f"จะลองใหม่ใน {res['retry_in']} วิ")
                 else:
                     new_path = self._move(video, cfg.ERROR_DIR)
                     self.db.update(jid, video_path=str(new_path))
                     self.err_count += 1; self._status(pid, "error")
+                    self._post_result(jid, pid, name, "error", serial, plats, "โพสต์ไม่สำเร็จ")
             elif any(r == "unverified" for r in results):
                 # ยืนยันไม่ได้ → ห้าม move เข้า DONE เงียบ, ห้าม retry อัตโนมัติ (กัน double-post)
                 # → พักไว้ที่ error (terminal) + แจ้ง user ให้เปิดแอปตรวจเอง
@@ -449,10 +456,13 @@ class AutoPilot:
                 self.err_count += 1
                 self.log(f"[AUTO] ⚠ {name}: ยืนยันผลไม่ได้ — ไม่ย้ายเข้า 'เสร็จสิ้น' อัตโนมัติ โปรดตรวจเอง")
                 self._status(pid, "error")
+                self._post_result(jid, pid, name, "unverified", serial, plats,
+                                  "โพสต์แล้วแต่ยืนยันผลไม่ได้ — เปิดแอปตรวจว่าขึ้นจริงไหม")
             else:
                 new_path = self._move(video, cfg.DONE_DIR)
                 self.db.mark_posted(jid, video_path=str(new_path))
                 self.done_count += 1; self._status(pid, "done")
+                self._post_result(jid, pid, name, "posted", serial, plats)
             self._stats()
 
     # ── helpers ───────────────────────────────────────────────
@@ -494,6 +504,18 @@ class AutoPilot:
     def _status(self, pid, status):
         if self.on_status_change:
             self.on_status_change(pid, status)
+
+    def _post_result(self, jid, pid, name, outcome, serial, platforms, detail=""):
+        """บอกหน้าเว็บว่าคลิปนี้จบยังไง — 'posted' | 'retry' | 'error' | 'unverified'"""
+        if not self.on_post_result:
+            return
+        try:
+            self.on_post_result({
+                "job_id": jid, "pid": pid, "name": name, "outcome": outcome,
+                "serial": serial, "platforms": list(platforms or []), "detail": detail,
+            })
+        except Exception:
+            pass
 
     def _stats(self):
         if self.on_stats_update:

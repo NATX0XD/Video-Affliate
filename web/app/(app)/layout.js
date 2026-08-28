@@ -50,6 +50,21 @@ export default function AppLayout({ children }) {
     }
   }, [state.ws_connected, toast])
 
+  // แจ้งผลโพสต์ทันทีที่คลิปจบ — เด้งได้จากทุกหน้า ไม่ต้องเปิดค้างที่หน้ารายการคลิป
+  // (หน้ารายการ poll ทุก 4 วิอยู่แล้ว แต่ถ้าไม่นั่งจ้องก็ไม่รู้ว่าสถานะเปลี่ยนไปแล้ว)
+  const lastPost = useRef(0)
+  useEffect(() => {
+    const r = state.postResult
+    if (!r || r.ts === lastPost.current) return
+    lastPost.current = r.ts
+    const who = r.name ? `"${String(r.name).slice(0, 28)}"` : 'คลิป'
+    const where = r.platforms?.length ? ` → ${r.platforms.join(', ')}` : ''
+    if (r.outcome === 'posted')          toast.success(`โพสต์ ${who} สำเร็จ${where}`)
+    else if (r.outcome === 'unverified') toast.warning(`โพสต์ ${who} แล้ว แต่ยืนยันผลไม่ได้ — เปิดแอปตรวจว่าขึ้นจริงไหม`)
+    else if (r.outcome === 'retry')      toast.info(`โพสต์ ${who} ไม่ผ่าน — ${r.detail || 'จะลองใหม่ให้'}`)
+    else                                 toast.error(`โพสต์ ${who} ไม่สำเร็จ${where} — ${r.detail || 'ดูรายละเอียดที่หน้างาน'}`)
+  }, [state.postResult, toast])
+
   // gate 1: license check (disabled ระหว่าง dev — เปิดก่อน release)
   const [license, setLicense] = useState({ checked: true, ok: true })
 
