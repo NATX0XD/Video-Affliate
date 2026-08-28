@@ -1,4 +1,4 @@
-# run-windows.ps1 — รัน VDO Gen Auto Pilot แบบ localhost บน Windows
+﻿# run-windows.ps1 — รัน VDO Gen Auto Pilot แบบ localhost บน Windows
 # เครื่องนี้ = server + เก็บ DB เอง (desktop\data\app.db) เปิดเบราว์เซอร์เข้า localhost ใช้งาน
 # รัน: powershell -ExecutionPolicy Bypass -File run-windows.ps1
 
