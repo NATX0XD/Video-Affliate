@@ -170,7 +170,10 @@ if (window._flowAutomatorLoaded) {
   // dump เนื้อในป๊อปอัปโหมด "ตอนเปิด" — จับ div/span/button ใบเล็กในโซนกลาง/ขวา (ป๊อปอัปโหมดอยู่ที่นั่น)
   // ใช้ diagnose ว่าปุ่ม วิดีโอ/เฟรม จริงอยู่พิกัดไหน + ข้อความอะไร (allClickable จับ div ไม่ครบ)
   let _modePopupDump = "";
-  let _probeLog = "";      // ผลการไล่กดปุ่มในแถบเครื่องมือ — แนบไปกับ error เลย
+  let _probeLog = "";               // ผลการไล่กดปุ่มในแถบเครื่องมือ — แนบไปกับ error เลย
+  // เครื่องนี้สลับโหมดเองไม่ได้ (Flow เปลี่ยน layout) → ครั้งต่อไปขอให้กดมือเลย
+  // ไม่งั้นเสียเวลาลองอัตโนมัติ 5 รอบ (~60 วิ) ทุกครั้งทั้งที่รู้อยู่แล้วว่าไม่ได้
+  let _modeManualOnly = false;
   function dumpPopup() {
     try {
       const seen = new Set(); const out = [];
@@ -662,12 +665,17 @@ if (window._flowAutomatorLoaded) {
     } else {
       passed.push(`ปุ่มโหมดอ่านได้: ${modeSummary()}`);
       // จุดนี้คือที่พังบ่อยสุด — เปิดเมนูโหมดไม่ได้ = สลับไปโหมดเฟรมไม่ได้ = สร้างวิดีโอไม่ได้
-      if (!(await openModePopup(L)))
-        problems.push(`เปิดเมนูโหมดไม่ได้ → สลับโหมดรูปภาพ/วิดีโอไม่ได้ (ปุ่มโหมด: ${modeBtnInfo()} | แถบพรอมต์: ${dumpComposer()})`);
+      if (!(await openModePopup(L))) {
+        // ไม่บล็อกงาน — ทำต่อได้ แค่ต้องให้คนกดสลับโหมดเอง ตอนนี้บอกให้รู้ตั้งแต่ต้น
+        // ดีกว่าปล่อยให้ไปเจอกลางทางหลังสร้างเฟรมไปแล้วแล้วค่อยเซอร์ไพรส์
+        _modeManualOnly = true;
+        passed.push("⚠ สลับโหมดเองไม่ได้ — ระหว่างทำงานจะขอให้คุณกดสลับโหมดเองคลิปละ 2 ครั้ง (รูปภาพ → วิดีโอ/เฟรม → รูปภาพ)");
+        L(`เปิดเมนูโหมดไม่ได้ (ปุ่มโหมด: ${modeBtnInfo()} | แถบพรอมต์: ${dumpComposer()} | ไล่กดปุ่ม: ${_probeLog || "-"})`);
+      }
       else {
         document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
         await sleep(400);
-        passed.push("เมนูโหมดเปิดได้");
+        passed.push("เมนูโหมดเปิดได้ (สลับโหมดอัตโนมัติได้)");
       }
     }
 
@@ -1948,7 +1956,8 @@ if (window._flowAutomatorLoaded) {
       if (/วิดีโอ/.test(typeLabel)) return isVideoMode() && (/เฟรม/.test(subLabel || "") ? framesSubReady() : true);  // เฟรม = ต้องมีปุ่มเริ่ม/สิ้นสุด
       return true;
     };
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    const maxTry = _modeManualOnly ? 1 : 5;      // รู้แล้วว่าอัตโนมัติไม่ได้ → ลองรอบเดียวพอ
+    for (let attempt = 1; attempt <= maxTry; attempt++) {
       if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (อยู่โหมดถูกแล้ว)`); return true; }
       // 1) เปิดป๊อปอัปโหมดให้ชัวร์ (หลายวิธีคลิก) แล้วหาแท็บเป้าหมาย
       _modePopupDump = "";
@@ -1987,7 +1996,7 @@ if (window._flowAutomatorLoaded) {
       const framesOK = !/เฟรม/.test(subLabel || "") || framesSubReady() || subOk;
       L(`ตรวจหลังตั้งค่า: ชนิด=${isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : "?"} · เฟรม=${/เฟรม/.test(subLabel || "") ? (framesOK ? "✓" : "✗") : "-"} · สัดส่วน=${currentAspect()}${is916() ? " ✓" : " (ไม่ใช่ 9:16!)"}`);
       if (onTarget() || (/วิดีโอ/.test(typeLabel) && isVideoMode() && subOk)) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (ยืนยันแล้ว)`); return true; }
-      L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") รอบ ${attempt}/5`);
+      L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") รอบ ${attempt}/${maxTry}`);
       await sleep(700);
     }
     // ── สลับเองไม่ได้ → ขอให้ผู้ใช้กดมือ แล้วไปต่อ ────────────────────────
@@ -1997,7 +2006,7 @@ if (window._flowAutomatorLoaded) {
     L(`⚠ สลับโหมดเองไม่ได้ — กรุณาตั้งโหมดเป็น "${typeLabel}${subLabel ? " / " + subLabel : ""}" ในหน้า Flow ด้วยมือ (รอ ${WAIT_MS / 1000} วิ แล้วจะไปต่อเอง)`);
     for (let w = 0; w < WAIT_MS / 2000; w++) {
       await sleep(2000);
-      if (onTarget()) { L(`ผู้ใช้ตั้งโหมดให้แล้ว → ไปต่อ ✓`); return true; }
+      if (onTarget()) { _modeManualOnly = true; L(`ผู้ใช้ตั้งโหมดให้แล้ว → ไปต่อ ✓`); return true; }
       if (w % 5 === 4) L(`ยังรออยู่… (${Math.round((WAIT_MS / 1000) - (w + 1) * 2)} วิ)`);
     }
     L("รอครบแล้วยังไม่ได้โหมดที่ต้องการ — ยกเลิกงานนี้");
