@@ -249,7 +249,7 @@ function DeviceHealthCard({ device, platforms }) {
           {/* Readiness */}
           <div className="border-t border-border/50 pt-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide">ความพร้อม</span>
+              <span className="t-cap font-semibold">ความพร้อม</span>
               <span className={`text-[10px] font-bold ${readyDone === readyTotal ? 'text-success' : 'text-amber-400'}`}>
                 {readyDone}/{readyTotal}
               </span>

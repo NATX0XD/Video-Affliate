@@ -54,7 +54,7 @@ export function MirrorCell({ idx, device, onFullscreen }) {
             <Smartphone size={20}
               className={connected ? 'text-accent/40' : 'text-ink-mute/30'}
               strokeWidth={1.5} />
-            <span className="text-[9px] font-bold text-ink-mute tracking-wider uppercase">
+            <span className="text-[11px] font-bold text-ink-mute">
               {connected ? 'พร้อม' : String(idx + 1).padStart(2, '0')}
             </span>
           </div>

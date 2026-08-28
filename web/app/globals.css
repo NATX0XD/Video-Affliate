@@ -10,16 +10,32 @@
   --c-ink:      #f5f5f7;   /* ขาว */
   --c-ink-dim:  #a2a2ad;
   --c-ink-mute: #6a6a76;
+  --c-accent-ink:  #c084fc;             /* ม่วงอ่อนไว้เป็นตัวหนังสือบนพื้นมืด */
+  --c-accent-wash: rgba(168,85,247,0.14);
+  --c-shadow-xs:   0 1px 2px rgba(0,0,0,0.4);
+  --c-shadow-card: 0 2px 8px rgba(0,0,0,0.35);
+  --c-shadow-lift: 0 16px 40px -12px rgba(0,0,0,0.6);
+  --c-scroll:       rgba(255,255,255,0.12);
+  --c-scroll-hover: rgba(255,255,255,0.22);
+  --c-scrim:        rgba(0,0,0,0.70);      /* ฉากหลัง modal */
 }
 [data-theme="light"] {
-  --c-base:     #ececf0;
+  --c-base:     #f5f5f8;
   --c-surface:  #ffffff;
-  --c-elevated: #f3f3f7;
-  --c-line:     #e3e3ea;
-  --c-line-soft:#eeeef3;
-  --c-ink:      #1a1a22;
-  --c-ink-dim:  #56566a;
-  --c-ink-mute: #9090a0;
+  --c-elevated: #f1f1f5;
+  --c-line:     #e4e4ec;
+  --c-line-soft:#eff0f4;
+  --c-ink:      #17171f;
+  --c-ink-dim:  #5a5a6b;
+  --c-ink-mute: #8e8e9e;
+  --c-accent-ink:  #7c3aed;             /* ม่วงเข้ม อ่านชัดบนพื้นขาว (ผ่าน AA) */
+  --c-accent-wash: rgba(168,85,247,0.10);
+  --c-shadow-xs:   0 1px 2px rgba(16,16,32,0.06);
+  --c-shadow-card: 0 1px 2px rgba(16,16,32,0.06), 0 8px 24px -12px rgba(16,16,32,0.12);
+  --c-shadow-lift: 0 12px 32px -10px rgba(16,16,32,0.18);
+  --c-scroll:       rgba(23,23,31,0.18);
+  --c-scroll-hover: rgba(23,23,31,0.32);
+  --c-scrim:        rgba(23,23,31,0.45);
 }
 
 @theme inline {
@@ -35,14 +51,16 @@
   /* accent เดียว = ม่วงสด */
   --color-accent:       #a855f7;
   --color-accent-soft:  #b975f9;
-  --color-accent-wash:  rgba(168,85,247,0.14);
+  --color-accent-wash:  var(--c-accent-wash);
+  /* ม่วงเข้มสำหรับ "ตัวหนังสือ" บนพื้นสว่าง — #a855f7 บนขาวคอนทราสต์ไม่ผ่าน AA */
+  --color-accent-ink:   var(--c-accent-ink);
 
   --color-success: #22c55e;
   --color-danger:  #f43f5e;
 
-  --shadow-xs:   0 1px 2px rgba(0,0,0,0.4);
-  --shadow-card: 0 2px 8px rgba(0,0,0,0.35);
-  --shadow-lift: 0 16px 40px -12px rgba(0,0,0,0.6);
+  --shadow-xs:   var(--c-shadow-xs);
+  --shadow-card: var(--c-shadow-card);
+  --shadow-lift: var(--c-shadow-lift);
 
   --font-sans: var(--font-inter), var(--font-thai), ui-sans-serif, system-ui, sans-serif;
 }
@@ -104,9 +122,22 @@ body {
   background: var(--c-base);
   color: var(--c-ink);
   font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;           /* ไทยมีสระบน-ล่าง ต้องการที่หายใจมากกว่าอังกฤษ */
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+h1, h2, h3, h4 { line-height: 1.35; }
+
+/* ── สเกลตัวอักษร (ใช้แทนการไล่ขนาดเอง) ──────────────────────────────────
+   ห้ามใช้ uppercase/letter-spacing กับข้อความไทย: ไทยไม่มีตัวพิมพ์ใหญ่
+   และการยืดตัวทำให้สระ/วรรณยุกต์ลอยออกจากพยัญชนะ อ่านยากขึ้น */
+.t-title   { font-size: 20px; font-weight: 600; line-height: 1.35; }
+.t-section { font-size: 15px; font-weight: 600; line-height: 1.4; }
+.t-body    { font-size: 14px; font-weight: 400; }
+.t-cap     { font-size: 13px; font-weight: 400; color: var(--c-ink-dim); }
+.t-badge   { font-size: 12px; font-weight: 600; }
+
 .nums { font-variant-numeric: tabular-nums; }
 .glow-accent { box-shadow: 0 10px 30px -8px rgba(168,85,247,0.55); }
 .text-glow { text-shadow: 0 0 40px rgba(168,85,247,0.45); }
@@ -114,8 +145,8 @@ body {
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 9999px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+::-webkit-scrollbar-thumb { background: var(--c-scroll); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--c-scroll-hover); }
 
 /* ── Animations / ลูกเล่น ── */
 @keyframes fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }

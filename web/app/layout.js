@@ -30,9 +30,14 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="th" data-theme="dark"
+    <html lang="th" data-theme="light"
           className={`h-full ${inter.variable} ${thai.variable}`}>
       <body className="h-full bg-base text-ink antialiased">
+        {/* ธีมที่ผู้ใช้เลือกไว้ — ต้องเซ็ตก่อน paint ไม่งั้นจอกระพริบสลับสีตอนโหลด */}
+        <script dangerouslySetInnerHTML={{ __html:
+          "(function(){try{var t=localStorage.getItem('theme');"
+          + "document.documentElement.dataset.theme=(t==='dark'||t==='light')?t:'light'}catch(e){}})();"
+        }} />
         {/* PWA/หน้าต่าง --app ไม่ถูก Chrome throttle ตอน background → ทำแท็บอื่นแล็ค
             สคริปต์นี้ทำให้หน้าต่าง"เงียบเอง"เมื่อไม่ได้ focus: หยุด setInterval polling ทั้งหมด
             + ใส่ .anim-paused (หยุด CSS animation). รันก่อน hydrate → ครอบ interval ทุกตัวในแอป */}

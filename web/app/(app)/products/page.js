@@ -1,13 +1,13 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion } from 'motion/react'
+import { useRouter } from 'next/navigation'
 import {
   Package, RefreshCw, Search, ExternalLink, Sparkles, Check, CheckSquare, Square,
   ShoppingCart, Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { api } from '@/lib/api'
-import { GenWizard } from '@/components/products/GenWizard'
 import { productUid, hasCart, productName, productPrice, productImg, commissionRate } from '@/lib/gen-options'
 
 const AFFILIATE_URL = 'https://affiliate.shopee.co.th/offer/product_offer'
@@ -83,7 +83,7 @@ export default function ProductsPage() {
   const [filter, setFilter] = useState('all')
   const [cat, setCat] = useState('all')
   const [selected, setSelected] = useState(() => new Set())
-  const [wizard, setWizard] = useState(false)
+  const router = useRouter()
 
   const load = useCallback(async (manual) => {
     if (manual) setRefreshing(true)
@@ -128,6 +128,9 @@ export default function ProductsPage() {
   const chosen = useMemo(
     () => products.filter(p => selected.has(productUid(p))).map(p => ({ ...p, _uid: productUid(p) })),
     [products, selected])
+
+  // ส่ง id สินค้าที่เลือกไปหน้าสร้างคลิป (6 ขั้น)
+  const openCreate = () => router.push(`/products/create?ids=${chosen.map(productUid).join(',')}`)
 
   const Section = ({ title, items }) => items.length === 0 ? null : (
     <div>
@@ -232,16 +235,12 @@ export default function ProductsPage() {
           <button onClick={clearSel} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
             <Square size={13} /> ล้าง
           </button>
-          <Button size="sm" onClick={() => setWizard(true)}>
+          <Button size="sm" onClick={openCreate}>
             <Sparkles size={14} /> สร้างคลิปจากที่เลือก
           </Button>
         </motion.div>
       )}
 
-      {wizard && (
-        <GenWizard products={chosen} onClose={() => setWizard(false)}
-          onDone={() => { setWizard(false); clearSel(); load(true) }} />
-      )}
     </div>
   )
 }
