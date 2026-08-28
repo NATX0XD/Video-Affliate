@@ -1,4 +1,4 @@
-# build-win.ps1 — สร้าง installer .exe ของ VDO Gen Auto Pilot (Windows x64)
+﻿# build-win.ps1 — สร้าง installer .exe ของ VDO Gen Auto Pilot (Windows x64)
 # รันใน PowerShell ที่ root ของ repo:  powershell -ExecutionPolicy Bypass -File build-win.ps1
 # ต้องมีก่อน: Node.js, Python 3.11 (+pip), และวาง binary ใน electron\bin\ (ดู electron\bin\README.md)
 

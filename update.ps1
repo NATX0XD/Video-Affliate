@@ -1,4 +1,4 @@
-# update.ps1 - pull latest code, rebuild web only if UI changed
+﻿# update.ps1 - pull latest code, rebuild web only if UI changed
 # Run this whenever fixes are pushed:  powershell -ExecutionPolicy Bypass -File update.ps1
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
