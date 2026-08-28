@@ -27,6 +27,7 @@ echo    - %DATA%
 echo      ฐานข้อมูล คลิป การตั้งค่า ทั้งหมด
 echo    - ทางลัด "VDO Gen Auto Pilot" บนหน้าจอ Desktop
 echo    - ค่า PATH ที่ตัวติดตั้งเพิ่มไว้
+echo    - นโยบาย "ไม่ถามที่บันทึกไฟล์" ของ Chrome/Edge ที่ตัวติดตั้งตั้งไว้
 if "%ISROOT%"=="1" (
   echo    - %APPROOT%
   echo      โฟลเดอร์โปรแกรมทั้งโฟลเดอร์
@@ -70,6 +71,14 @@ echo === ล้างค่า PATH ===
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if not exist "%PS%" set "PS=powershell.exe"
 "%PS%" -NoProfile -ExecutionPolicy Bypass -Command "$p=[Environment]::GetEnvironmentVariable('Path','User'); if($p){$n=($p -split ';' | Where-Object { $_ -and ($_ -notlike '*vgap-tools*') }) -join ';'; [Environment]::SetEnvironmentVariable('Path',$n,'User'); Write-Host '  OK'} else { Write-Host '  ไม่มีอะไรต้องล้าง' }"
+
+echo.
+echo === คืนค่าเบราว์เซอร์ ===
+rem ตอนติดตั้งเราปิด "ถามที่บันทึกทุกครั้ง" ไว้ด้วยนโยบายระดับผู้ใช้ - เอาออกให้ครบ
+rem ลบเฉพาะค่าที่เราเขียน ไม่ลบทั้งคีย์ (เผื่อมีนโยบายอื่นของผู้ใช้/ที่ทำงานอยู่ด้วย)
+reg delete "HKCU\Software\Policies\Google\Chrome"  /v PromptForDownloadLocation /f >nul 2>&1
+reg delete "HKCU\Software\Policies\Microsoft\Edge" /v PromptForDownloadLocation /f >nul 2>&1
+echo   OK - Chrome/Edge กลับมาถามที่บันทึกตามค่าเดิม
 
 if "%RMPY%"=="1" (
   echo.
