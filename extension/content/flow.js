@@ -847,21 +847,25 @@ if (window._flowAutomatorLoaded) {
   }
 
   // agent/Flow กำลังสร้างอยู่ไหม (best-effort: spinner/progress/% ที่มองเห็น)
-  function isGenerating() {
+  // "อะไร" ทำให้ถือว่ายังสร้างอยู่ — คืนข้อความสั้น ๆ ไว้ log
+  // ตัวชี้วัดพวกนี้ค้างเป็น true ได้ (skeleton/แถบโหลดที่ Flow ไม่ถอดออก) แล้วเรารอเก้อเป็นนาที
+  // จึงต้องบอกได้เสมอว่ารออะไรอยู่ ไม่ใช่แค่ true/false
+  function busyReason() {
     try {
       const els = document.querySelectorAll('[role="progressbar"],[aria-busy="true"],progress,[class*="oading"],[class*="enerating"],[class*="pinner"]');
-      for (const el of els) if (el.offsetParent !== null) return true;
+      for (const el of els) if (el.offsetParent !== null) return `${el.tagName.toLowerCase()}.${String(el.className || el.getAttribute("role") || "").slice(0, 24)}`;
       // Flow โชว์ "N%" บน tile ตอนเรนเดอร์ (ไม่มี progressbar element) — ถ้ายัง <100% = ยังไม่เสร็จ
       for (const el of document.querySelectorAll("div,span")) {
         if (el.children.length || el.offsetParent === null) continue;   // leaf ที่มองเห็นเท่านั้น
         const t = (el.textContent || "").trim();
         if (t.length > 6) continue;
         const m = t.match(/^(\d{1,3})%$/);
-        if (m && +m[1] < 100) return true;
+        if (m && +m[1] < 100) return `ตัวเลข ${t}`;
       }
     } catch {}
-    return false;
+    return "";
   }
+  function isGenerating() { return !!busyReason(); }
 
   // ── generate flow ────────────────────────────────────────────────────
   async function runGenerate({ prompt, imageDataUrl, charImageDataUrl, bgImageDataUrl, moodImageDataUrl, productId, _log, dry }) {
@@ -1762,7 +1766,12 @@ if (window._flowAutomatorLoaded) {
         if (el === _modeBtnCache || (_modeBtnCache && el.contains(_modeBtnCache))) return false;
         if (/·|nano banana|omni flash|arrow_forward/i.test(t)) return false;   // ปุ่มโหมด/ปุ่มส่ง ที่เหลือ
         const stripped = t.replace(/^[a-z_]{3,}\s+/, "");   // ตัด icon-ligature นำหน้า เช่น "image รูปภาพ"→"รูปภาพ", "videocam วิดีโอ"→"วิดีโอ"
-        return wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w) || (t.includes(w) && t.length <= w.length + 16));
+        // ★ ต้องตรงทั้งคำเท่านั้น — ห้ามใช้ "มีคำนี้อยู่ในข้อความ"
+        //   ป้ายในแผงขวาเขียนว่า "รูปภาพที่อัปโหลด" / "ความยาววิดีโอ: 10s" ซึ่งมีคำว่า รูปภาพ/วิดีโอ อยู่ด้วย
+        //   เดิมยอมให้ยาวเกินคำที่หาได้ 16 ตัว → ป้ายพวกนี้ถูกนับเป็น "แท็บในป๊อปอัปโหมด"
+        //   ผลคือโปรแกรมคิดว่าป๊อปอัปเปิดแล้วทั้งที่ยังไม่ได้กดปุ่มโหมดเลย แล้ววนหาแท็บ "วิดีโอ" ไม่เจอครบ 5 รอบ
+        //   (แท็บจริงเขียนสั้น: "รูปภาพ" · "crop_free เฟรม" · "crop_9_16 9:16" — ตรงทั้งคำหรือเป็นคำหนึ่งในนั้น)
+        return wants.some((w) => t === w || stripped === w || stripped.split(/\s+/).includes(w));
       })
       // ตัด sidebar ซ้าย (x<110 เช่น "image ดูรูปภาพ") ออก — ป๊อปอัปโหมดอยู่กลาง/ขวาจอเสมอ
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 360 && r.height > 4 && r.height <= 130 && r.left > 110 && r.top > 8; });
@@ -1912,8 +1921,9 @@ if (window._flowAutomatorLoaded) {
       }
     } catch {}
   }
-  // ป๊อปอัปโหมดโผล่ไหม = เจอแท็บ รูปภาพ/วิดีโอ/เฟรม (findModeOption ตัด sidebar x<110 แล้ว)
-  const popupTabsShown = () => !!(findModeOption("รูปภาพ") || findModeOption("วิดีโอ") || findModeOption("เฟรม"));
+  // ป๊อปอัปโหมดโผล่ไหม = ต้องเจอ "ทั้ง" แท็บรูปภาพ "และ" วิดีโอ — สองอันนี้อยู่ด้วยกันเฉพาะในป๊อปอัป
+  // เดิมเป็น "อย่างใดอย่างหนึ่ง" → เจอป้ายเดี่ยว ๆ ในหน้าก็นับว่าเปิดแล้ว ทั้งที่ยังไม่ได้กดปุ่มโหมด
+  const popupTabsShown = () => popupOpen();
 
   // หา element ที่ "ข้อความใช่" แต่ findModeOption ปัดตก แล้วบอกว่าตกเพราะเงื่อนไขข้อไหน
   // ใช้ตอนป๊อปอัปเปิดอยู่จริง (เห็นปุ่ม x2/x3/x4 ของมันแล้ว) แต่หาแท็บ วิดีโอ ไม่เจอ
@@ -1926,7 +1936,7 @@ if (window._flowAutomatorLoaded) {
       for (const el of deepAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],div,span')) {
         const t = norm(el.innerText || el.textContent);
         const stripped = t.replace(/^[a-z_]{3,}\s+/, "");
-        if (!wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w))) continue;
+        if (!wants.some((w) => t === w || stripped === w || stripped.split(/\s+/).includes(w))) continue;   // เกณฑ์เดียวกับ findModeOption
         const r = el.getBoundingClientRect();
         const why = [];
         if (!isVisible(el)) why.push("มองไม่เห็น");
@@ -1994,11 +2004,21 @@ if (window._flowAutomatorLoaded) {
   }
   // เปิดป๊อปอัปโหมดให้ชัวร์ — รอ UI นิ่งก่อน + scrollIntoView + re-fetch ปุ่ม + retry เยอะ
   // (CDP click บางทีไม่ติดถ้าปุ่มยัง disabled ตอน Flow ยังเรนเดอร์ หรือปุ่มอยู่นอกจอ)
-  async function openModePopup(log) {
+  // force = อย่าเชื่อว่า "เปิดอยู่แล้ว" ให้ไปกดปุ่มโหมดจริง ๆ
+  // ใช้ตอนรอบก่อนบอกว่าเปิดแล้วแต่หาแท็บเป้าหมายไม่เจอ — ไม่งั้นวนอ่านหน้าเดิมจนครบ 5 รอบโดยไม่กดอะไรเลย
+  async function openModePopup(log, force) {
     const L = (m) => { try { log && log(m); } catch {} };
-    if (popupTabsShown()) return true;
-    // รอ Flow ไม่ "กำลังสร้าง" ก่อน (ปุ่มโหมดอาจกดไม่ติดตอนยังเรนเดอร์) — สูงสุด ~8 วิ
-    for (let w = 0; w < 8 && isGenerating(); w++) await sleep(1000);
+    if (!force && popupTabsShown()) return true;
+    // เคลียร์ของค้างจากตอนสร้างรูป: โฟกัสที่ยังอยู่ในช่องพิมพ์ + เมนู/overlay ที่ยังไม่ปิด
+    // overlay ที่คลุมอยู่จะกินคลิก → ป๊อปอัปโหมดไม่เปิดสักวิธี (อาการ "ไม่ไปโหมดวิดีโอ" หลังสร้างรูปเสร็จ)
+    try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch {}
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await sleep(350);
+    // รอ Flow ไม่ "กำลังสร้าง" ก่อน (ปุ่มโหมดอาจกดไม่ติดตอนยังเรนเดอร์) — สูงสุด ~5 วิ แล้วลองเลย
+    if (isGenerating()) {
+      L(`หน้ายังบอกว่ากำลังสร้าง (${busyReason()}) — รออีก 5 วิแล้วลองกดปุ่มโหมด`);
+      for (let w = 0; w < 5 && isGenerating(); w++) await sleep(1000);
+    }
     // หมุนวิธีกดหลายแบบ — ปุ่มโหมดเป็นแถบยาวที่มีชิปย่อย คลิกกลางบางทีตกร่องว่างระหว่างชิป
     // แล้วป๊อปอัปไม่เปิดเลยสักรอบ (อาการ "ป๊อปอัป: (ไม่เปิด)" ที่เจอตอนคลิปที่ 2 เป็นต้นไป)
     // เรียงจาก "ไม่พึ่งพิกัด" ไป "พึ่งพิกัด" — สองอันแรกใช้ได้ทุกขนาดจอ/zoom
@@ -2044,7 +2064,31 @@ if (window._flowAutomatorLoaded) {
     }
     return false;
   }
-  async function setMode(typeLabel, subLabel, countLabel, log) {
+  // ออกไปหน้าแรกแล้วกลับเข้าโปรเจ็คเดิม (SPA — ไม่ reload หน้า สคริปต์จึงไม่ตายกลางคัน)
+  // ใช้ตอนสลับโหมดไม่ได้: แถบพิมพ์ถูก mount ใหม่ทั้งแถบ = กลับไปสภาพเดียวกับตอนเพิ่งเปิดโปรเจ็ค
+  // (ตอนนั้นสลับโหมดติดเสมอ — ที่พังคือหลังสร้างรูปเสร็จ ซึ่งแถบพิมพ์ค้างอยู่ในสถานะเดิม)
+  // รูปที่สร้างไว้ไม่หาย เพราะอยู่ในคลังของโปรเจ็ค — pickFrame หาเจอด้วย uuid เหมือนเดิม
+  async function remountComposer(log) {
+    const L = (m) => { try { log && log(m); } catch {} };
+    const url = location.href;
+    if (!/\/project\//.test(url)) return false;
+    const homeLink = [...document.querySelectorAll("a[href]")].filter(isVisible)
+      .find((a) => /\/tools\/flow\/?$/.test((a.getAttribute("href") || "").split("?")[0]));
+    if (!homeLink) { L("รีเซ็ตแถบพิมพ์: ไม่เจอลิงก์กลับหน้าแรก → ข้าม"); return false; }
+    L("รีเซ็ตแถบพิมพ์: ออกไปหน้าแรกแล้วกลับเข้าโปรเจ็คเดิม");
+    await trustedClickEl(homeLink, log);
+    await waitFor(() => (!/\/project\//.test(location.href) ? true : null), 8000, 400);
+    await sleep(900);
+    try { history.back(); } catch { return false; }
+    const back = await waitFor(() => (location.href === url ? true : null), 12000, 400);
+    if (!back) { L(`กลับเข้าโปรเจ็คเดิมไม่สำเร็จ (อยู่ ${location.pathname})`); return false; }
+    await sleep(2000);
+    await waitFor(findModeBtn, 15000, 700);
+    L("แถบพิมพ์ mount ใหม่แล้ว → ลองสลับโหมดอีกครั้ง");
+    return true;
+  }
+
+  async function setMode(typeLabel, subLabel, countLabel, log, _retried) {
     _modeTrace = "";
     const L = (m) => { _modeTrace += `${_modeTrace ? " · " : ""}${m}`; try { log && log(m); } catch {} };
     const onTarget = () => {
@@ -2053,15 +2097,18 @@ if (window._flowAutomatorLoaded) {
       return true;
     };
     const maxTry = _modeManualOnly ? 1 : 5;      // รู้แล้วว่าอัตโนมัติไม่ได้ → ลองรอบเดียวพอ
+    let forceOpen = false;                       // รอบก่อนอ่านว่า "เปิดแล้ว" แต่ไม่มีแท็บ → รอบนี้กดปุ่มโหมดจริง
     for (let attempt = 1; attempt <= maxTry; attempt++) {
       if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (อยู่โหมดถูกแล้ว)`); return true; }
       // 1) เปิดป๊อปอัปโหมดให้ชัวร์ (หลายวิธีคลิก) แล้วหาแท็บเป้าหมาย
       _modePopupDump = "";
-      const opened = await openModePopup(log);
+      const opened = await openModePopup(log, forceOpen);
+      forceOpen = false;
       if (!_modePopupDump) _modePopupDump = dumpPopup();
       if (!opened) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ รอบ ${attempt}/5 (ปุ่มโหมด: ${modeBtnInfo()}) | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
       let typeTab = findModeOption(typeLabel);
-      if (!typeTab) { L(`เปิดป๊อปอัปได้แต่ไม่เจอแท็บ "${typeLabel}" รอบ ${attempt}/${maxTry} | ทำไมไม่เจอ: ${whyNoModeOption(typeLabel)} | ป๊อปอัป: ${_modePopupDump}`); await sleep(600); continue; }
+      // เปิดแล้วแต่ไม่มีแท็บ = ที่อ่านว่า "เปิด" นั้นอ่านผิด → รอบหน้าบังคับกดปุ่มโหมดจริง
+      if (!typeTab) { forceOpen = true; L(`เปิดป๊อปอัปได้แต่ไม่เจอแท็บ "${typeLabel}" รอบ ${attempt}/${maxTry} → รอบหน้าจะกดปุ่มโหมดซ้ำ | ทำไมไม่เจอ: ${whyNoModeOption(typeLabel)} | ป๊อปอัป: ${_modePopupDump}`); await sleep(600); continue; }
       // 2) อ่านสถานะ "ตอนนี้" แล้วกดเฉพาะที่ยังไม่ถูก (if/else — ไม่กดมั่ว)
       let st = readModeState();
       L(`สถานะป๊อปอัป: ชนิด=${st.type || "?"} · ย่อย=${st.sub || "?"}`);
@@ -2106,6 +2153,16 @@ if (window._flowAutomatorLoaded) {
       if (onTarget() || (/วิดีโอ/.test(typeLabel) && isVideoMode() && subOk)) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (ยืนยันแล้ว)`); return true; }
       L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") รอบ ${attempt}/${maxTry}`);
       await sleep(700);
+    }
+    // ── ลองรีเซ็ตแถบพิมพ์ก่อนยอมแพ้ (ครั้งเดียว) — ถูกกว่าปล่อยให้คนมากด ───────
+    if (!_retried) {
+      const prev = _modeTrace;
+      if (await remountComposer(log)) {
+        const again = await setMode(typeLabel, subLabel, countLabel, log, true);
+        _modeTrace = `${prev} · [รีเซ็ตแถบพิมพ์] ${_modeTrace}`;
+        return again;
+      }
+      _modeTrace = `${prev} · รีเซ็ตแถบพิมพ์ไม่สำเร็จ`;
     }
     // ── สลับเองไม่ได้ → ขอให้ผู้ใช้กดมือ แล้วไปต่อ ────────────────────────
     // Flow ขยับ layout ของแถบเครื่องมือบ่อย (ปุ่มโหมดย้ายตำแหน่ง/เปลี่ยนโครงสร้าง)
@@ -2545,8 +2602,11 @@ if (window._flowAutomatorLoaded) {
     await ensureChatPage(log);
     // ★ รอรูปเรนเดอร์ให้ครบ 100% ก่อนสลับโหมด (คลิปที่ 2+ มักพังเพราะรูปยัง 99% → ปุ่มโหมดตาย กดไม่ติด)
     if (isGenerating()) {
-      log("รอรูปเรนเดอร์ให้เสร็จ 100% ก่อนสลับโหมดวิดีโอ…");
-      await waitFor(() => (isGenerating() ? null : true), 90000, 1500);
+      log(`รอรูปเรนเดอร์ให้เสร็จ 100% ก่อนสลับโหมดวิดีโอ… (ยัง busy: ${busyReason()})`);
+      // เดิมรอ 90 วิเงียบ ๆ → ถ้าตัวชี้วัด busy ค้าง (Flow ไม่ถอด skeleton) จะดูเหมือนโปรแกรมแฮงก์
+      // รอ 30 วิพอ แล้วบอกให้รู้ว่ารออะไรอยู่ ก่อนไปต่อ — สลับโหมดตอนหน้า busy ยังลองได้
+      const done = await waitFor(() => (isGenerating() ? null : true), 30000, 1500);
+      if (!done) log(`⚠ รอ 30 วิแล้วหน้ายังบอกว่ากำลังสร้าง (${busyReason()}) — ไปต่อเลย ไม่รอแล้ว`);
       await sleep(1200);
     }
     log(`ตรวจโหมดก่อนทำวิดีโอ: ${modeSummary()}`);                      // เช็คก่อน (จับข้าม/เลือกผิด)
