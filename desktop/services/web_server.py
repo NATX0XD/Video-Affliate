@@ -1188,6 +1188,13 @@ class WebServer:
             if _os.environ.get("VGAP_NO_EXT_PULL") == "1":
                 return
             root = Path(__file__).resolve().parents[2]
+            # ★ เป็น git repo = โฟลเดอร์งานของนักพัฒนา ไม่ใช่โฟลเดอร์ติดตั้ง → ห้ามดึงทับเด็ดขาด
+            #   ตัวติดตั้งแตกจาก tarball ไม่มี .git ส่วนโฟลเดอร์งานมี — แยกกันได้ชัดเจน
+            #   เคยกินงานที่แก้ไว้แต่ยังไม่ push ไปแล้ว (โค้ด B-roll ฝั่ง extension หายทั้งก้อนแบบเงียบ ๆ)
+            #   ธง env มีอยู่แล้วแต่เป็นแบบ "ต้องนึกได้เองก่อน" ซึ่งพึ่งไม่ได้
+            if (root / ".git").exists():
+                self.emit_log("[EXT] โฟลเดอร์นี้เป็น git repo — ข้ามการดึง extension จาก main (กันทับงานที่แก้ค้างไว้)")
+                return
             try:
                 _pull_ext(root, timeout=90)
             except Exception:
@@ -1510,6 +1517,12 @@ class WebServer:
             else:
                 return {"ok": False, "error": "ไม่มีไฟล์วิดีโอ"}
 
+            # หา ffmpeg เองแทนที่จะเรียกชื่อสั้นแล้วหวังพึ่ง PATH
+            # ตัวติดตั้ง Windows เติม PATH ให้ก็จริง แต่โปรเซสที่เปิดค้างอยู่ก่อนหน้าไม่เห็นค่าใหม่
+            # → เจอ "[WinError 2] The system cannot find the file specified" ตอนต่อคลิป/ทำปก
+            from services.ffmpeg_path import ffmpeg as _ffmpeg
+            _FF = _ffmpeg(self.emit_log)
+
             if True:
                 if len(srcs) == 1:
                     shutil.move(str(srcs[0]), str(out_mp4))   # ย้ายเข้าโปรเจ็กต์ (ลบตัวต้นทาง)
@@ -1518,12 +1531,12 @@ class WebServer:
                     listf = cfg.PENDING_DIR / f"{pid}_list.txt"
                     listf.write_text("".join(f"file '{s}'\n" for s in srcs), encoding="utf-8")
                     r = subprocess.run(
-                        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
+                        [_FF, "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
                          "-c", "copy", str(out_mp4)],
                         capture_output=True, timeout=120)
                     if not out_mp4.exists():  # ถ้า copy ไม่ได้ (codec ต่าง) → re-encode
                         r = subprocess.run(
-                            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
+                            [_FF, "-y", "-f", "concat", "-safe", "0", "-i", str(listf),
                              "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p", str(out_mp4)],
                             capture_output=True, timeout=300)
                     listf.unlink(missing_ok=True)
@@ -1546,7 +1559,10 @@ class WebServer:
                     broll_b64 += [f["data"] for f in (mine or []) if isinstance(f, dict) and f.get("data")][:4]
                 except Exception as e:
                     self.emit_log(f"[B-ROLL] อ่าน footage ของฉันไม่ได้: {e}")
+            if body.get("broll_use_uploads") and not broll_b64:
+                self.emit_log("[B-ROLL] เปิด footage ไว้แต่ยังไม่มีไฟล์ — คลิปนี้ไม่มีการตัดสลับ")
             if broll_b64:
+                self.emit_log(f"[B-ROLL] ได้ footage {len(broll_b64)} ชิ้น — กำลังตัดสลับเข้าคลิป")
                 from services import broll as _broll
                 tmp = []
                 try:
@@ -1573,12 +1589,16 @@ class WebServer:
             try:
                 cover_path = cfg.PENDING_DIR / f"{pid}_cover.jpg"
                 subprocess.run(
-                    ["ffmpeg", "-y", "-i", str(out_mp4), "-frames:v", "1", "-q:v", "2",
+                    [_FF, "-y", "-i", str(out_mp4), "-frames:v", "1", "-q:v", "2",
                      str(cover_path)],
                     capture_output=True, timeout=30)
                 if cover_path.exists() and cover_path.stat().st_size > 0:
                     cover_name = cover_path.name
                     self.emit_log(f"[FLOW] ปกคลิป = เฟรมแรก → {cover_name}")
+            except FileNotFoundError:
+                # ไม่ใช่ปัญหาของคลิป — เครื่องนี้หา ffmpeg ไม่เจอ บอกทางแก้ไปเลย
+                self.emit_log(f"[FLOW] ทำปกคลิปไม่ได้ — หา ffmpeg ไม่เจอ (ลองใช้ '{_FF}') "
+                              "ปิดโปรแกรมแล้วเปิดใหม่ 1 ครั้ง ถ้ายังไม่หายให้ติดตั้งใหม่")
             except Exception as e:
                 self.emit_log(f"[FLOW] ดึงเฟรมแรกเป็นปกไม่สำเร็จ: {e}")
 

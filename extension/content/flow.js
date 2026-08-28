@@ -494,11 +494,20 @@ if (window._flowAutomatorLoaded) {
     input.files = dt.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
     await sleep(rand(1500, 2500));
+    // จับ "รูปที่เพิ่งอัป" ไว้ด้วย — ตอนเก็บผลลัพธ์จะได้ตัดรูปอ้างอิงของเราออกได้ชัด ๆ
+    // เคยเจอ: ไทล์รูปอ้างอิงโผล่ช้ากว่าตอน snapshot ก่อนกดส่ง เลยถูกนับเป็น "รูปใหม่ที่ Flow สร้าง"
+    // แล้วรูปหน้าคนถูกเอาไปใส่เป็นเฟรมเริ่มแทนภาพคนถือสินค้า (เป็นบ้างไม่เป็นบ้างตามจังหวะเรนเดอร์)
+    const refTile = await waitFor(() => {
+      const f = tileImgs().filter((im) => !before.has(im));
+      return f.length ? f[f.length - 1] : null;
+    }, 8000, 500);
+    const refSrc = refTile ? (refTile.currentSrc || refTile.src || "") : "";
+    const refId = mediaUuid(refSrc);
     // โหมดรูปภาพ (nano banana): อัปไฟล์แล้วมันแนบเป็น reference เอง → ข้ามเมนู ⋮ (ไม่งั้นกดมั่ว/พัง)
-    if (opts.addToPrompt === false) { try { log && log("แนบ reference (auto) ✓"); } catch {} return { ok: true, addedToPrompt: "auto" }; }
+    if (opts.addToPrompt === false) { try { log && log(`แนบ reference (auto) ✓${refId ? ` [${refId.slice(0, 8)}]` : ""}`); } catch {} return { ok: true, addedToPrompt: "auto", refSrc, refId }; }
     // โหมด video (ingredient): อัปขึ้น library แล้ว → กดเพิ่มเข้า prompt ให้เป็นภาพอ้างอิงจริง
     const added = await addImageToPrompt(log, before);
-    return { ok: true, addedToPrompt: added };
+    return { ok: true, addedToPrompt: added, refSrc, refId };
   }
 
   // ── probe (rich snapshot) ────────────────────────────────────────────
@@ -1133,20 +1142,26 @@ if (window._flowAutomatorLoaded) {
     let charImageDataUrl = null;
     let bgImageDataUrl = null;
     let moodImageDataUrl = null;
+    let broll = null;            // ตัวเลือก footage แทรก (ปิดอยู่ = null)
+    let brollUploads = [];       // footage ที่ผู้ใช้อัปเอง (เผื่อมีติดมาใน storage)
     try {
-      const g = await chrome.storage.local.get(["flow_char_img", "flow_bg_img", "flow_mood_img", "flow_gen"]);
+      const g = await chrome.storage.local.get(["flow_char_img", "flow_bg_img", "flow_mood_img", "flow_gen", "flow_broll"]);
       charImageDataUrl = g.flow_char_img || null;
       bgImageDataUrl = g.flow_bg_img || null;     // รูปฉากหลังที่ผู้ใช้อัป (ถ้ามี)
       moodImageDataUrl = g.flow_mood_img || null; // รูปอ้างอิงโทนสี/อารมณ์ (ถ้ามี)
+      broll = (g.flow_gen && g.flow_gen.broll) || null;
+      brollUploads = Array.isArray(g.flow_broll) ? g.flow_broll.filter(Boolean) : [];
       if (g.flow_gen && g.flow_gen.charName) log(`ผู้รีวิว: ${g.flow_gen.charName} · สไตล์: ${g.flow_gen.style || "-"}`);
     } catch {}
+    const brollOn = !!(broll && broll.on && (broll.sources || []).length);
+    log(brollOn ? `footage แทรก: เปิด (${(broll.sources || []).join(", ")})` : "footage แทรก: ปิด");
 
     if (!dry) reportProgress("submit", name, p.product_id);   // เริ่มส่งให้ Veo (ครอบทั้ง agent + i2v)
     // เลือกเครื่องยนต์: i2v (nano banana → frames-to-video, หน้าเป๊ะ) หรือ agent (runGenerate เดิม)
     let res;
     if (engine === "i2v") {
       if (!imageDataUrl) { log("ไม่มีรูปสินค้า hi-res → ข้ามตัวนี้ (i2v ต้องมีรูปสินค้าจริง กัน compose ผิดตัว)"); return { ok: false, error: "ไม่มีรูปสินค้า" }; }
-      res = await makeClip({ faceUrl: charImageDataUrl, productUrl: imageDataUrl, name, productId: p.product_id || "flow", dry, motionPrompt: prompt, _log: log });
+      res = await makeClip({ faceUrl: charImageDataUrl, productUrl: imageDataUrl, name, productId: p.product_id || "flow", dry, motionPrompt: prompt, broll: brollOn ? broll : null, _log: log });
       if (!res.ok) return res;
       if (res.dry) return { ok: true, dryRun: true };
     } else {
@@ -1156,11 +1171,39 @@ if (window._flowAutomatorLoaded) {
       if (res.dryRun) return { ok: true, dryRun: true };   // โหมดทดสอบ: ไม่แจ้ง desktop
     }
 
+    // footage แทรก — รวมทุกแหล่งที่เปิดไว้ ส่งให้ desktop ตัดสลับด้วย ffmpeg
+    // ตัดที่ desktop ไม่ใช่ที่ Flow → แก้/ปิดทีหลังได้โดยไม่ต้องสร้างคลิปใหม่ ไม่เปลืองเครดิต
+    const brollAssets = [];
+    let brollUseUploads = false;
+    if (brollOn) {
+      const src = broll.sources || [];
+      if (src.includes("flow")) brollAssets.push(...(res.brollShots || []));
+      // "footage ของฉัน" อยู่ใน app.db แล้ว — บอก desktop ให้อ่านเอง ไม่ต้องแบกไบต์ผ่านคิว
+      if (src.includes("upload")) { brollUseUploads = true; brollAssets.push(...brollUploads); }
+      if (src.includes("shopee")) {
+        // รูปที่ 2 เป็นต้นไป (รูปแรกใช้ทำเฟรมเริ่มไปแล้ว มุมเดิมซ้ำ)
+        let got = 0;
+        for (const u of (p.images || []).slice(1, 4)) {
+          const d = await fetchImageDataUrl(hiResImage(u));
+          if (d) { brollAssets.push(d); got++; }
+        }
+        // ★ สินค้าส่วนใหญ่ในคลังมีรูปเดียว → เดิมได้ 0 ชิ้นแล้วเงียบ เหมือนเปิด footage แล้วไม่มีอะไรเกิดขึ้น
+        //   ไม่มีรูปอื่นก็ใช้รูปหลักไปเลย — ffmpeg ครอบเต็มเฟรมให้ ได้มุมต่างจากเฟรมเริ่มอยู่ดี
+        if (!got) {
+          const only = (p.images_b64 || [])[0] || imageDataUrl;
+          if (only) { brollAssets.push(only); log("สินค้านี้มีรูปเดียว → ใช้รูปหลักเป็น footage"); }
+        }
+      }
+      log(brollAssets.length || brollUseUploads
+        ? `footage ที่จะแทรก: ${brollAssets.length} ชิ้น${brollUseUploads ? " + footage ของฉันใน app.db" : ""}`
+        : "⚠ เปิด footage ไว้แต่หาไฟล์ไม่ได้เลย — คลิปนี้จะไม่มีการตัดสลับ");
+    }
     // แจ้ง desktop — ส่งทุกคลิปตามลำดับที่เกิด → desktop ต่อด้วย ffmpeg เป็นวิดีโอเดียว
     const link = (p.links || {}).affiliate_link || (p.links || {}).product_url || "";
     const note = await desktop("POST", "/api/flow/video", {
       product_id: p.product_id, name, price: bi.price, sold: bi.sold_count,
       commission: (p.commission || {}).rate, link, files: res.files,
+      broll_b64: brollAssets, broll_use_uploads: brollUseUploads,
     });
     log(note && note.ok ? `→ desktop ต่อ ${res.files.length} คลิป เข้าคิวโพสต์ ✓ (ตะกร้า: ${link ? "มี" : "ไม่มี!"})` : `แจ้ง desktop ไม่สำเร็จ: ${note && note.error}`);
     if (!dry) reportProgress(note && note.ok ? "done" : "error",
@@ -1223,6 +1266,7 @@ if (window._flowAutomatorLoaded) {
 
   async function runQueue(log, max = 100, dry = false) {
     if (_queueRunning) { log("คิวกำลังรันอยู่แล้ว — ข้าม"); return 0; }
+    log(`ส่วนขยายเวอร์ชัน ${EXT_VER}`);   // ขึ้นทุกครั้งที่เริ่มคิว — เช็คได้ทันทีว่าเครื่องนี้ใช้ตัวล่าสุดไหม
     if (dry) log("[ทดสอบ] โหมดทดสอบเปิดอยู่ — จะพิมพ์ prompt แต่ไม่กดส่ง (ไม่เปลืองเครดิต)");
     let jobs = ((await chrome.storage.local.get("flow_jobs")).flow_jobs || []).slice();
     const total = jobs.length;
@@ -2448,8 +2492,17 @@ if (window._flowAutomatorLoaded) {
       }, 30000, 1500);
       await sleep(2500);                                                   // settle ให้รูปพร้อมในคลัง/picker ก่อนไปเลือกเฟรม
       const finalImgs = genImgSrcs().filter((s) => !beforeImgs.has(s));
-      const imgs = finalImgs.length ? finalImgs : res.images;
-      log(`สร้างรูปเสร็จสมบูรณ์ ✓ ${imgs.length} รูป`);
+      let imgs = finalImgs.length ? finalImgs : res.images;
+      // ★ ตัด "รูปอ้างอิงที่เราอัปเอง" ออกให้ชัด ไม่พึ่ง snapshot ก่อนกดส่งอย่างเดียว
+      //   ไทล์รูปอ้างอิงโผล่ช้ากว่า snapshot ได้ → หลุดมาเป็นผลลัพธ์ แล้วรูปหน้าคนไปเป็นเฟรมเริ่ม
+      const refIds = new Set(uploads.map((u) => u && u.refId).filter(Boolean));
+      if (refIds.size) {
+        const kept = imgs.filter((s) => { const u = mediaUuid(s); return !u || !refIds.has(u); });
+        if (kept.length !== imgs.length) log(`ตัดรูปอ้างอิงที่เราอัปเองออก ${imgs.length - kept.length} รูป`);
+        if (kept.length) imgs = kept;
+        else log("⚠ เหลือแต่รูปอ้างอิง ไม่เจอรูปที่ Flow สร้าง — ใช้รูปที่มีไปก่อน");
+      }
+      log(`สร้างรูปเสร็จสมบูรณ์ ✓ ${imgs.length} รูป (ใช้ ${(mediaUuid(imgs[imgs.length - 1]) || "?").slice(0, 8)})`);
       return { ok: true, images: imgs, uploads };
     }
   }
@@ -2618,7 +2671,18 @@ if (window._flowAutomatorLoaded) {
     log("เลือกเฟรมเริ่ม… (โมเดลรับเฉพาะเฟรมเริ่ม ไม่ใส่เฟรมจบ)");
     const okS = await pickFrame("เริ่ม", startUrl, log);
     if (!okS) { const _d = dumpBtns(log, "pick-frame"); return { ok: false, error: "เลือกเฟรมเริ่มไม่สำเร็จ | ปุ่มบนจอ: " + _d, steps }; }
-    const motion = opts.prompt || defaultMotionPrompt(name);
+    let motion = opts.prompt || defaultMotionPrompt(name);
+    // เปิด footage ไว้ → สั่งให้ตัวคลิปเองมีจังหวะตัดไปภาพสินค้าด้วย (คนละชั้นกับที่ ffmpeg ทับให้ทีหลัง)
+    // ทำสองชั้นเพราะเก่งคนละอย่าง: Veo ตัดให้ "ตรงกับสิ่งที่กำลังพูด" ได้เพราะมันรู้บทพูด
+    // ส่วน ffmpeg ตัดตรงเวลาเป๊ะและใช้รูปสินค้าจริง แต่ไม่รู้ว่าตอนนั้นพูดถึงอะไร
+    if (opts.broll && opts.broll.on) {
+      motion += ` · ★ ให้คลิปมีจังหวะ "ตัดสลับ" ไปที่ภาพ${name || "สินค้า"}ล้วนระยะใกล้ (ไม่มีคน ไม่มีใบหน้า) 1-2 ครั้ง ครั้งละ ~1.5 วิ แล้วตัดกลับมาที่คนพูด · ` +
+        `จังหวะที่ตัดต้องตรงกับบทพูดตอนนั้นพอดี — พูดถึงจุดไหนของสินค้า ให้เห็นจุดนั้นชัด ๆ · ` +
+        `ห้ามตัดในช่วง 2 วิแรก (ต้องเห็นหน้าคนพูดก่อน) และห้ามตัดช่วงท้ายตอนชี้ตะกร้า · ` +
+        `เสียงพูดต้องต่อเนื่องไม่สะดุดตลอดคลิป ตัดแค่ภาพ ห้ามตัดเสียง ห้ามเงียบ · ` +
+        `สินค้าในช่วงที่ตัดไปต้องเป็นชิ้นเดิมเป๊ะกับที่ถืออยู่ ไม่ใช่สีอื่นหรือรุ่นอื่น`;
+      log("เปิด footage → เพิ่มคำสั่งตัดสลับภาพสินค้าให้เข้ากับบทพูด");
+    }
     const box = await waitFor(findEditable, 15000);
     if (!box) return { ok: false, error: "ไม่พบช่องพิมพ์ prompt", steps };
     const mac = /Mac/i.test(navigator.platform);
@@ -2709,15 +2773,52 @@ if (window._flowAutomatorLoaded) {
   window._flowNewProject = () => newProject((m) => { try { chrome.runtime.sendMessage({ action: "flow_log", msg: "[compose] " + m }); } catch {} });
 
   // ครบวงจร: compose เฟรมเริ่ม+จบ (ฟรี) → frames-to-video — default dry กันเสียเครดิต
+  // ── footage แทรก (B-roll) — ภาพสินค้าล้วนไว้ให้ desktop ตัดสลับกับคนพูด ──
+  // ★ สร้างตอน "ยังอยู่โหมดรูปภาพ" ก่อนสลับไปโหมดวิดีโอ → ไม่เพิ่มการสลับโหมดสักครั้ง
+  //   โหมดรูปภาพไม่หักเครดิตวิดีโอ เสียแค่เวลาเรนเดอร์ต่อรูป
+  const brollShotPrompt = (name, i) => {
+    const angles = [
+      "วางบนพื้นผิวเรียบสะอาด มุมเฉียง 45 องศา ระยะใกล้เห็นรายละเอียดพื้นผิวและฉลากชัด",
+      "ถือด้วยมือเปล่าระยะใกล้มาก (macro) เห็นเนื้อวัสดุและจุดเด่นของสินค้าเต็ม ๆ",
+      "มุมมองจากด้านบนตรง ๆ (top-down) วางกลางเฟรมบนพื้นสีเรียบ",
+    ];
+    return `ภาพสินค้าล้วน ไม่มีคน ไม่มีใบหน้า — ${name || "สินค้า"} ${angles[i % angles.length]} · ` +
+      productFidelity(name, "รูปอ้างอิง") + ` · ` +
+      `แสงสตูดิโอนุ่ม สมจริงเหมือนภาพถ่ายโฆษณา แนวตั้ง 9:16 ไม่มีตัวหนังสือ ไม่มีลายน้ำ ไม่มีป้ายราคา`;
+  };
+
+  // คืน dataURL[] ของ footage ที่ Flow วาดให้ · ล้มก็คืนเท่าที่ได้ ไม่ทำให้ทั้งคลิปพัง
+  async function composeBrollShots(productUrl, name, count, log) {
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      try {
+        log(`สร้าง footage สินค้า ${i + 1}/${count} (โหมดรูปภาพ · ไม่หักเครดิตวิดีโอ)…`);
+        const r = await genImage({ refs: [productUrl], prompt: brollShotPrompt(name, i), count: "1x", log });
+        if (!r.ok || !(r.images || []).length) { log(`footage ${i + 1} ไม่สำเร็จ: ${r.error || "ไม่ได้รูป"}`); continue; }
+        const d = await reencode(r.images[r.images.length - 1]).catch(() => null);
+        if (d) out.push(d);
+      } catch (e) { log(`footage ${i + 1} ล้ม: ${(e && e.message) || e}`); }
+    }
+    return out;
+  }
+
   async function makeClip(opts = {}) {
+    const log = opts._log || (() => {});
     // โมเดลรับเฉพาะเฟรมเริ่ม → compose แค่เฟรมเดียว (ท่าชี้ตะกร้าไปอยู่ใน prompt การเคลื่อนไหวแทน)
     const start = await composeStill(opts);
     if (!start.ok) return { ...start, phase: "compose" };
     const startUrl = start.images[start.images.length - 1];
-    const v = await framesToVideo({ startUrl, dry: opts.dry !== false, prompt: opts.motionPrompt, productId: opts.productId, name: opts.name, _log: opts._log });
+    // ยังอยู่โหมดรูปภาพตรงนี้ → เก็บ footage ให้ครบก่อนสลับไปโหมดวิดีโอ
+    let brollShots = [];
+    const bo = opts.broll || null;
+    if (bo && bo.on && (bo.sources || []).includes("flow") && opts.productUrl) {
+      brollShots = await composeBrollShots(opts.productUrl, opts.name, Math.max(1, Math.min(3, bo.count || 2)), log);
+      log(`footage จาก Flow: ${brollShots.length} รูป`);
+    }
+    const v = await framesToVideo({ startUrl, dry: opts.dry !== false, prompt: opts.motionPrompt, productId: opts.productId, name: opts.name, broll: bo, _log: opts._log });
     // ★ เปิดโปรเจ็คใหม่ทำที่ runQueue "หลังเอา job ออกจากคิว" (กันสร้างซ้ำ ถ้า navigate ทำ context ตายก่อน shift)
     // ปกคลิป = เฟรมแรกของวิดีโอ → desktop ดึงด้วย ffmpeg ตอนรับคลิป (ไม่ gen)
-    return { ok: v.ok, dry: v.dry, startImage: startUrl, files: v.files, error: v.error, steps: [...(start.steps || []), ...(v.steps || [])] };
+    return { ok: v.ok, dry: v.dry, startImage: startUrl, files: v.files, brollShots, error: v.error, steps: [...(start.steps || []), ...(v.steps || [])] };
   }
   window._flowMakeClip = makeClip;
 

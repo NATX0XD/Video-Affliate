@@ -1169,6 +1169,14 @@ async function handleFlowStart(msg) {
       motionLines: Array.isArray(msg.gen.motionLines) ? msg.gen.motionLines : [],
       bgImageOn: !!msg.gen.bgImage,   // มีรูปฉากหลังแนบไหม (รูปจริงเก็บแยกที่ flow_bg_img)
       moodImageOn: !!msg.gen.moodImage,   // มีรูปอ้างอิงโทนสี/อารมณ์ไหม (เก็บที่ flow_mood_img)
+      // footage แทรก (B-roll) — ปิดเป็นค่าเริ่มต้น เปิดเมื่อผู้ใช้ติ๊กเองเท่านั้น
+      // sources: shopee(รูปจากร้าน) · upload(ผู้ใช้อัปเอง เก็บที่ app.db) · flow(ให้ Flow วาดภาพสินค้าเพิ่ม)
+      broll: (msg.gen.broll && typeof msg.gen.broll === 'object') ? {
+        on: !!msg.gen.broll.on,
+        sources: Array.isArray(msg.gen.broll.sources)
+          ? msg.gen.broll.sources.filter((s) => ['shopee', 'upload', 'flow'].includes(s)) : [],
+        count: Math.max(1, Math.min(3, Number(msg.gen.broll.count) || 2)),
+      } : null,
     };
     // รูปอ้างอิง: ใช้ snapshot จากพรีวิว 3D (มุมที่ผู้ใช้หมุนไว้) ก่อนเสมอ
     let img = msg.gen.snapshot || null;
@@ -1196,6 +1204,8 @@ async function handleFlowStart(msg) {
       flow_char_img: img,
       flow_bg_img: msg.gen.bgImage || null,
       flow_mood_img: msg.gen.moodImage || null,
+      // footage ที่ผู้ใช้อัปเอง — ตัวไฟล์จริงอยู่ใน app.db แล้ว โปรแกรมหลักอ่านเองตอนตัดต่อ
+      flow_broll: Array.isArray(msg.gen.brollClips) ? msg.gen.brollClips.filter(Boolean).slice(0, 4) : [],
     });
   }
   _flowCfg = null;   // โหลด config สดสำหรับรอบนี้ (เผื่อผู้ใช้เพิ่งแก้ settings)

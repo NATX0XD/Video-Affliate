@@ -39,8 +39,7 @@ def test_plan_cuts_no_assets():
 # ── insert: ต้องมี ffmpeg จริง ───────────────────────────────────────────────
 
 ffmpeg_only = pytest.mark.skipif(
-    not (shutil.which("ffmpeg") and shutil.which("ffprobe")),
-    reason="ต้องมี ffmpeg/ffprobe")
+    not shutil.which("ffmpeg"), reason="ต้องมี ffmpeg")
 
 
 @pytest.fixture
@@ -89,6 +88,14 @@ def test_insert_puts_footage_only_inside_the_planned_windows(clip, tmp_path):
     # นอกช่วง = คลิปเดิม (testsrc เป็นภาพลายสี ไม่ใช่สีเดียวล้วน)
     out_r, out_g, out_b = _avg_rgb(out, 1.0)
     assert not (out_r > 200 and out_g < 60), "ต้นคลิปต้องยังเป็นคนพูด ไม่ใช่ footage"
+
+
+@ffmpeg_only
+def test_probe_reads_size_and_duration_without_ffprobe(clip):
+    """ต้องอ่านค่าได้จาก ffmpeg อย่างเดียว — เครื่องผู้ใช้ไม่มี ffprobe ติดมาด้วย"""
+    info = broll.probe(clip)
+    assert (info["w"], info["h"]) == (720, 1280)
+    assert abs(info["dur"] - 10.0) < 0.3
 
 
 @ffmpeg_only
