@@ -687,6 +687,17 @@ if (window._flowAutomatorLoaded) {
   // ── เทสเปิดเมนูโหมดตรง ๆ จาก Console (ไม่ต้องรันคลิปเต็ม) ────────────────
   // ใช้: เปิด DevTools ที่แท็บ Flow → เลือก context เป็นส่วนขยาย → _flowTryMode()
   // จะยิงทีละวิธี แล้วรายงานว่าวิธีไหนทำให้อะไรโผล่บ้าง
+  // เทสสลับโหมดจริง (รูปภาพ → วิดีโอ/เฟรม) จาก Console พร้อม log ทุกขั้น
+  // ใช้: _flowTrySwitch()  — เห็นทั้งสถานะป๊อปอัป การกดแต่ละแท็บ และผลตรวจหลังตั้งค่า
+  window._flowTrySwitch = async function (type = "วิดีโอ", sub = "เฟรม") {
+    const out = [];
+    const say = (m) => { out.push(m); console.log("[สลับ]", m); };
+    say(`ก่อนเริ่ม: ${modeSummary()} · ปุ่มโหมด "${modeBtnText().replace(/\s+/g, " ").trim()}"`);
+    const ok = await setMode(type, sub, null, say);
+    say(`ผล: ${ok ? "สำเร็จ" : "ไม่สำเร็จ"} · ตอนนี้: ${modeSummary()} · ช่องเฟรม "เริ่ม" ${framesSubReady() ? "เจอ" : "ไม่เจอ"}`);
+    return out;
+  };
+
   window._flowTryMode = async function () {
     const out = [];
     const say = (m) => { out.push(m); console.log("[โหมด]", m); };
@@ -1728,12 +1739,17 @@ if (window._flowAutomatorLoaded) {
   // หาตัวเลือกในป๊อปอัปโหมด (รูปภาพ/วิดีโอ/เฟรม/ส่วนผสม/1x…) — รองรับทั้ง button และ div, เลือกตัวเล็กสุด (ไม่ใช่ container ครอบ)
   function findModeOption(label) {
     const want = norm(label);
+    const _modeBtnCache = findModeBtn();
     const wants = MODE_ALT[want] || [want];
     const cands = deepAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],div,span')
       .filter(isVisible)
       .filter((el) => {
         const t = norm(el.innerText || el.textContent);
-        if (/crop_9_16|crop_squa|crop_free|·|nano banana|omni flash|arrow_forward/i.test(t)) return false;   // ตัด "ปุ่มโหมด"/ปุ่มส่ง เอง
+        // ★ ตัด "ปุ่มโหมด" ด้วยตัว element จริง ไม่ใช่ด้วยข้อความ
+        //   ปุ่มโหมดเขียนว่า "Nano Banana 2 crop_9_16 x1" ส่วนตัวเลือกสัดส่วนในเมนูเขียนว่า "crop_9_16 9:16"
+        //   เดิมกรองด้วยข้อความ เลยเหมารวมตัวเลือก 9:16 ในเมนูไปด้วย → ตั้งสัดส่วนไม่เคยสำเร็จ
+        if (el === _modeBtnCache || (_modeBtnCache && el.contains(_modeBtnCache))) return false;
+        if (/·|nano banana|omni flash|arrow_forward/i.test(t)) return false;   // ปุ่มโหมด/ปุ่มส่ง ที่เหลือ
         const stripped = t.replace(/^[a-z_]{3,}\s+/, "");   // ตัด icon-ligature นำหน้า เช่น "image รูปภาพ"→"รูปภาพ", "videocam วิดีโอ"→"วิดีโอ"
         return wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w) || (t.includes(w) && t.length <= w.length + 16));
       })
