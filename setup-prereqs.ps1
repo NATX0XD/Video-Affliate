@@ -173,6 +173,48 @@ if (Test-Path (Join-Path $root "web\out\index.html")) {
   }
 }
 
+# ── ปิด "ถามที่บันทึกทุกครั้ง" ของเบราว์เซอร์ ──────────────────────────────
+# ส่วนขยายสั่งโหลดคลิปด้วย saveAs:false อยู่แล้ว แต่ถ้าเบราว์เซอร์เปิด
+# "ถามตำแหน่งที่บันทึกทุกครั้ง" ไว้ Windows จะเด้งหน้าต่าง Save As ทุกคลิป
+# → คิวหยุดรอคนกด = ไม่ได้ทำงานอัตโนมัติจริง ต้องปิดให้ตั้งแต่ติดตั้ง
+#
+# ใช้ "นโยบายระดับผู้ใช้" (HKCU) ไม่ใช่แก้ไฟล์ Preferences ของโปรไฟล์:
+#   · ไม่ต้องสิทธิ์แอดมิน · ใช้ได้แม้เบราว์เซอร์เปิดอยู่ · Chrome ไม่เขียนทับตอนปิด
+#   · เขียน JSON ของโปรไฟล์เองเสี่ยงทำโปรไฟล์เบราว์เซอร์ผู้ใช้พัง ไม่คุ้ม
+# ผลข้างเคียงที่ต้องรู้: Chrome จะขึ้น "จัดการโดยองค์กรของคุณ" ในเมนู
+# (ตัวถอนการติดตั้งลบนโยบายนี้คืนให้)
+Step "ปิดหน้าต่างถามที่บันทึกไฟล์ (Chrome/Edge)" {
+  $browsers = @(
+    @{ Name = "Chrome"; Policy = "HKCU:\Software\Policies\Google\Chrome";  Data = "$env:LOCALAPPDATA\Google\Chrome\User Data" },
+    @{ Name = "Edge";   Policy = "HKCU:\Software\Policies\Microsoft\Edge"; Data = "$env:LOCALAPPDATA\Microsoft\Edge\User Data" }
+  )
+  foreach ($b in $browsers) {
+    New-Item -Path $b.Policy -Force | Out-Null
+    New-ItemProperty -Path $b.Policy -Name "PromptForDownloadLocation" -PropertyType DWord -Value 0 -Force | Out-Null
+    Say "  $($b.Name): ปิดการถามที่บันทึกแล้ว" "Green"
+
+    # อ่านอย่างเดียว: โปรแกรมหลักไปหยิบคลิปจาก %USERPROFILE%\Downloads\flow
+    # ถ้าผู้ใช้ย้ายโฟลเดอร์ดาวน์โหลดไว้ที่อื่น คลิปจะโหลดสำเร็จแต่โปรแกรมหาไม่เจอ
+    # ไม่ไปแก้ให้เอง (เป็นโฟลเดอร์ของผู้ใช้) แค่บอกให้รู้ว่าต้องตั้งกลับ
+    $defaultDl = Join-Path $env:USERPROFILE "Downloads"
+    if (Test-Path $b.Data) {
+      foreach ($p in @(Get-ChildItem $b.Data -Directory -ErrorAction SilentlyContinue |
+                       Where-Object { $_.Name -eq "Default" -or $_.Name -like "Profile *" })) {
+        $pref = Join-Path $p.FullName "Preferences"
+        if (-not (Test-Path $pref)) { continue }
+        try {
+          $dir = (Get-Content $pref -Raw -Encoding UTF8 | ConvertFrom-Json).download.default_directory
+          if ($dir -and ($dir.TrimEnd('\') -ne $defaultDl.TrimEnd('\'))) {
+            Say "  เตือน: $($b.Name)/$($p.Name) ตั้งโฟลเดอร์ดาวน์โหลดไว้ที่ '$dir'" "Yellow"
+            Say "         โปรแกรมอ่านคลิปจาก '$defaultDl\flow' — ถ้าไม่ตรงกันคลิปจะไม่เข้าคิวโพสต์" "Yellow"
+          }
+        } catch { Log "  อ่าน Preferences ของ $($b.Name)/$($p.Name) ไม่ได้: $($_.Exception.Message)" }
+      }
+    }
+  }
+  Say "  ถ้าเบราว์เซอร์เปิดอยู่ ให้ปิดแล้วเปิดใหม่ครั้งเดียว นโยบายถึงจะมีผล" "DarkGray"
+}
+
 # ── สรุปผล ────────────────────────────────────────────────────────────────
 Say "`n--- ตรวจเครื่องมือ ---" "Cyan"
 $missing = @()

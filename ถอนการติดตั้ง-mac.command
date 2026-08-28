@@ -62,6 +62,12 @@ kill_dir "$HOME/Applications/VDO Gen Auto Pilot.app" "แอป (~/Applications)
 kill_dir "$HOME/Desktop/VDO Gen Auto Pilot.app"      "แอป (Desktop)"
 kill_dir "$HOME/Desktop/เปิด VDO Gen Auto Pilot.command" "ทางลัดบน Desktop"
 
+# 3) คืนค่าเบราว์เซอร์ที่ตัวติดตั้งไปปิดไว้ ("ถามที่บันทึกทุกครั้ง")
+for b in com.google.Chrome com.microsoft.Edge; do
+  defaults delete "$b" PromptForDownloadLocation 2>/dev/null || true
+done
+ok "คืนค่า Chrome/Edge ให้ถามที่บันทึกไฟล์ตามเดิม"
+
 say "เสร็จแล้ว"
 echo "  ระบบ macOS ไม่ถูกแตะต้อง"
 echo
