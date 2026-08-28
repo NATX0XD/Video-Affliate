@@ -272,6 +272,12 @@ class BasePoster:
         dropped = len(text) - len(ascii_only)
         self.log(f"[{self.TAG}] ⚠ ไม่มี ADBKeyboard และ scrcpy ใช้ไม่ได้ — พิมพ์ผ่าน input text "
                  f"(ตัดอักขระที่ไม่ใช่ ASCII ทิ้ง {dropped} ตัว)")
+        if dropped:
+            # ทางนี้จบที่ "แคปชั่นไม่มีตัวอักษรไทย → ไม่กดโพสต์" เสมอ บอกทางแก้ไปเลย
+            # ไม่งั้นผู้ใช้เห็นแต่ว่าโพสต์ไม่ขึ้น โดยไม่รู้ว่าต้องไปทำอะไรต่อ
+            self.log(f"[{self.TAG}] ทางแก้: ลง ADBKeyboard ในมือถือแล้วเปิดใช้ในตั้งค่า > แป้นพิมพ์ "
+                     f"หรือทำให้ scrcpy ใช้ได้ (ปิดโปรแกรมแล้วเปิดใหม่ 1 ครั้งหลังติดตั้ง) — "
+                     f"`adb shell input text` ส่งภาษาไทยไม่ได้ตั้งแต่ต้น")
         self.adb._adb("shell", "input", "text",
                       ascii_only.replace(" ", "%s"), serial=serial)
         time.sleep(1)
