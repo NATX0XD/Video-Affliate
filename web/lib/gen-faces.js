@@ -7,6 +7,8 @@ const NAME = 'faces'
 const MAX = 12   // เก็บล่าสุด 12 รูปพอ (รูปละ ~40KB) — ไม่ต้องให้ DB บวมโดยไม่จำเป็น
 const read = () => loadStore(NAME, [])
 
+export const getFace = async id => (await read()).find(f => f.id === id) || null
+
 export const listFaces = async () =>
   (await read()).slice().sort((a, b) => (b.at || 0) - (a.at || 0))
 
