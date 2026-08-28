@@ -45,3 +45,6 @@ Thumbs.db
 
 # local venv
 desktop/.venv/
+
+# Playwright MCP artifacts (สกรีนช็อต/สแนปช็อตตอนเทส)
+.playwright-mcp/
