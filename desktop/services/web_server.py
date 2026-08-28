@@ -1090,6 +1090,7 @@ class WebServer:
         # → บน Windows ล้มเงียบทุกครั้ง. เปลี่ยนมาโหลดไฟล์แล้วแตกด้วย Python เอง (ไม่พึ่ง shell)
         def _pull_ext(root, timeout=90):
             import io, tarfile, shutil, tempfile, urllib.request
+            from pathlib import Path          # ใช้ตอนไล่ไฟล์ใน tmp — ขาดไปทำให้พังทุกครั้งที่กดอัปเดต
             from types import SimpleNamespace
             url = "https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz"
             try:
