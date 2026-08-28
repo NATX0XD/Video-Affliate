@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   ListOrdered, Settings, Film, X, CheckSquare, MonitorSmartphone, ShieldAlert, GitBranch, Package, ScrollText,
 } from 'lucide-react'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 const NAV = [
   { group: 'ภาพรวม', items: [
@@ -64,7 +65,7 @@ export function Sidebar({ wsConnected, open = false, onClose }) {
         <nav className="flex-1 px-3 py-4 overflow-y-auto">
           {NAV.map(({ group, items }) => (
             <div key={group} className="mb-5 last:mb-0">
-              <p className="px-3 mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground/60">{group}</p>
+              <p className="px-3 mb-1.5 t-cap font-semibold text-muted-foreground">{group}</p>
               <div className="space-y-0.5">
                 {items.map(({ href, label, icon: Icon }) => {
                   const active = path === href || path?.startsWith(href + '/')
@@ -86,17 +87,18 @@ export function Sidebar({ wsConnected, open = false, onClose }) {
           ))}
         </nav>
 
-        {/* Status */}
-        <div className="p-3 border-t border-border/50">
+        {/* Status + สลับธีม */}
+        <div className="p-3 border-t border-border/50 flex flex-col gap-2">
           <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-secondary">
             <span className={`w-2 h-2 rounded-full shrink-0 ${wsConnected ? 'bg-success animate-pulse-dot' : 'bg-muted-foreground'}`} />
             <div className="min-w-0">
-              <p className="text-foreground text-xs font-semibold leading-tight">สถานะระบบ</p>
-              <p className="text-muted-foreground text-[10px] leading-tight">
+              <p className="text-foreground t-badge leading-tight">สถานะระบบ</p>
+              <p className="text-muted-foreground text-[12px] leading-tight">
                 {wsConnected ? 'เชื่อมต่อแล้ว' : 'กำลังเชื่อมต่อ…'}
               </p>
             </div>
           </div>
+          <ThemeToggle />
         </div>
       </aside>
     </>

@@ -8,6 +8,9 @@ from typing import Callable, Optional
 
 from services.adb.adb_path import adb_bin
 
+# ที่เก็บภาพ snapshot ฝั่งมือถือ — ต้องอยู่นอก /sdcard ไม่งั้นเข้าคลังภาพแล้วไปปนกับคลิป
+SNAP_REMOTE = "/data/local/tmp/vgap_screen.png"
+
 @dataclass
 class Device:
     serial: str
@@ -257,7 +260,10 @@ class ADBManager:
         self._adb("shell", "input", "keyevent", "KEYCODE_WAKEUP", serial=serial)
 
         # Step 1: screencap on device
-        ok, msg = self._adb("shell", "screencap", "-p", "/sdcard/screen_web.png",
+        # ⚠ ห้ามเขียนลง /sdcard — MediaStore จะเก็บเข้าคลังภาพ แล้วรูปแคปหลายพันใบ
+        # ไปดักหน้าคลิปจริงในคลังภาพ ทำให้ flow เลือกไฟล์ผิด
+        # /data/local/tmp เขียนได้ด้วยสิทธิ์ shell และ media scanner ไม่แตะ
+        ok, msg = self._adb("shell", "screencap", "-p", SNAP_REMOTE,
                              serial=serial, timeout=12)
         if not ok:
             self.log(f"[Snapshot] screencap failed: {msg}")
@@ -266,7 +272,7 @@ class ADBManager:
         # Step 2: pull to local (host temp — ข้ามแพลตฟอร์ม, แยกตาม serial กัน race)
         local_png = os.path.join(tempfile.gettempdir(), f"vgap_screen_web_{serial}.png")
         r = subprocess.run(
-            [adb_bin(self.log), "-s", serial, "pull", "/sdcard/screen_web.png", local_png],
+            [adb_bin(self.log), "-s", serial, "pull", SNAP_REMOTE, local_png],
             capture_output=True, timeout=12
         )
         if r.returncode != 0:

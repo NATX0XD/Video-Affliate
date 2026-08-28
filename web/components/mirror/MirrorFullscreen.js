@@ -6,11 +6,19 @@ import {
   X, Check, Tablet, RefreshCw,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { ScrcpyScreen, hasWebCodecs } from '@/components/mirror/ScrcpyScreen'
 import { ratioFromRect, normalizeCoords } from '@/lib/calib'
 import { PLAT_META } from '@/lib/platform-meta'
 import { deviceReadiness } from '@/lib/device-readiness'
 
-export function MirrorFullscreen({ device, platforms = [], onBack }) {
+// พิกัดสำรองของเครื่องนี้มาจากไหน (ตรงกับ /api/devices/{serial}/coords)
+const SOURCE_LABEL = {
+  db:     'คาลิเบรตเองแล้ว',
+  auto:   'ระบบจำพิกัดให้เองแล้ว',
+  preset: 'ใช้ค่าที่มากับโปรแกรม',
+}
+
+export function MirrorFullscreen({ device, platforms = [], live: liveProp, onBack }) {
   const imgRef  = useRef(null)
   const dragRef = useRef(null)
   const [label, setLabel] = useState(device?.label || '')
@@ -31,6 +39,9 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
   const [idx, setIdx]               = useState(0)     // ขั้นปัจจุบัน
   const [armed, setArmed]           = useState(false) // จับ tap ถัดไป
   const [savedNote, setSavedNote]   = useState('')
+  // จอสด scrcpy พังต้องบอกผู้ใช้ + มีทางสั่งต่อใหม่ (ตัวคอมโพเนนต์หยุดต่อเองหลังถอยหลังครบรอบ)
+  const [liveErr, setLiveErr]   = useState('')
+  const [liveTry, setLiveTry]   = useState(0)
   useEffect(() => {
     setCalibMode(false); setArmed(false); setIdx(0)
     if (!device?.serial) { setCoordsInfo(null); setWork({}); return }
@@ -121,6 +132,22 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
 
   const key = code => api.adbKey(device.serial, code)
 
+  // จอสด scrcpy (ดีเลย์ต่ำ + คุมผ่าน control socket) — ถ้าเบราว์เซอร์ไม่มี WebCodecs ค่อยตกไปใช้ MJPEG เดิม
+  const [live, setLive] = useState(false)
+  useEffect(() => {
+    if (liveProp !== undefined) { setLive(!!liveProp && hasWebCodecs()); return }
+    if (!hasWebCodecs()) return
+    api.scrcpyAvailable().then(r => setLive(!!r.available)).catch(() => setLive(false))
+  }, [liveProp])
+
+  // ตอนคาลิเบรต: scrcpy แตะให้จริงอยู่แล้ว เราแค่จดสัดส่วนพิกัดที่แตะ
+  const onTapRatio = r => {
+    if (!(calibMode && armed && curKey)) return
+    setWork(w => ({ ...w, [curKey]: r }))
+    setArmed(false)
+    setIdx(i => Math.min(i + 1, total - 1))
+  }
+
   if (!device) return (
     <div className="flex-1 flex items-center justify-center">
       <p className="text-muted-foreground text-sm">ไม่พบเครื่อง</p>
@@ -162,6 +189,30 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
                 : <>โหมดคาลิเบรต — กด “จับตำแหน่งปุ่มนี้” ในแผงขวา</>}
             </div>
           )}
+          {live ? (
+            <>
+              <ScrcpyScreen
+                serial={device.serial}
+                maxSize={1080}
+                maxFps={30}
+                retryKey={liveTry}
+                onSize={(w, h) => setAr(w / h)}
+                onStatus={(s, msg) => setLiveErr(s === 'error' ? (msg || 'เชื่อมจอไม่ได้') : '')}
+                onTapRatio={onTapRatio}
+                className="max-w-full max-h-full w-auto h-auto rounded-[1.5rem] border-[3px] border-border select-none"
+                style={{ boxShadow: '0 40px 100px rgba(0,0,0,0.7)' }}
+              />
+              {liveErr && (
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-danger/15 border border-danger/30 text-danger text-xs max-w-[90%]">
+                  <span className="truncate">{liveErr}</span>
+                  <button onClick={() => { setLiveErr(''); setLiveTry(n => n + 1) }}
+                          className="shrink-0 flex items-center gap-1 font-bold bg-danger text-white px-2.5 py-1 rounded-full">
+                    <RefreshCw size={11} /> ลองใหม่
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
           <img
             ref={imgRef}
             src={api.streamUrl(device.serial)}
@@ -174,6 +225,7 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
             onPointerUp={onPointerUp}
             onContextMenu={e => { e.preventDefault(); key('KEYCODE_BACK') }}
           />
+          )}
         </div>
 
         {/* Controls panel */}
@@ -191,7 +243,7 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
 
           {/* Account label */}
           <div>
-            <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest mb-2.5">ชื่อ / บัญชี</p>
+            <p className="t-cap font-semibold mb-2.5">ชื่อ / บัญชี</p>
             <div className="relative">
               <Tag size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input value={label} onChange={e => setLabel(e.target.value)} onBlur={saveLabel}
@@ -203,7 +255,7 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
 
           {/* Platform assignment */}
           <div>
-            <p className="flex items-center gap-1.5 text-muted-foreground text-[10px] font-bold uppercase tracking-widest mb-2.5">
+            <p className="flex items-center gap-1.5 t-cap font-semibold mb-2.5">
               <Share2 size={11} /> โพสต์ไปที่
             </p>
             <div className="flex flex-col gap-1.5">
@@ -227,7 +279,7 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
 
           {/* Navigation */}
           <div>
-            <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest mb-2.5">นำทาง</p>
+            <p className="t-cap font-semibold mb-2.5">นำทาง</p>
             <div className="flex flex-col gap-1.5">
               {NAV_BTNS.map(({ label, icon: Icon, fn }) => (
                 <button key={label} onClick={fn}
@@ -240,7 +292,7 @@ export function MirrorFullscreen({ device, platforms = [], onBack }) {
 
           {/* Volume */}
           <div>
-            <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest mb-2.5">เสียง</p>
+            <p className="t-cap font-semibold mb-2.5">เสียง</p>
             <div className="grid grid-cols-2 gap-1.5">
               {[
                 { icon: Volume2, label: 'เพิ่ม', code: 'KEYCODE_VOLUME_UP'   },
@@ -272,7 +324,7 @@ function CalibSection({
 
   if (!calibMode) return (
     <div>
-      <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest mb-2.5">พิกัดโพสต์</p>
+      <p className="t-cap font-semibold mb-2.5">พิกัดโพสต์</p>
       <button onClick={onEnter} disabled={!info}
         className={`flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-xs font-semibold border transition-all active:scale-[.98] disabled:opacity-40
           ${isTablet
@@ -280,13 +332,21 @@ function CalibSection({
             : 'bg-secondary text-foreground border-border hover:bg-secondary/70'}`}>
         {isTablet ? <Tablet size={13} /> : <Crosshair size={13} />} คาลิเบรตพิกัดโพสต์
       </button>
-      <p className="mt-2 flex items-center gap-1.5 text-[10px]">
+      <p className="mt-2 flex items-center gap-1.5 text-[12px]">
         {calibrated
-          ? <><CheckCircle2 size={11} className="text-success shrink-0" /><span className="text-success font-semibold">คาลิเบรตแล้ว</span></>
+          ? <><CheckCircle2 size={11} className="text-success shrink-0" />
+              <span className="text-success font-semibold">{SOURCE_LABEL[info?.source] || 'คาลิเบรตแล้ว'}</span></>
           : <><Circle size={11} className="text-amber-500 shrink-0" /><span className="text-muted-foreground">ยังใช้ค่าเริ่มต้น(มือถือ)</span></>}
       </p>
+      {info?.source === 'auto' && (
+        <p className="text-[12px] text-muted-foreground mt-1 leading-relaxed">
+          ระบบจำพิกัดจากหน้าจอจริงได้ {info.auto_learned}/18 จุด — ยิ่งโพสต์บ่อยยิ่งครบเอง
+        </p>
+      )}
       {isTablet && !calibrated && (
-        <p className="text-[9px] text-amber-500 mt-1 leading-relaxed">เครื่องนี้เป็นแท็บเล็ต — แนะนำให้คาลิเบรตพิกัดก่อนใช้โพสต์</p>
+        <p className="text-[12px] text-amber-500 mt-1 leading-relaxed">
+          เครื่องนี้เป็นแท็บเล็ต — โพสต์ได้เลย ระบบหาปุ่มจากหน้าจอจริง แล้วจะจำพิกัดสำรองให้เองหลังโพสต์รอบแรก
+        </p>
       )}
       {savedNote && <p className="text-[10px] text-accent mt-1.5">{savedNote}</p>}
     </div>
@@ -379,7 +439,7 @@ function ReadinessSection({ device }) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-2.5">
-        <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">พร้อมใช้งาน</p>
+        <p className="t-cap font-semibold">พร้อมใช้งาน</p>
         <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${ready ? 'bg-success/15 text-success' : 'bg-amber-400/15 text-amber-500'}`}>
           {done}/{total}
         </span>

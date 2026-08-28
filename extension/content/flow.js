@@ -720,7 +720,7 @@ if (window._flowAutomatorLoaded) {
   }
 
   // ── generate flow ────────────────────────────────────────────────────
-  async function runGenerate({ prompt, imageDataUrl, charImageDataUrl, productId, _log, dry }) {
+  async function runGenerate({ prompt, imageDataUrl, charImageDataUrl, bgImageDataUrl, productId, _log, dry }) {
     // ถ้ามี _log (จาก runQueue/panel) ใช้ตัวนั้นพอ ไม่ส่ง flow_log ซ้ำ
     const log = _log ? _log : (m) => { try { chrome.runtime.sendMessage({ action: "flow_log", productId, msg: m }); } catch {} };
 
@@ -763,6 +763,11 @@ if (window._flowAutomatorLoaded) {
     if (charImageDataUrl) {
       const up2 = await uploadImage(charImageDataUrl, log);
       log(up2.ok ? `อัปรูปตัวละครแล้ว${up2.addedToPrompt ? " + เข้าพรอมต์" : " (แต่ไม่ได้เข้าพรอมต์!)"}` : `ข้ามรูปตัวละคร: ${up2.error}`);
+    }
+    // รูปฉากหลังที่ผู้ใช้อัป → ภาพอ้างอิงฉาก (prompt จาก background ระบุว่ารูปสุดท้าย = ฉากหลัง)
+    if (bgImageDataUrl) {
+      const up3 = await uploadImage(bgImageDataUrl, log);
+      log(up3.ok ? `อัปรูปฉากหลังแล้ว${up3.addedToPrompt ? " + เข้าพรอมต์" : " (แต่ไม่ได้เข้าพรอมต์!)"}` : `ข้ามรูปฉากหลัง: ${up3.error}`);
     }
     await human();
 
@@ -973,9 +978,11 @@ if (window._flowAutomatorLoaded) {
 
     // รูปตัวละครจาก modal (background เก็บเป็น dataURL ไว้ใน storage)
     let charImageDataUrl = null;
+    let bgImageDataUrl = null;
     try {
-      const g = await chrome.storage.local.get(["flow_char_img", "flow_gen"]);
+      const g = await chrome.storage.local.get(["flow_char_img", "flow_bg_img", "flow_gen"]);
       charImageDataUrl = g.flow_char_img || null;
+      bgImageDataUrl = g.flow_bg_img || null;   // รูปฉากหลังที่ผู้ใช้อัป (ถ้ามี)
       if (g.flow_gen && g.flow_gen.charName) log(`ผู้รีวิว: ${g.flow_gen.charName} · สไตล์: ${g.flow_gen.style || "-"}`);
     } catch {}
 
@@ -989,7 +996,7 @@ if (window._flowAutomatorLoaded) {
       if (res.dry) return { ok: true, dryRun: true };
     } else {
       // agent: prompt เดียว ระบุ 20 วิ → agent แบ่งเอง ~2 คลิป → เก็บทุกคลิปมาต่อ
-      res = await runGenerate({ prompt, imageDataUrl, charImageDataUrl, productId: p.product_id || "flow", _log: log, dry });
+      res = await runGenerate({ prompt, imageDataUrl, charImageDataUrl, bgImageDataUrl, productId: p.product_id || "flow", _log: log, dry });
       if (!res.ok) return res;
       if (res.dryRun) return { ok: true, dryRun: true };   // โหมดทดสอบ: ไม่แจ้ง desktop
     }
@@ -1562,11 +1569,15 @@ if (window._flowAutomatorLoaded) {
   const startPoseFor = (style, name) => (STYLE_POSE[style] ? STYLE_POSE[style](name)
     : `ครึ่งตัว หันหน้าเข้ากล้องตรง ๆ ยิ้มเป็นธรรมชาติ ถือ${name || "สินค้า"}ระดับอก`);
 
-  const defaultComposePrompt = (name, bg, pose) =>
+  const defaultComposePrompt = (name, bg, pose, hasBgRef, extra) =>
     `รวมภาพ: ใช้ "ใบหน้าและบุคคล" จากรูปแรกเป็นหลัก (สำคัญสุด — คงใบหน้า ทรงผม สีผิว ให้เหมือนรูปแรกเป๊ะทุกจุด ห้ามเปลี่ยน) ` +
     `นำ${name || "สินค้า"}จากรูปที่สองมาด้วย — ใช้เฉพาะ "ตัวสินค้า" เท่านั้น ห้ามเอาพื้นหลัง/ตัวอักษร/ป้ายราคา/ลายน้ำ/กรอบ ในรูปที่สองมาด้วย ` +
     `ท่าทาง: ${pose || startPoseFor("", name)} มือจับธรรมชาติ นิ้วครบ ` +
-    `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็น "${bg && bg.trim() ? bg : "ฉากเรียบสะอาดสีพื้น"}" เท่านั้น — สร้างฉากนี้ขึ้นใหม่ ลบ/แทนพื้นหลังเดิมของรูปคนทิ้งทั้งหมด ห้ามคงพื้นหลังเดิม · ภาพแนวตั้ง 9:16 แสงนุ่มสว่าง คมชัด สมจริงเหมือนรูปถ่าย`;
+    (hasBgRef
+      ? `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็นฉากใน "รูปที่สาม" เท่านั้น — ใช้สถานที่ มุมมอง สี แสง จากรูปที่สามให้ตรง แล้ววางบุคคลลงไปกลมกลืน${bg && bg.trim() ? ` (รายละเอียดเพิ่ม: ${bg})` : ""} · ห้ามเอาคน/สินค้าที่ติดมาในรูปที่สามมาใส่ · ลบ/แทนพื้นหลังเดิมของรูปคนทิ้งทั้งหมด `
+      : `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็น "${bg && bg.trim() ? bg : "ฉากเรียบสะอาดสีพื้น"}" เท่านั้น — สร้างฉากนี้ขึ้นใหม่ ลบ/แทนพื้นหลังเดิมของรูปคนทิ้งทั้งหมด ห้ามคงพื้นหลังเดิม `) +
+    `· ภาพแนวตั้ง 9:16 แสงนุ่มสว่าง คมชัด สมจริงเหมือนรูปถ่าย` +
+    extraDirective(extra);
 
   // ปุ่มโหมด (มุมขวาแถบ prompt) — ข้อความมี "crop_9_16" ทั้งโหมด video และ image
   function findModeBtn() {
@@ -1797,9 +1808,10 @@ if (window._flowAutomatorLoaded) {
     `เปลี่ยนเฉพาะท่า: "มือซ้าย" ถือสินค้าไว้ระดับอก, "มือขวา" ยกขึ้นชี้นิ้วลงล่างชัดเจน (ชี้ปุ่มตะกร้าใต้จอ) สีหน้ามั่นใจ ยิ้มมองกล้อง — ` +
     `${HANDS_RULE} — ครึ่งตัว แนวตั้ง 9:16 เว้นที่ว่างครึ่งล่างของเฟรมไว้สำหรับปุ่มตะกร้า`;
 
-  // ── รวม 2 รูปเป็นภาพเดียว (ซ้าย=หน้า | ขวา=สินค้า) → แนบ reference ครั้งเดียว ──
-  // แนบรูปเดียวเชื่อถือได้กว่าแนบ 2 รอบ (เลี่ยงเมนู ⋮ portal ที่ไล่จับยากเมื่อมีหลาย tile)
-  async function combineRefs(url1, url2) {
+  // ── รวมรูปเป็นภาพเดียว เรียงซ้าย→ขวา (หน้า | สินค้า | ฉากหลังที่ผู้ใช้อัป) → แนบ reference ครั้งเดียว ──
+  // แนบรูปเดียวเชื่อถือได้กว่าแนบหลายรอบ (เลี่ยงเมนู ⋮ portal ที่ไล่จับยากเมื่อมีหลาย tile)
+  async function combineRefs(...urls) {
+    const list = urls.filter(Boolean);
     const load = async (u) => {
       const blob = await (await fetch(u)).blob();
       return await new Promise((res, rej) => {
@@ -1809,17 +1821,16 @@ if (window._flowAutomatorLoaded) {
         img.src = URL.createObjectURL(blob);
       });
     };
-    const [a, b] = await Promise.all([load(url1), load(url2)]);
+    const imgs = await Promise.all(list.map(load));
     const H = 768;                                              // สูงเท่ากัน ปรับกว้างตามสัดส่วน
-    const w1 = Math.max(1, Math.round(a.width * H / a.height));
-    const w2 = Math.max(1, Math.round(b.width * H / b.height));
     const gap = 24;
+    const ws = imgs.map((im) => Math.max(1, Math.round(im.width * H / im.height)));
     const cv = document.createElement("canvas");
-    cv.width = w1 + gap + w2; cv.height = H;
+    cv.width = ws.reduce((a, b) => a + b, 0) + gap * (imgs.length - 1); cv.height = H;
     const ctx = cv.getContext("2d");
     ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cv.width, cv.height);
-    ctx.drawImage(a, 0, 0, w1, H);
-    ctx.drawImage(b, w1 + gap, 0, w2, H);
+    let x = 0;
+    imgs.forEach((im, i) => { ctx.drawImage(im, x, 0, ws[i], H); x += ws[i] + gap; });
     return cv.toDataURL("image/jpeg", 0.92);
   }
   // re-encode รูป (ผ่าน canvas) → bytes เปลี่ยน เพื่อให้ Flow ไม่ dedupe ตอน re-upload รูปที่เคยมีใน library
@@ -1838,29 +1849,58 @@ if (window._flowAutomatorLoaded) {
     return cv.toDataURL("image/jpeg", 0.95);
   }
 
-  // prompt เฟรมเริ่มแบบ collage (อ้างอิงครึ่งซ้าย/ขวาของรูปรวม)
-  const collageStartPrompt = (name, bg, pose) =>
-    `ภาพอ้างอิงนี้วาง 2 รูปคู่กัน: "ครึ่งซ้าย = ใบหน้า/ตัวบุคคล" และ "ครึ่งขวา = ${name || "สินค้า"}" — ` +
-    `สร้างภาพใหม่ 1 ภาพ ให้บุคคลจากครึ่งซ้าย (ใช้${name || "สินค้า"}จากครึ่งขวา) ${pose || startPoseFor("", name)} · ` +
-    `คงใบหน้า ทรงผม สีผิว ให้เหมือนครึ่งซ้ายเป๊ะทุกจุด ห้ามเปลี่ยนหน้า · คงรูปทรง สี ฉลาก สินค้าให้เหมือนครึ่งขวาเป๊ะ · ` +
-    `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็น "${bg && bg.trim() ? bg : "ฉากเรียบสะอาดสีพื้น"}" เท่านั้น — สร้างฉากนี้ขึ้นใหม่ทั้งหมดรอบตัวบุคคล · ลบ/แทนที่พื้นหลังเดิมของรูปอ้างอิง(ครึ่งซ้าย รูปคน)ทิ้งทั้งหมด ห้ามคงพื้นหลังเดิมจากรูปอ้างอิงเด็ดขาด · ` +
-    `มือจับธรรมชาตินิ้วครบ แนวตั้ง 9:16 แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย`;
-  // prompt เฟรมจบแบบ collage — คน/สินค้าเดิม แต่ท่าชี้ตะกร้า (ใช้ collage เดียวกับเฟรมเริ่ม → แนบชัวร์ หน้าเป๊ะเท่ากัน)
-  const endCollagePrompt = (name) =>
-    `ภาพอ้างอิงนี้วาง 2 รูปคู่กัน: "ครึ่งซ้าย = ใบหน้า/ตัวบุคคล" และ "ครึ่งขวา = ${name || "สินค้า"}" — ` +
-    `สร้างภาพใหม่ 1 ภาพ: บุคคลจากครึ่งซ้าย "มือซ้าย" ถือ${name || "สินค้า"}จากครึ่งขวาระดับอก "มือขวา" ชี้นิ้วลงล่างชัดเจน (ชี้ปุ่มตะกร้าใต้จอ) สีหน้ามั่นใจ ยิ้มมองกล้อง · ` +
-    `${HANDS_RULE} · คงใบหน้า ทรงผม สีผิว ให้เหมือนครึ่งซ้ายเป๊ะ ห้ามเปลี่ยนหน้า · คงสินค้าเหมือนครึ่งขวาเป๊ะ ห้ามเอาพื้นหลัง/ตัวอักษรในรูปมาด้วย · ` +
-    `ครึ่งตัว แนวตั้ง 9:16 เว้นที่ว่างครึ่งล่างของเฟรมให้ปุ่มตะกร้า พื้นหลังเรียบสะอาดสีพื้น แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย`;
+  // ป้ายแผงในรูป collage — 2 รูป = ครึ่งซ้าย/ครึ่งขวา · 3 รูป (มีรูปฉากหลังที่ผู้ใช้อัป) = แผงซ้าย/กลาง/ขวา
+  const panelNames = (hasBgRef) => (hasBgRef
+    ? { person: "แผงซ้าย", product: "แผงกลาง", bg: "แผงขวา" }
+    : { person: "ครึ่งซ้าย", product: "ครึ่งขวา", bg: null });
+  const panelIntro = (name, hasBgRef) => {
+    const p = panelNames(hasBgRef);
+    return hasBgRef
+      ? `ภาพอ้างอิงนี้วาง 3 รูปเรียงกัน: "${p.person} = ใบหน้า/ตัวบุคคล", "${p.product} = ${name || "สินค้า"}" และ "${p.bg} = ฉากหลังที่ต้องการ"`
+      : `ภาพอ้างอิงนี้วาง 2 รูปคู่กัน: "${p.person} = ใบหน้า/ตัวบุคคล" และ "${p.product} = ${name || "สินค้า"}"`;
+  };
+  // คำสั่งฉาก — ถ้ามีรูปฉากหลังให้ยึดรูปนั้นเป็นหลัก (ข้อความฉากเป็นรายละเอียดเสริม)
+  const bgDirective = (bg, hasBgRef) => (hasBgRef
+    ? `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็นฉากใน "แผงขวา" เท่านั้น — ใช้สถานที่ มุมมอง สี แสง จากแผงขวาให้ตรง แล้ววางบุคคลลงไปในฉากนั้นอย่างกลมกลืน (เงา/แสงบนตัวบุคคลต้องเข้ากับฉาก)${bg && bg.trim() ? ` · รายละเอียดฉากเพิ่มเติม: ${bg}` : ""} · ห้ามเอาคน/สินค้าที่ติดมาในแผงขวามาใส่ในภาพ ใช้แค่ฉาก · ลบ/แทนที่พื้นหลังเดิมของแผงซ้าย(รูปคน)ทิ้งทั้งหมด`
+    : `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็น "${bg && bg.trim() ? bg : "ฉากเรียบสะอาดสีพื้น"}" เท่านั้น — สร้างฉากนี้ขึ้นใหม่ทั้งหมดรอบตัวบุคคล · ลบ/แทนที่พื้นหลังเดิมของรูปอ้างอิง(ครึ่งซ้าย รูปคน)ทิ้งทั้งหมด ห้ามคงพื้นหลังเดิมจากรูปอ้างอิงเด็ดขาด`);
+  // พรอมป์ที่ผู้ใช้เขียนเอง (แสง/กล้อง/ตัวละคร/ท่าทาง/ข้อห้าม) → ต่อท้ายพรอมป์เฟรม
+  const extraDirective = (extra) => (extra && extra.trim()
+    ? ` · ★★ คำสั่งที่ผู้ใช้เขียนเอง (ยึดตามนี้ก่อนเสมอ): ${extra.trim()}`
+    : "");
 
-  // เตรียม ref + prompt สำหรับ "เฟรมเริ่ม" — รวมรูปถ้าได้ (แนบเดียว) ไม่ได้ค่อย fallback แนบ 2 รูป
-  async function startRefsAndPrompt(faceUrl, productUrl, name, optPrompt, log, bg, pose) {
+  // prompt เฟรมเริ่มแบบ collage (อ้างอิงแผงต่าง ๆ ของรูปรวม)
+  const collageStartPrompt = (name, bg, pose, hasBgRef, extra) => {
+    const p = panelNames(hasBgRef);
+    return `${panelIntro(name, hasBgRef)} — ` +
+      `สร้างภาพใหม่ 1 ภาพ ให้บุคคลจาก${p.person} (ใช้${name || "สินค้า"}จาก${p.product}) ${pose || startPoseFor("", name)} · ` +
+      `คงใบหน้า ทรงผม สีผิว ให้เหมือน${p.person}เป๊ะทุกจุด ห้ามเปลี่ยนหน้า · คงรูปทรง สี ฉลาก สินค้าให้เหมือน${p.product}เป๊ะ · ` +
+      `${bgDirective(bg, hasBgRef)} · ` +
+      `มือจับธรรมชาตินิ้วครบ แนวตั้ง 9:16 แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย` +
+      extraDirective(extra);
+  };
+  // prompt เฟรมจบแบบ collage — คน/สินค้าเดิม แต่ท่าชี้ตะกร้า (ใช้ collage เดียวกับเฟรมเริ่ม → แนบชัวร์ หน้าเป๊ะเท่ากัน)
+  const endCollagePrompt = (name, hasBgRef) => {
+    const p = panelNames(hasBgRef);
+    return `${panelIntro(name, hasBgRef)} — ` +
+      `สร้างภาพใหม่ 1 ภาพ: บุคคลจาก${p.person} "มือซ้าย" ถือ${name || "สินค้า"}จาก${p.product}ระดับอก "มือขวา" ชี้นิ้วลงล่างชัดเจน (ชี้ปุ่มตะกร้าใต้จอ) สีหน้ามั่นใจ ยิ้มมองกล้อง · ` +
+      `${HANDS_RULE} · คงใบหน้า ทรงผม สีผิว ให้เหมือน${p.person}เป๊ะ ห้ามเปลี่ยนหน้า · คงสินค้าเหมือน${p.product}เป๊ะ ห้ามเอาพื้นหลัง/ตัวอักษรในรูปมาด้วย · ` +
+      `ครึ่งตัว แนวตั้ง 9:16 เว้นที่ว่างครึ่งล่างของเฟรมให้ปุ่มตะกร้า ` +
+      `${hasBgRef ? `พื้นหลังใช้ฉากจาก${p.bg}` : "พื้นหลังเรียบสะอาดสีพื้น"} แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย`;
+  };
+
+  // เตรียม ref + prompt สำหรับ "เฟรมเริ่ม" — รวมรูปถ้าได้ (แนบเดียว) ไม่ได้ค่อย fallback แนบแยกรูป
+  async function startRefsAndPrompt(faceUrl, productUrl, name, optPrompt, log, bg, pose, bgImg, extra) {
+    const hasBgRef = !!bgImg;
     try {
-      const combined = await combineRefs(faceUrl, productUrl);
-      log("รวมหน้า+สินค้าเป็นรูปเดียว ✓ (แนบครั้งเดียว)");
-      return { refs: [combined], prompt: optPrompt || collageStartPrompt(name, bg, pose) };
+      const combined = await combineRefs(faceUrl, productUrl, bgImg);
+      log(hasBgRef ? "รวมหน้า+สินค้า+ฉากหลังเป็นรูปเดียว ✓ (แนบครั้งเดียว)" : "รวมหน้า+สินค้าเป็นรูปเดียว ✓ (แนบครั้งเดียว)");
+      return { refs: [combined], hasBgRef, prompt: optPrompt || collageStartPrompt(name, bg, pose, hasBgRef, extra) };
     } catch (e) {
-      log(`รวมรูปไม่สำเร็จ (${e && e.message || e}) → แนบ 2 รูปแยกแทน`);
-      return { refs: [faceUrl, productUrl], prompt: optPrompt || defaultComposePrompt(name, bg, pose) };
+      log(`รวมรูปไม่สำเร็จ (${e && e.message || e}) → แนบรูปแยกแทน`);
+      return {
+        refs: [faceUrl, productUrl, bgImg].filter(Boolean), hasBgRef,
+        prompt: optPrompt || defaultComposePrompt(name, bg, pose, hasBgRef, extra),
+      };
     }
   }
 
@@ -1952,19 +1992,30 @@ if (window._flowAutomatorLoaded) {
   }
 
   // เติม face/product/ชื่อสินค้า จาก storage ถ้าไม่ได้ส่งมา (flow_char_img + products[0])
+  // หัวข้อพรอมป์เขียนเองที่ "มีผลกับภาพนิ่ง" → ต่อท้ายพรอมป์เฟรม (ฉากแยกไปอยู่ตัวแปร bg แล้ว)
+  const FRAME_PROMPT_KEYS = [
+    ["light", "แสง"], ["camera", "กล้อง/มุมภาพ"], ["char", "ตัวละคร"],
+    ["action", "ท่าทาง"], ["avoid", "ข้อห้าม"],
+  ];
   async function resolveComposeInputs(opts) {
-    let { faceUrl, productUrl, name, bg, style } = opts;
+    let { faceUrl, productUrl, name, bg, style, bgImg, extra } = opts;
     try {
-      const d = await chrome.storage.local.get(["flow_char_img", "products", "flow_gen"]);
+      const d = await chrome.storage.local.get(["flow_char_img", "flow_bg_img", "products", "flow_gen"]);
       faceUrl = faceUrl || d.flow_char_img;
+      if (bgImg === undefined) bgImg = d.flow_bg_img || null;   // รูปฉากหลังที่ผู้ใช้อัปในหน้าเว็บ
       const p = (d.products || [])[0];
       if (!productUrl) productUrl = (p && ((p.images_b64 || [])[0] || (p.images || [])[0])) || null;
       if (!name) name = p && p.basic_info && p.basic_info.name;
       const g = d.flow_gen || {};
       if (!bg) bg = (g.bgPrompt || g.bgName || "").trim();   // ฉากที่เลือกใน modal → ใส่ลงเฟรม
       if (!style) style = g.style || "";                      // สไตล์ → คุมท่าทางในเฟรมเริ่ม (demo = ใช้งานจริง)
+      if (!extra) {
+        const pr = g.prompts || {};
+        extra = FRAME_PROMPT_KEYS.filter(([k]) => (pr[k] || "").trim())
+          .map(([k, label]) => `${label}: ${String(pr[k]).trim()}`).join(" · ");
+      }
     } catch {}
-    return { faceUrl, productUrl, name, bg, style };
+    return { faceUrl, productUrl, name, bg, style, bgImg: bgImg || null, extra: extra || "" };
   }
   const mkLog = (opts) => {
     const steps = [];
@@ -1975,13 +2026,15 @@ if (window._flowAutomatorLoaded) {
   // เฟรมเริ่มอย่างเดียว (เทส) — ภาพ "คนถือสินค้า"
   async function composeStill(opts = {}) {
     const { steps, log } = mkLog(opts);
-    const { faceUrl, productUrl, name, bg, style } = await resolveComposeInputs(opts);
+    const { faceUrl, productUrl, name, bg, style, bgImg, extra } = await resolveComposeInputs(opts);
     if (!faceUrl) return { ok: false, error: "ไม่มีรูปหน้า (flow_char_img) — ตั้งค่าตัวละครก่อน", steps };
     if (!productUrl) return { ok: false, error: "ไม่มีรูปสินค้า — สแครปสินค้าก่อน", steps };
     if (bg) log(`ฉากหลังตามที่เลือก: ${bg.slice(0, 40)}`);
+    if (bgImg) log("มีรูปฉากหลังที่ผู้ใช้อัป → ใช้เป็นภาพอ้างอิงฉาก");
+    if (extra) log(`พรอมป์ผู้ใช้ (เฟรม): ${extra.slice(0, 60)}`);
     const pose = startPoseFor(style, name);
     if (style === "demo") log("สไตล์ demo → เฟรมเริ่มเป็น 'กำลังใช้งานสินค้า' (สาธิตจริง)");
-    const { refs, prompt } = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose);
+    const { refs, prompt } = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose, bgImg, extra);
     const r = await genImage({ refs, prompt, count: opts.count || "1x", log });
     return { ...r, steps };
   }
@@ -1990,12 +2043,14 @@ if (window._flowAutomatorLoaded) {
   // เฟรมเริ่ม + เฟรมจบ (CTA) — เฟรมจบสร้าง "จากเฟรมเริ่ม" ให้คน/ของ/ฉากเหมือนกัน → Veo interpolate นิ่ง
   async function composePair(opts = {}) {
     const { steps, log } = mkLog(opts);
-    const { faceUrl, productUrl, name, bg, style } = await resolveComposeInputs(opts);
+    const { faceUrl, productUrl, name, bg, style, bgImg, extra } = await resolveComposeInputs(opts);
     if (!faceUrl) return { ok: false, error: "ไม่มีรูปหน้า (flow_char_img)", steps };
     if (!productUrl) return { ok: false, error: "ไม่มีรูปสินค้า", steps };
     const pose = startPoseFor(style, name);
+    if (bgImg) log("มีรูปฉากหลังที่ผู้ใช้อัป → ใช้เป็นภาพอ้างอิงฉาก");
+    if (extra) log(`พรอมป์ผู้ใช้ (เฟรม): ${extra.slice(0, 60)}`);
     log(style === "demo" ? "=== [1/2] สร้างเฟรมเริ่ม: กำลังใช้งานสินค้า (สาธิตจริง) ===" : "=== [1/2] สร้างเฟรมเริ่ม: คนถือสินค้า ===");
-    const sp = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose);
+    const sp = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose, bgImg, extra);
     const start = await genImage({ refs: sp.refs, prompt: sp.prompt, count: opts.count || "1x", log });
     if (!start.ok) return { ok: false, stage: "start", error: start.error, steps };
     const startUrl = start.images[start.images.length - 1];
@@ -2006,7 +2061,7 @@ if (window._flowAutomatorLoaded) {
       log("เอาเฟรมเริ่ม re-encode → ใช้เป็น ref เฟรมจบ (คน/ฉาก/แสงต่อเนื่องสุด)");
       end = await genImage({ refs: [reenc], prompt: opts.endPrompt || endComposePrompt(), count: "1x", log });
     } else {
-      end = await genImage({ refs: sp.refs, prompt: opts.endPrompt || endCollagePrompt(name), count: "1x", log });
+      end = await genImage({ refs: sp.refs, prompt: opts.endPrompt || endCollagePrompt(name, sp.hasBgRef), count: "1x", log });
     }
     if (!end.ok) return { ok: false, stage: "end", error: end.error, startImage: startUrl, steps };
     const endUrl = end.images[end.images.length - 1];

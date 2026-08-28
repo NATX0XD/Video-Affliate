@@ -14,6 +14,7 @@ Post verifier — logic-based via ADB uiautomator dump.
 import os
 import subprocess
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 
 from services.adb.adb_path import adb_bin
@@ -58,13 +59,25 @@ def verify_post(adb, serial: str, log=print, platform: str = "", **_) -> dict:
 
         # host temp path — ข้ามแพลตฟอร์ม (Windows ไม่มี /tmp) + แยกตาม serial กัน race หลายเครื่อง
         local_xml = os.path.join(tempfile.gettempdir(), f"vgap_ui_verify_{serial}.xml")
-        r = subprocess.run(
-            [adb_bin(log), "-s", serial, "pull", "/sdcard/ui_verify.xml", local_xml],
-            capture_output=True, timeout=12,
-        )
-        if r.returncode != 0:
-            log("[VERIFY] pull ล้มเหลว — ยืนยันผลไม่ได้")
-            return {"verified": False, "status": "unverified", "reason": "pull failed"}
+        # pull พลาดครั้งเดียวไม่ใช่คำตอบสุดท้าย — เครื่องกำลังอัปโหลด/สลับ activity อยู่
+        # (เจอจริง 2026-08-22: โพสต์ขึ้นแล้วแต่ pull รอบแรกล้ม → รายงาน unverified
+        #  ลองซ้ำทีหลังผ่านปกติ และ stderr ตัวจริงถูกทิ้งไปจนหาสาเหตุไม่ได้)
+        err = ""
+        for attempt in range(1, 4):
+            r = subprocess.run(
+                [adb_bin(log), "-s", serial, "pull", "/sdcard/ui_verify.xml", local_xml],
+                capture_output=True, timeout=12,
+            )
+            if r.returncode == 0:
+                break
+            err = (r.stderr or b"").decode("utf-8", "ignore").strip() \
+                or (r.stdout or b"").decode("utf-8", "ignore").strip() \
+                or f"rc={r.returncode}"
+            log(f"[VERIFY] pull ล้มเหลว (รอบ {attempt}/3): {err}")
+            time.sleep(1.5)
+        else:
+            return {"verified": False, "status": "unverified",
+                    "reason": f"pull failed: {err}"}
 
         ui_text = _extract_ui_text(local_xml)
 

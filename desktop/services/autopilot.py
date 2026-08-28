@@ -156,6 +156,7 @@ class AutoPilot:
                         p.usage_cb = self._record_usage
                     r = p.process(serial, video, product, dry_run=True,
                                   coords_override=self._coords_override(serial))   # ★ dry: หยุดก่อนกดโพสต์
+                    self._save_learned(serial, p)
                     self.log(f"[ทดสอบ] {pk}: " + ("ผ่าน flow ✓ (caption ติด หยุดก่อนโพสต์)" if r
                              else "ติดบางสเตป — ดู log ด้านบนว่าค้างปุ่มไหน"))
             finally:
@@ -265,22 +266,51 @@ class AutoPilot:
         raw = self.db.get_config(f"dev_platforms:{serial}", "") or ""
         return [p for p in raw.split(",") if p]
 
+    def _read_coords(self, key: str):
+        """อ่าน dict พิกัดจาก DB — {} ถ้าไม่มีหรือพัง"""
+        if not self.db:
+            return {}
+        raw = self.db.get_config(key, "") or ""
+        if not raw.strip():
+            return {}
+        try:
+            d = json.loads(raw)
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+
     def _coords_override(self, serial: str):
-        """พิกัด calibrate ต่อเครื่อง (JSON {key:[rx,ry]}) — poster เอาไปทับ default.
-        ลำดับ: DB (ผู้ใช้คาลิเบรตเอง) → preset file (มากับโค้ด กันหายตอนติดตั้งใหม่) → None (ใช้ default).
+        """พิกัดสำรองต่อเครื่อง (JSON {key:[rx,ry]}) — poster เอาไปทับ default.
+        ซ้อนกันจากอ่อนไปแรง: preset file (มากับโค้ด) → ที่ระบบจำเองจากหน้าจอจริง → ผู้ใช้คาลิเบรตเอง.
+        ผู้ใช้คาลิเบรตเองชนะเสมอ · ที่จำเองชนะ preset เพราะวัดจากเครื่องนี้และสดกว่า.
         """
-        # 1) DB override (ผู้ใช้คาลิเบรตเองบนเครื่องนี้) — สำคัญสุด
-        if self.db:
-            raw = self.db.get_config(f"post_coords:{serial}", "") or ""
-            if raw.strip():
-                try:
-                    d = json.loads(raw)
-                    if isinstance(d, dict) and d:
-                        return d
-                except Exception:
-                    pass
-        # 2) preset ที่มากับโค้ด (เช่น tablet ที่คาลิเบรตไว้แล้ว) — กันหายหลังติดตั้งใหม่
-        return _preset_coords(serial)
+        merged = dict(_preset_coords(serial) or {})
+        merged.update(self._read_coords(f"post_coords_auto:{serial}"))
+        merged.update(self._read_coords(f"post_coords:{serial}"))
+        return merged or None
+
+    def _save_learned(self, serial: str, poster):
+        """เก็บพิกัดที่ poster จับได้จากหน้าจอจริงรอบนี้ → รอบหน้ามีสำรองของเครื่องนี้เอง
+        (ไม่แตะ post_coords ที่ผู้ใช้คาลิเบรตเอง — เขียนคนละ key)"""
+        if not self.db:
+            return
+        try:
+            got = poster.learned_coords() if hasattr(poster, "learned_coords") else {}
+        except Exception:
+            return
+        if not got:
+            return
+        cur = self._read_coords(f"post_coords_auto:{serial}")
+        new = {k: v for k, v in got.items() if cur.get(k) != v}
+        if not new:
+            return
+        cur.update(got)
+        try:
+            self.db.set_config(f"post_coords_auto:{serial}", json.dumps(cur))
+            self.log(f"[AUTO] จำพิกัดจากหน้าจอจริงเพิ่ม {len(new)} จุด "
+                     f"(รวม {len(cur)}/18) — เครื่อง {serial[:8]} มีพิกัดสำรองของตัวเองแล้ว")
+        except Exception as e:
+            self.log(f"[AUTO] เก็บพิกัดที่จำได้ไม่สำเร็จ: {e}")
 
     def _device_online(self, serial: str) -> bool:
         if not self.adb:
@@ -329,6 +359,7 @@ class AutoPilot:
                         p.usage_cb = self._record_usage   # บันทึกการใช้ Gemini ตอน verify (J)
                     r = p.process(serial, video, product,
                                   coords_override=self._coords_override(serial))
+                    self._save_learned(serial, p)
                     if r is None:
                         continue
                     if r == "unverified":     # T4: โพสต์แล้วแต่ยืนยันผลไม่ได้ — ไม่นับเป็นสถิติ (ไม่รู้ผล)

@@ -101,7 +101,7 @@ function TemplateEditor({ value, onChange, onRemove }) {
     <div className="rounded-xl border border-border bg-secondary overflow-hidden">
       {/* Variable chip bar */}
       <div className="flex items-center gap-1.5 flex-wrap px-3 pt-3 pb-2 border-b border-border/50">
-        <span className="text-[10px] text-muted-foreground font-semibold tracking-widest uppercase mr-1">แทรก</span>
+        <span className="t-cap font-semibold mr-1">แทรก</span>
         {VARS.map(v => (
           <button key={v.key}
             onMouseDown={e => { e.preventDefault(); insertVar(v.key) }}
@@ -163,7 +163,7 @@ export function CaptionBuilder({ templates = [''], onChange }) {
 
       {list.some(t => t?.trim()) && (
         <div className="rounded-xl bg-secondary border border-border/50 p-4">
-          <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest mb-2.5">ตัวอย่างผลลัพธ์</p>
+          <p className="t-cap font-semiboldst mb-2.5">ตัวอย่างผลลัพธ์</p>
           <div className="flex flex-col gap-2">
             {list.filter(t => t?.trim()).map((t, i) => (
               <p key={i} className="text-sm text-foreground leading-relaxed break-all">{previewTmpl(t)}</p>

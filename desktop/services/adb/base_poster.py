@@ -36,6 +36,23 @@ class BasePoster:
         self._w = 1080
         self._h = 2340
         self._scrcpy = None
+        self._clip_last = None   # ข้อความล่าสุดที่เขียนลงคลิปบอร์ดเครื่อง (ไว้ล้างคืนตอนจบ)
+        # พิกัดที่ "จับได้จากหน้าจอจริง" ระหว่างรอบนี้ (key → [rx, ry])
+        # autopilot เก็บลง DB ต่อเครื่อง → รอบหน้าถ้าหา node ไม่เจอ จะมีพิกัดสำรองของเครื่องนั้นเอง
+        # แทนที่จะตกไปใช้ค่ากลางที่วัดจากเครื่องอื่น
+        self._learned = {}
+
+    def _remember(self, key: str, x: int, y: int):
+        """บันทึกพิกัดที่แตะสำเร็จเป็นสัดส่วนจอ — ข้ามถ้าค่าเพี้ยน (จอหมุน/อ่านขนาดจอไม่ได้)"""
+        if not (self._w and self._h):
+            return
+        rx, ry = x / self._w, y / self._h
+        if 0.0 < rx < 1.0 and 0.0 < ry < 1.0:
+            self._learned[key] = [round(rx, 4), round(ry, 4)]
+
+    def learned_coords(self) -> dict:
+        """พิกัดที่เรียนรู้ได้รอบนี้ — {} ถ้าไม่ได้อะไรเลย"""
+        return dict(self._learned)
 
     # ── Device helpers ────────────────────────────────────────
 
@@ -199,13 +216,64 @@ class BasePoster:
             cap = cap.replace(k, v)
         return " ".join(cap.split()).strip()
 
-    def _type_caption(self, serial: str, text: str, has_adbkb: bool):
+    def _type_caption(self, serial: str, text: str, has_adbkb: bool,
+                      avoid_clipboard: bool = False):
+        """พิมพ์ข้อความลงช่องที่โฟกัสอยู่ — ไล่ทางที่รองรับภาษาไทยก่อนเสมอ
+
+        `input text` รับแต่ ASCII: ตัวไทยหายทั้งก้อนแบบเงียบ ๆ (เครื่อง SM-P585Y ไม่มี
+        ADBKeyboard → แคปชั่นว่างเปล่าแต่ flow ยังเดินต่อจนโพสต์) จึงต้อง log ให้เห็น
+        ทุกครั้งว่าพิมพ์ด้วยทางไหน
+        """
+        if not text:
+            return
+
+        # 1) ADBKeyboard — ทางที่นิ่งที่สุดถ้าเครื่องติดตั้งไว้
         if has_adbkb:
+            self.log(f"[{self.TAG}] พิมพ์ข้อความด้วย ADBKeyboard")
             self.adb.type_unicode(serial, text)
-        else:
-            ascii_only = "".join(c for c in text if ord(c) < 128).strip()
-            self.adb._adb("shell", "input", "text",
-                          ascii_only.replace(" ", "%s"), serial=serial)
+            time.sleep(1)
+            return
+
+        # 2) scrcpy clipboard (วางทีเดียว ไทยครบ) → 3) scrcpy INJECT_TEXT
+        if self._scrcpy:
+            paste = getattr(self._scrcpy, "set_clipboard", None)
+            # avoid_clipboard: รอบก่อนวางแล้วได้ของเก่าใน clipboard เครื่อง (แข่งกันระหว่าง
+            # set กับ paste) → รอบแก้ตัวใช้ INJECT_TEXT ที่ส่งข้อความไปตรง ๆ แทน
+            if avoid_clipboard:
+                paste = None
+            if callable(paste):
+                try:
+                    # เขียนคลิปบอร์ดรอบหนึ่งก่อนแล้วค่อยสั่งวาง — ถ้าสั่งวางพร้อมกันในนัดเดียว
+                    # ClipboardManager ฝั่งแอปยังอ่านได้ของเก่า (เจอจริง: วางลิงก์เก่าของ
+                    # รอบก่อนลงไปแทน)
+                    # ถ้าคลิปบอร์ดถือข้อความนี้อยู่แล้ว (พิมพ์ซ้ำรอบสอง) ข้ามการ prime —
+                    # ลดจำนวน SET_CLIPBOARD ต่อโพสต์ลงครึ่งหนึ่ง
+                    if self._clip_last != text:
+                        paste(text, paste=False)
+                        time.sleep(0.6)
+                    self._clip_last = text
+                    # ยิง KEYCODE_PASTE แยกคำสั่งถ้ามี — บาง build ข้าม paste flag
+                    # เมื่อข้อความในคลิปบอร์ดไม่เปลี่ยน (เคสพิมพ์ซ้ำรอบสอง)
+                    kbd_paste = getattr(self._scrcpy, "paste_clipboard", None)
+                    pasted = kbd_paste() if callable(kbd_paste) else paste(text, paste=True)
+                    if pasted:
+                        self.log(f"[{self.TAG}] พิมพ์ข้อความด้วย scrcpy clipboard (paste)")
+                        time.sleep(1)
+                        return
+                except Exception as e:
+                    self.log(f"[{self.TAG}] scrcpy clipboard ใช้ไม่ได้ ({e})")
+            if self._scrcpy.text(text):
+                self.log(f"[{self.TAG}] พิมพ์ข้อความด้วย scrcpy INJECT_TEXT")
+                time.sleep(1)
+                return
+
+        # 4) ทางสุดท้าย — ASCII เท่านั้น ตัวไทยจะหาย
+        ascii_only = "".join(c for c in text if ord(c) < 128).strip()
+        dropped = len(text) - len(ascii_only)
+        self.log(f"[{self.TAG}] ⚠ ไม่มี ADBKeyboard และ scrcpy ใช้ไม่ได้ — พิมพ์ผ่าน input text "
+                 f"(ตัดอักขระที่ไม่ใช่ ASCII ทิ้ง {dropped} ตัว)")
+        self.adb._adb("shell", "input", "text",
+                      ascii_only.replace(" ", "%s"), serial=serial)
         time.sleep(1)
 
     # ── Push video ────────────────────────────────────────────
@@ -223,6 +291,17 @@ class BasePoster:
             f'[ -e "$f" ] && rm -f "$f" && '
             f'am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$f" >/dev/null 2>&1; '
             f'done',
+            serial=serial,
+        )
+
+        # 1.5) ล้างภาพ snapshot รุ่นเก่าที่เคยเขียนลง /sdcard (เวอร์ชันก่อนย้ายไป /data/local/tmp)
+        #      ถ้าไม่ล้าง คลังภาพจะเต็มไปด้วยรูปแคปหน้าจอ ไปดักหน้าคลิปตอนเลือกไฟล์
+        self.adb._adb(
+            "shell",
+            'for f in /sdcard/screen_web.png /sdcard/screen.png /sdcard/screen_tmp.png; do '
+            '[ -e "$f" ] && rm -f "$f" && '
+            'am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$f" >/dev/null 2>&1; '
+            'done',
             serial=serial,
         )
 
@@ -266,6 +345,31 @@ class BasePoster:
 
     # ── Orchestration (template method) ───────────────────────
 
+    def _clear_device_clipboard(self):
+        """ล้างคลิปบอร์ดเครื่องตอนจบงาน
+
+        เครื่องโพสต์เป็นเครื่องผู้ใช้จริง — ถ้าไม่ล้าง คลิปบอร์ดจะค้างแคปชั่นและลิงก์
+        affiliate ของรอบล่าสุดไว้ ผู้ใช้ไปวางที่ไหนต่อก็ติดไปด้วย (และบน Android < 10
+        แอปพื้นหลังอ่านคลิปบอร์ดได้) นอกจากนี้ของค้างยังทำให้ race "วางของเก่า"
+        รอบถัดไปกลายเป็นข้อความหน้าตาถูกต้องจนตรวจไม่เจอ
+        """
+        if not (self._scrcpy and self._clip_last):
+            return
+        clear = getattr(self._scrcpy, "clear_clipboard", None)
+        if not callable(clear):
+            return
+        try:
+            if clear():
+                self.log(f"[{self.TAG}] ล้างคลิปบอร์ดเครื่องแล้ว")
+        except Exception as e:
+            self.log(f"[{self.TAG}] ล้างคลิปบอร์ดไม่สำเร็จ: {e}")
+        finally:
+            self._clip_last = None
+
+    def _apply_resolution_preset(self):
+        """hook: แพลตฟอร์มที่มีพิกัดวัดจริงแยกตามความละเอียดจอ override ตัวนี้"""
+        return
+
     def _apply_coords_override(self, override: Optional[dict]):
         """รวมพิกัด override ต่อเครื่อง (per-instance) ทับ default R ของ poster.
         Additive: ไม่มี override → self.R = class R เดิมเป๊ะ. รับเฉพาะ key ที่มีใน
@@ -297,6 +401,11 @@ class BasePoster:
         if not self.PACKAGE:
             self.log(f"[{self.TAG}] ยังไม่ได้กำหนดแอปปลายทาง — ข้าม")
             return None
+        # ต้องรู้ความละเอียดก่อน ถึงจะเลือก preset พิกัดของจอรุ่นนั้นได้
+        # ลำดับทับกัน: R ของคลาส → preset ตามจอ → coords_override ต่อเครื่อง (ชนะสุด)
+        self._w, self._h = self._get_resolution(serial)
+        self.log(f"[{self.TAG}] Resolution: {self._w}x{self._h}")
+        self._apply_resolution_preset()
         self._apply_coords_override(coords_override)
         if not self.push_video(serial, video_path):
             return False
@@ -304,8 +413,6 @@ class BasePoster:
 
         caption = self._build_caption(product)
         self._product = product   # ให้ _run_flow เข้าถึงข้อมูลสินค้า (เช่น ลิงก์ตะกร้า)
-        self._w, self._h = self._get_resolution(serial)
-        self.log(f"[{self.TAG}] Resolution: {self._w}x{self._h}")
 
         original_ime = self.adb.get_default_ime(serial)
         has_adbkb = self.adb.has_adb_keyboard(serial)
@@ -328,6 +435,7 @@ class BasePoster:
                 ok = self._maybe_verify(serial)
             return ok
         finally:
+            self._clear_device_clipboard()
             if self._scrcpy:
                 self._scrcpy.stop()
                 self._scrcpy = None

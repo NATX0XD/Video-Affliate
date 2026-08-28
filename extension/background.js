@@ -335,6 +335,16 @@ async function geminiFlowPrompt(product, cfg, gen, hasCharImage, charImg, i2v = 
   const langName = (gen && gen.langName) || 'ไทย';
   const musicLine = (gen && gen.musicPrompt) || '';
   const noMusic = !!(gen && gen.musicName === 'ไม่ใส่เพลง');
+  // ── พรอมป์ที่ผู้ใช้เขียนเองแยกหัวข้อ ("ฉาก: …", "แสง: …") → บล็อกคำสั่งลำดับสูงสุด ──
+  const userLines = (gen && Array.isArray(gen.promptLines) ? gen.promptLines : []).filter(Boolean);
+  const mkUserBlock = (lines) => (lines.length
+    ? `\n★★ คำสั่งที่ผู้ใช้เขียนเอง (สำคัญที่สุด — ถ้าขัดกับค่าพรีเซ็ตด้านบน ให้ยึดตามนี้เป๊ะ ห้ามละเลยข้อใดข้อหนึ่ง):\n${lines.map((l) => `- ${l}`).join('\n')}\n`
+    : '');
+  const userBlock = mkUserBlock(userLines);
+  const bgImageOn = !!(gen && gen.bgImageOn);   // ผู้ใช้อัปรูปฉากหลังไว้ → จะถูกแนบเป็นรูปอ้างอิงเพิ่ม
+  // i2v: ภาพ/ฉาก/หน้าตา ล็อกด้วยเฟรมเริ่มแล้ว → เหลือเฉพาะหัวข้อที่ยังคุมการเคลื่อนไหว/เสียงได้
+  const motionLines = (gen && Array.isArray(gen.motionLines) ? gen.motionLines : []).filter(Boolean);
+  const userBlockI2V = mkUserBlock(motionLines);
   // ── งบเวลา: สงวนหางคลิป ~1.5 วิ เป็นภาพปิดเงียบ บทพูดต้องจบในหน้าต่างพูดจริงเท่านั้น (กันจบค้างกลางคำ) ──
   const tailSec = 1.5;                                          // ช่วงท้ายเงียบล้วน (FREEZE) ปิดสวย
   const speakEnd = Math.max(2, +(dur - tailSec).toFixed(1));    // วินาทีที่บทพูดต้องจบ
@@ -360,19 +370,19 @@ async function geminiFlowPrompt(product, cfg, gen, hasCharImage, charImg, i2v = 
 ภารกิจ: ออกแบบคลิปขายของ ${dur} วินาที ที่หยุดนิ้วคนเลื่อนฟีดตั้งแต่วินาทีแรก แล้วส่งออกมาเป็น JSON prompt ที่ "ละเอียดที่สุด" เพื่อป้อนเข้า Veo โดยตรง — จงละเลงความคิดสร้างสรรค์เต็มที่ คิด hook และมุกขายที่เฉพาะสินค้าตัวนี้ ห้ามจืด ห้ามกลางๆ ห้ามใช้สูตรสำเร็จ
 
 ข้อมูล:
-- ${hasCharImage ? 'รูปแนบ 2 รูป: รูปแรก = สินค้าจริง / รูปที่สอง = ตัวละครผู้รีวิว (ห้ามสลับหรือผสมสองรูป) — สำคัญ: ดูเพศของตัวละครจากรูปที่สองให้ชัดก่อนเขียน ทุก field ที่พูดถึงตัวละคร (description/performance/voice) ต้องเป็นเพศเดียวกับรูปที่สอง ห้ามสลับเพศ' : 'รูปแนบ 1 รูป = สินค้าจริง'}
+- ${hasCharImage ? 'รูปแนบ 2 รูป: รูปแรก = สินค้าจริง / รูปที่สอง = ตัวละครผู้รีวิว (ห้ามสลับหรือผสมสองรูป) — สำคัญ: ดูเพศของตัวละครจากรูปที่สองให้ชัดก่อนเขียน ทุก field ที่พูดถึงตัวละคร (description/performance/voice) ต้องเป็นเพศเดียวกับรูปที่สอง ห้ามสลับเพศ' : 'รูปแนบ 1 รูป = สินค้าจริง'}${bgImageOn ? `\n- มีรูปแนบเพิ่มอีก 1 รูป (รูปสุดท้าย) = "ฉากหลังที่ผู้ใช้ต้องการ" — ให้ field scene/lighting อ้างอิงฉากจากรูปนั้น ใช้เฉพาะสถานที่/บรรยากาศ ห้ามเอาคนหรือสินค้าที่ติดมาในรูปฉากมาใช้` : ''}
 - สินค้า: ${name} | ราคา: ${price} บาท | ขายแล้ว: ${sold}
 - ตัวละครผู้รีวิว: ${whoLine}
 - แนวคลิป: ${styleHint}
 ${styleDirective}
 ${gen && gen.audHint ? `- กลุ่มเป้าหมาย: ${gen.audName} — ${gen.audHint} (hook/บทพูด/โทนภาพต้องคุยกับคนกลุ่มนี้โดยตรง)` : ''}
-- ฉาก: ${gen && gen.bgPrompt ? gen.bgPrompt : `${bg} อารมณ์${pers}`}
+- ฉาก: ${gen && gen.bgPrompt ? gen.bgPrompt : `${bg} อารมณ์${pers}`}${bgImageOn ? ' (ยึดฉากตามรูปฉากหลังที่แนบมาเป็นหลัก ข้อความนี้เป็นรายละเอียดเสริม)' : ''}
 ${moodLine ? `- บรรยากาศ/อารมณ์ภาพรวม: ${moodLine} — สะท้อนลง lighting + color_grade ให้เป็นโทนเดียวกันทั้งคลิป` : ''}
 ${mute
   ? '- โหมดเสียง: "ไม่มีเสียงพูด" — ตัวละครห้ามพูด/ห้ามขยับปากพูด ขายด้วยภาพ+แอ็กชัน+การสาธิตล้วน ต้องเข้าใจได้แม้ปิดเสียง เน้นการเคลื่อนไหวที่เล่าเรื่องและจังหวะเพลง'
   : `- ภาษาบทพูด: ${langLine}${voiceLine ? ` | น้ำเสียง: ${voiceLine}` : ''}`}
 ${musicLine ? `- แนวเพลงประกอบ: ${musicLine}` : (noMusic ? '- ไม่ใส่เพลงประกอบ (ใช้เสียงบรรยากาศ/เอฟเฟกต์แทน)' : '')}
-${gen && gen.len > 1 ? `- ความยาว ${dur} วินาที = ${gen.len} คลิปต่อเนื่องกัน คลิปละ 10 วินาที: ใน timeline ให้ระบุรอยต่อว่า "ท้ายช่วงก่อนค้างท่าไหน ช่วงถัดไปเริ่มจากท่านั้นเป๊ะ" กันภาพกระโดด ฉาก/ตัวละคร/แสงเดิมทั้งคลิป` : ''}
+${userBlock}${gen && gen.len > 1 ? `- ความยาว ${dur} วินาที = ${gen.len} คลิปต่อเนื่องกัน คลิปละ 10 วินาที: ใน timeline ให้ระบุรอยต่อว่า "ท้ายช่วงก่อนค้างท่าไหน ช่วงถัดไปเริ่มจากท่านั้นเป๊ะ" กันภาพกระโดด ฉาก/ตัวละคร/แสงเดิมทั้งคลิป` : ''}
 
 ส่งออกเป็น JSON ตาม schema นี้เป๊ะ (ภาษาไทยในทุก value, ละเอียดทุก field):
 {
@@ -407,7 +417,7 @@ ${gen && gen.len > 1 ? `- ความยาว ${dur} วินาที = ${ge
 ${styleDirective}
 ${gen && gen.audHint ? `- กลุ่มเป้าหมาย: ${gen.audName} — ${gen.audHint} (hook/บทพูดต้องคุยกับคนกลุ่มนี้)` : ''}
 ${mute ? '- โหมดเสียง: ไม่มีเสียงพูด — ขายด้วยการเคลื่อนไหว/สีหน้า ห้ามขยับปากพูด' : `- ภาษาบทพูด: ${langLine}${voiceLine ? ` | น้ำเสียง: ${voiceLine}` : ''}`}
-
+${userBlockI2V}
 ส่งออกเป็น JSON เป๊ะตาม schema นี้ (ภาษาไทยทุก value · โฟกัสการเคลื่อนไหว+เสียง · ห้ามมี field บรรยายภาพนิ่ง/หน้าตา/ฉาก/แสง):
 {
   "duration_sec": ${dur},
@@ -1054,7 +1064,9 @@ async function handleFlowStart(msg) {
       len: Math.max(1, Math.min(3, msg.gen.len || 1)),   // จำนวนคลิป 8 วิ ที่ต่อกัน
       charId: msg.gen.charId,
       charName: msg.gen.charName || (meta ? meta.name : ''),
-      charDesc: msg.gen.charId === 'self' ? (msg.gen.charDesc || '') : (meta ? meta.desc : msg.gen.charDesc || ''),
+      // พรอมป์ "ตัวละคร" ที่ผู้ใช้เขียนเองมาก่อนเสมอ (ทับ preset ของ CHAR_META)
+      charDesc: (msg.gen.prompts && msg.gen.prompts.char)
+        || (msg.gen.charId === 'self' ? (msg.gen.charDesc || '') : (meta ? meta.desc : msg.gen.charDesc || '')),
       audName: msg.gen.audName || '', audHint: msg.gen.audHint || '',
       bgName: msg.gen.bgName || '', bgPrompt: msg.gen.bgPrompt || '',
       // creative cockpit: บรรยากาศ/โหมดเสียง/น้ำเสียง/ภาษา/เพลง → ป้อนเข้า geminiFlowPrompt เขียน prompt
@@ -1064,6 +1076,11 @@ async function handleFlowStart(msg) {
       langName: msg.gen.langName || '', langPrompt: msg.gen.langPrompt || '',
       musicName: msg.gen.musicName || '', musicPrompt: msg.gen.musicPrompt || '',
       engine: msg.gen.engine === 'i2v' ? 'i2v' : 'agent',   // i2v = nano banana → frames-to-video (หน้าเป๊ะ) · agent = runGenerate เดิม
+      // พรอมป์ที่ผู้ใช้เขียนเองแยกหัวข้อ (ฉาก/แสง/กล้อง/…) → ฉีดเป็นบล็อกคำสั่งใน geminiFlowPrompt + ใช้คุมเฟรมใน flow.js
+      prompts: (msg.gen.prompts && typeof msg.gen.prompts === 'object') ? msg.gen.prompts : {},
+      promptLines: Array.isArray(msg.gen.promptLines) ? msg.gen.promptLines : [],
+      motionLines: Array.isArray(msg.gen.motionLines) ? msg.gen.motionLines : [],
+      bgImageOn: !!msg.gen.bgImage,   // มีรูปฉากหลังแนบไหม (รูปจริงเก็บแยกที่ flow_bg_img)
     };
     // รูปอ้างอิง: ใช้ snapshot จากพรีวิว 3D (มุมที่ผู้ใช้หมุนไว้) ก่อนเสมอ
     let img = msg.gen.snapshot || null;
@@ -1085,7 +1102,12 @@ async function handleFlowStart(msg) {
         });
       }
     } catch {}
-    await chrome.storage.local.set({ flow_gen: gen, flow_char_img: img });
+    // รูปฉากหลังที่ผู้ใช้อัป → flow.js เอาไปแนบเป็นภาพอ้างอิงฉากตอนสร้างเฟรม (null = ล้างของรอบก่อน)
+    await chrome.storage.local.set({
+      flow_gen: gen,
+      flow_char_img: img,
+      flow_bg_img: msg.gen.bgImage || null,
+    });
   }
   _flowCfg = null;   // โหลด config สดสำหรับรอบนี้ (เผื่อผู้ใช้เพิ่งแก้ settings)
   geminiBlocked = null;   // เริ่มรอบใหม่ → ลองเรียก Gemini อีกครั้ง (เผื่อเพิ่งเติมเครดิต)

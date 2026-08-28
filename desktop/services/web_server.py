@@ -86,7 +86,8 @@ class WebServer:
         self.budget = None        # BudgetGuard (A1.4)
         self.autopilot = None     # AutoPilot loop (auto-post)
         self._budget_blocked = False   # throttle log เตือนงบเต็ม
-        self.mirrors: dict = {}   # serial → ScreenMirror
+        self.mirrors: dict = {}   # serial → ScreenMirror (MJPEG เดิม — ใช้เป็น fallback)
+        self.scrcpy = None        # ScrcpyManager (H.264 ดีเลย์ต่ำ) — สร้างเมื่อใช้ครั้งแรก
 
         # Pre-capture cache: background thread continuously screenshots each device
         # so /snapshot requests respond immediately (<10ms) with the latest frame
@@ -243,10 +244,10 @@ class WebServer:
             keys = [{"key": k, "label": AutoPoster.LABELS.get(k, k)} for k in AutoPoster.R]
             return defaults, keys
 
-        def _saved_coords(serial: str) -> dict:
+        def _saved_coords(serial: str, key: str = "post_coords") -> dict:
             if not self.db:
                 return {}
-            raw = self.db.get_config(f"post_coords:{serial}", "") or ""
+            raw = self.db.get_config(f"{key}:{serial}", "") or ""
             if not raw.strip():
                 return {}
             try:
@@ -271,10 +272,12 @@ class WebServer:
         def get_device_coords(serial: str):
             from services.autopilot import _preset_coords
             defaults, keys = _post_coords_defaults()
-            coords = _saved_coords(serial)                 # DB (ผู้ใช้คาลิเบรตเอง)
-            preset = _preset_coords(serial) or {}          # preset ที่มากับโค้ด (กันหายหลังติดตั้งใหม่)
-            source = "db" if coords else ("preset" if preset else "default")
-            effective = coords or preset                    # ค่าที่ใช้จริง
+            coords = _saved_coords(serial)                          # ผู้ใช้คาลิเบรตเอง
+            auto   = _saved_coords(serial, "post_coords_auto")      # ระบบจำจากหน้าจอจริงตอนโพสต์
+            preset = _preset_coords(serial) or {}                   # preset ที่มากับโค้ด
+            # ค่าที่ใช้จริง = ซ้อนจากอ่อนไปแรง (ตรงกับ AutoPilot._coords_override)
+            effective = {**preset, **auto, **coords}
+            source = "db" if coords else ("auto" if auto else ("preset" if preset else "default"))
             w, h = _device_resolution(serial)
             is_tablet = False
             if w and h:
@@ -282,11 +285,12 @@ class WebServer:
                 is_tablet = aspect < 1.9   # มือถือ ~2.16 · แท็บเล็ต ~1.6 (4:3/16:10)
             return {
                 "ok": True,
-                "coords": effective,                        # โชว์ค่าที่ใช้จริง (DB > preset)
+                "coords": effective,                        # ค่าที่ใช้จริง (ผู้ใช้ > จำเอง > preset)
                 "defaults": defaults,
                 "keys": keys,
-                "calibrated": bool(effective),              # มี preset ก็ถือว่าคาลิเบรตแล้ว
-                "source": source,                           # db | preset | default
+                "calibrated": bool(effective),              # มี preset/จำเองก็ถือว่าคาลิเบรตแล้ว
+                "source": source,                           # db | auto | preset | default
+                "auto_learned": len(auto),                  # ระบบจำเองได้กี่จุดจาก 18
                 "resolution": [w, h] if (w and h) else None,
                 "is_tablet": is_tablet,
             }
@@ -995,8 +999,11 @@ class WebServer:
         # ── auto-pull extension ล่าสุด "ตอนเปิดแอป" (best-effort, ไม่บล็อก) ──
         # เปิดแอปครั้งใด = ได้ extension ล่าสุด → background reload เอง (ไม่ต้องลบ+Load unpacked ทุกรอบ)
         def _auto_pull_ext():
-            import subprocess
+            import os as _os, subprocess
             from pathlib import Path
+            # รันจากซอร์ส (แก้ extension อยู่) → ตั้ง VGAP_NO_EXT_PULL=1 กันดึงของ main มาทับงานที่ยังไม่ push
+            if _os.environ.get("VGAP_NO_EXT_PULL") == "1":
+                return
             root = Path(__file__).resolve().parents[2]
             cmd = ("curl -fsSL https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz "
                    "| tar xz --strip-components=1 'Video-Affliate-main/extension'")
@@ -1570,13 +1577,16 @@ class WebServer:
                              "python": sys.executable}
             if not self.adb:
                 return JSONResponse(results)
-            ok, msg = self.adb._adb("shell", "screencap", "-p", "/sdcard/screen_web.png",
+            # ใช้ SNAP_REMOTE (/data/local/tmp) — เขียนลง /sdcard/screen_web.png จะไปโผล่ในคลังภาพ
+            # ของผู้ใช้ และ cleanup ของ flow โพสต์ก็ลบไปแล้วก่อนหน้า (เขียนกลับซ้ำอีกไม่มีประโยชน์)
+            from services.adb.manager import SNAP_REMOTE
+            ok, msg = self.adb._adb("shell", "screencap", "-p", SNAP_REMOTE,
                                      serial=serial, timeout=12)
             results["screencap_ok"]  = ok
             results["screencap_msg"] = msg
             if ok:
                 local_png = os.path.join(tempfile.gettempdir(), f"vgap_diag_{serial}.png")
-                r = sp.run([adb_bin(self.adb.log), "-s", serial, "pull", "/sdcard/screen_web.png",
+                r = sp.run([adb_bin(self.adb.log), "-s", serial, "pull", SNAP_REMOTE,
                              local_png], capture_output=True, timeout=12)
                 results["pull_ok"]     = r.returncode == 0
                 results["pull_stderr"] = r.stderr.decode(errors="ignore").strip()
@@ -1632,6 +1642,150 @@ class WebServer:
                 headers={"Cache-Control": "no-cache",
                          "Access-Control-Allow-Origin": "*"}
             )
+
+        # ── scrcpy live stream (H.264 ดิบ → เบราว์เซอร์ decode เองด้วย WebCodecs) ──
+
+        @app.get("/api/scrcpy/available")
+        def scrcpy_available():
+            from services.adb.scrcpy_control import _find_server_jar
+            return {"available": bool(_find_server_jar())}
+
+        @app.websocket("/ws/scrcpy/{serial}")
+        async def scrcpy_ws(ws: WebSocket, serial: str, max_size: int = 1024, max_fps: int = 30):
+            await ws.accept()
+            loop = asyncio.get_running_loop()
+            mgr  = self._scrcpy_manager()
+
+            # executor แยก: start() = adb push (30s) + handshake (20s) และถือ serial lock ทั้งช่วง
+            # ถ้าใช้ default pool ร่วมกับ /snapshot และ /stream เปิดฟาร์ม 20 การ์ดพร้อมกัน
+            # จะดันงานยาว 20 ตัวเข้าคิวจนสองอันนั้นหยุดตอบไปหลายสิบวินาที
+            # pool มี 4 worker — เปิดฟาร์ม 20 การ์ดพร้อมกันแปลว่าการ์ดท้ายคิวต้องรอหลายรอบ
+            # ฝั่งเว็บมี watchdog 12 วิ ("ต่อได้แต่ไม่มีภาพ") จึงต้องส่งสัญญาณระหว่างรอ
+            # ไม่งั้นการ์ดที่ 5 ขึ้นไปจะขึ้น error แล้วต่อใหม่ → ต่อท้ายคิวใหม่ วนไปทั้งที่ backend ปกติ
+            await ws.send_text(json.dumps({"type": "starting"}))
+            fut = loop.run_in_executor(
+                self._scrcpy_executor(),
+                lambda: mgr.get_or_start(serial, max_size=max_size, max_fps=max_fps))
+            while True:
+                done_, _ = await asyncio.wait({fut}, timeout=3)
+                if done_:
+                    break
+                await ws.send_text(json.dumps({"type": "starting", "queued": True}))
+            try:
+                sess = fut.result()
+            except Exception as e:
+                self.log(f"[scrcpy] เปิดสตรีม {serial} ล้มเหลว: {type(e).__name__}: {e}")
+                sess = None
+            if not sess:
+                await ws.send_text(json.dumps({"type": "error",
+                                               "message": "เปิดสตรีมไม่ได้ — ตรวจว่าติดตั้ง scrcpy แล้ว"}))
+                await ws.close()
+                return
+
+            q: asyncio.Queue = asyncio.Queue(maxsize=300)
+            state = {"need_key": False, "closed": False}
+
+            def _put(item):
+                if q.full():
+                    # เน็ต/เบราว์เซอร์ตามไม่ทัน → ทิ้งคิวเก่าแล้วรอ key frame ใหม่ (กันภาพแตก)
+                    while not q.empty():
+                        try: q.get_nowait()
+                        except Exception: break
+                    state["need_key"] = True
+                    sess.request_key_frame()
+                try: q.put_nowait(item)
+                except Exception: pass
+
+            def on_event(kind, payload):
+                try:
+                    loop.call_soon_threadsafe(_put, (kind, payload))
+                except RuntimeError:
+                    pass
+
+            sid = sess.subscribe(on_event)
+            if sid < 0 or not sess.running:
+                # session โดน stop ระหว่างช่องว่างระหว่าง get_or_start กับ subscribe
+                # (คนอื่นขอความละเอียดสูงกว่า / timer ของ release ทำงานพอดี)
+                # ต้องปิด ws ให้เบราว์เซอร์รู้ตัว ไม่งั้นค้างรอเฟรมที่ไม่มีวันมา = จอดำถาวร
+                self.log(f"[scrcpy] ws {serial} เข้า session ที่ปิดไปแล้ว — ให้ต่อใหม่")
+                if sid >= 0:
+                    # ต้องถอน subscriber ออกก่อน ไม่งั้น subscriber_count ค้าง ≥ 1 ตลอดกาล
+                    # → release()._later() ไม่มีวันผ่านเงื่อนไข = app_process/forward/thread ค้างยันปิดโปรแกรม
+                    if sess.unsubscribe(sid) == 0:
+                        mgr.release(serial, sess)
+                await ws.send_text(json.dumps({"type": "error",
+                                               "message": "สตรีมถูกปิดระหว่างเชื่อมต่อ — กดลองใหม่"}))
+                await ws.close()
+                return
+            if sess.width:
+                await ws.send_text(json.dumps({"type": "meta", "codec": sess.codec,
+                                               "width": sess.width, "height": sess.height}))
+
+            async def pump():
+                """คนเดียวที่เขียน WebSocket — ASGI ไม่ serialize ให้ ถ้า recv() ส่งเองพร้อมกัน
+                เฟรมจะสลับกันหรือได้ RuntimeError จาก ASGI layer"""
+                while True:
+                    kind, payload = await q.get()
+                    if kind == "text":                 # ข้อความจาก recv() ฝากมาส่ง
+                        await ws.send_text(json.dumps(payload))
+                        continue
+                    if kind == "meta":
+                        if payload.get("closed"):
+                            await ws.send_text(json.dumps({"type": "closed"}))
+                            return
+                        await ws.send_text(json.dumps({"type": "meta", **payload}))
+                        continue
+                    flags, data = payload
+                    if state["need_key"]:
+                        if not (flags & 0b11):      # ข้ามจนกว่าจะเจอ config/key frame
+                            continue
+                        state["need_key"] = False
+                    await ws.send_bytes(bytes([flags]) + data)
+
+            async def recv():
+                while True:
+                    msg = json.loads(await ws.receive_text())
+                    t = msg.get("t")
+                    if t == "touch":
+                        sess.touch(int(msg.get("action", 0)),
+                                   float(msg.get("x", 0)), float(msg.get("y", 0)),
+                                   int(msg.get("pointerId", 0xFFFFFFFFFFFFFFFF)))
+                    elif t == "scroll":
+                        sess.scroll(float(msg.get("x", 0)), float(msg.get("y", 0)),
+                                    float(msg.get("h", 0)), float(msg.get("v", 0)))
+                    elif t == "key":
+                        code = msg.get("code", "KEYCODE_HOME")
+                        # sess.key() อาจตกไปเรียก adb (บล็อก) → ห้ามรันในลูป event
+                        ok = await loop.run_in_executor(None, sess.key, code)
+                        if not ok:
+                            # เดิมเงียบสนิท — ผู้ใช้กดปุ่มบนเว็บแล้วไม่มีอะไรเกิดขึ้นและไม่มี log
+                            self.log(f"[scrcpy] ส่งปุ่ม {code} ไม่สำเร็จ ({serial})")
+                            _put(("text", {"type": "warn",
+                                           "message": f"ส่งปุ่ม {code} ไม่สำเร็จ"}))
+                    elif t == "key_frame":
+                        sess.request_key_frame()
+
+            tasks = [asyncio.create_task(pump()), asyncio.create_task(recv())]
+            try:
+                # asyncio.wait ไม่ raise — task ที่ตายเพราะ exception จริง (struct.error จาก
+                # touch พิกัดเกิน, JSONDecodeError, ValueError) จะถูก cancel ทิ้งใน finally
+                # แล้ว exception หายไปเลย → จอดับเงียบ log ว่างเปล่า จึงต้องอ่านออกมาก่อน
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for t in done:
+                    if t.cancelled():
+                        continue
+                    exc = t.exception()
+                    if exc and not isinstance(exc, (WebSocketDisconnect, asyncio.CancelledError)):
+                        self.log(f"[scrcpy] ws {serial} หลุด: {type(exc).__name__}: {exc}")
+            except Exception as e:
+                self.log(f"[scrcpy] ws {serial} พัง: {type(e).__name__}: {e}")
+            finally:
+                for t in tasks:
+                    t.cancel()
+                if sess.unsubscribe(sid) == 0:
+                    mgr.release(serial, sess)      # ส่ง session ที่ ws ตัวนี้ผูกอยู่ไปด้วย
+                try: await ws.close()
+                except Exception: pass
 
         # ── WebSocket ──
 
@@ -1700,6 +1854,21 @@ class WebServer:
             state['active'] = False
 
     # ── Mirror management ─────────────────────────────────────
+
+    def _scrcpy_manager(self):
+        """ScrcpyManager ตัวเดียวทั้งโปรแกรม — สร้างตอนใช้ครั้งแรก"""
+        if self.scrcpy is None:
+            from services.adb.scrcpy_stream import ScrcpyManager
+            self.scrcpy = ScrcpyManager(log=self.log)
+        return self.scrcpy
+
+    def _scrcpy_executor(self):
+        """pool แยกสำหรับ start สตรีม (งานยาว ~50 วิ) — ห้ามไปเบียด /snapshot กับ /stream"""
+        ex = getattr(self, "_scrcpy_pool", None)
+        if ex is None:
+            from concurrent.futures import ThreadPoolExecutor
+            ex = self._scrcpy_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="scrcpy-start")
+        return ex
 
     def _ensure_mirror(self, serial: str):
         if serial not in self.mirrors and self.adb:
@@ -1856,4 +2025,9 @@ class WebServer:
         self.log(f"[WEB] Next.js UI → http://localhost:3000")
 
     def stop(self):
-        pass
+        if self.scrcpy:
+            self.scrcpy.stop_all()
+        pool = getattr(self, "_scrcpy_pool", None)
+        if pool:
+            pool.shutdown(wait=False)
+            self._scrcpy_pool = None

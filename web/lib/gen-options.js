@@ -1,5 +1,5 @@
 // ตัวเลือกสำหรับ wizard สร้างคลิป — ยกมาจาก extension/dashboard.js (คงค่าตรงกันเป๊ะ)
-// ใช้โดยหน้า คลังสินค้า (products) → GenWizard → ส่งเข้า /api/queue/push ให้ extension ขับ Google Flow
+// ใช้โดยหน้าสร้างคลิป (/products/create) → ส่งเข้า /api/queue/push ให้ extension ขับ Google Flow
 
 export const GEN_CHARS = [
   { id: 'robot', name: 'บอตตี้',        tag: 'หุ่นยนต์ขี้เล่น สดใส',  hue: '#facc15', model: 'models/robot.glb', desc: 'หุ่นยนต์การ์ตูน 3D สีเหลืองน่ารัก ขี้เล่น สดใส' },
@@ -26,20 +26,20 @@ export const GEN_AUDS = [
 
 // thumb = CSS gradient ที่สื่อถึงฉาก/อารมณ์นั้น (ทำงานออฟไลน์ ไม่พึ่งรูปจริง)
 export const GEN_BGS = [
-  { id: 'studio',  name: 'สตูดิโอสว่าง',      p: 'สตูดิโอแสงสว่างสะอาดตา พื้นหลังสีพาสเทล',                        thumb: 'linear-gradient(135deg,#fdfbfb 0%,#e2d1f9 100%)' },
-  { id: 'living',  name: 'ห้องนั่งเล่นอบอุ่น', p: 'ห้องนั่งเล่นโทนอบอุ่น แสงธรรมชาติจากหน้าต่าง บรรยากาศบ้านจริง', thumb: 'linear-gradient(135deg,#f6d365 0%,#fda085 100%)' },
-  { id: 'kitchen', name: 'ครัว',              p: 'ครัวสมัยใหม่สว่างสะอาด มีอุปกรณ์ครัวเป็นฉากหลังเบลอๆ',           thumb: 'linear-gradient(135deg,#e0eafc 0%,#cfdef3 100%)' },
-  { id: 'outdoor', name: 'กลางแจ้งแดดสวย',    p: 'กลางแจ้งแสงแดดสวยตอนเย็น โทนสดชื่นมีชีวิตชีวา',                 thumb: 'linear-gradient(135deg,#f9d423 0%,#ff8c42 55%,#ff5f6d 100%)' },
-  { id: 'neon',    name: 'นีออนกลางคืน',      p: 'ฉากกลางคืนแสงนีออนชมพู-ฟ้า สไตล์ไวรัลทันสมัย',                 thumb: 'linear-gradient(135deg,#ff6ec4 0%,#7873f5 100%)' },
-  { id: 'minimal', name: 'มินิมอลพื้นขาว',    p: 'ฉากมินิมอลพื้นหลังขาวเรียบ เงานุ่ม ดูพรีเมียม',                 thumb: 'linear-gradient(135deg,#ffffff 0%,#e6e6e6 100%)' },
+  { id: 'studio', img: '/previews/scene-studio.webp',  name: 'สตูดิโอสว่าง',      p: 'สตูดิโอแสงสว่างสะอาดตา พื้นหลังสีพาสเทล',                        thumb: 'linear-gradient(135deg,#fdfbfb 0%,#e2d1f9 100%)' },
+  { id: 'living', img: '/previews/scene-living.webp',  name: 'ห้องนั่งเล่นอบอุ่น', p: 'ห้องนั่งเล่นโทนอบอุ่น แสงธรรมชาติจากหน้าต่าง บรรยากาศบ้านจริง', thumb: 'linear-gradient(135deg,#f6d365 0%,#fda085 100%)' },
+  { id: 'kitchen', img: '/previews/scene-kitchen.webp', name: 'ครัว',              p: 'ครัวสมัยใหม่สว่างสะอาด มีอุปกรณ์ครัวเป็นฉากหลังเบลอๆ',           thumb: 'linear-gradient(135deg,#e0eafc 0%,#cfdef3 100%)' },
+  { id: 'outdoor', img: '/previews/scene-outdoor.webp', name: 'กลางแจ้งแดดสวย',    p: 'กลางแจ้งแสงแดดสวยตอนเย็น โทนสดชื่นมีชีวิตชีวา',                 thumb: 'linear-gradient(135deg,#f9d423 0%,#ff8c42 55%,#ff5f6d 100%)' },
+  { id: 'neon', img: '/previews/scene-neon.webp',    name: 'นีออนกลางคืน',      p: 'ฉากกลางคืนแสงนีออนชมพู-ฟ้า สไตล์ไวรัลทันสมัย',                 thumb: 'linear-gradient(135deg,#ff6ec4 0%,#7873f5 100%)' },
+  { id: 'minimal', img: '/previews/scene-minimal.webp', name: 'มินิมอลพื้นขาว',    p: 'ฉากมินิมอลพื้นหลังขาวเรียบ เงานุ่ม ดูพรีเมียม',                 thumb: 'linear-gradient(135deg,#ffffff 0%,#e6e6e6 100%)' },
 ]
 
 export const GEN_MOODS = [
-  { id: 'warm',     name: 'อบอุ่น',         p: 'บรรยากาศอบอุ่นเป็นกันเอง แสงนวลโทนทอง สีอุ่นสบายตา',                thumb: 'linear-gradient(135deg,#f6d365 0%,#fda085 100%)' },
-  { id: 'premium',  name: 'พรีเมียมหรู',    p: 'บรรยากาศพรีเมียมหรูหรา แสงนุ่มคุมเงา โทนสีลึกสะอาด ดูมีระดับ',      thumb: 'linear-gradient(135deg,#434343 0%,#000000 100%)' },
-  { id: 'fun',      name: 'สนุกสดใส',       p: 'บรรยากาศสนุกสดใสมีพลัง สีจัดสว่าง จังหวะมีชีวิตชีวา',               thumb: 'linear-gradient(135deg,#fa709a 0%,#fee140 100%)' },
-  { id: 'minimal',  name: 'มินิมอลสะอาด',   p: 'บรรยากาศมินิมอลสะอาดตา โทนสีเดียวเรียบ พื้นที่ว่างเยอะ เน้นสินค้าเด่น', thumb: 'linear-gradient(135deg,#ffffff 0%,#dfe9f3 100%)' },
-  { id: 'dramatic', name: 'ดราม่าเข้ม',     p: 'บรรยากาศดราม่าคอนทราสต์สูง แสงเน้นเฉพาะจุด เงาเข้ม ดูน่าตื่นเต้น',   thumb: 'linear-gradient(135deg,#0f0c29 0%,#302b63 50%,#24243e 100%)' },
+  { id: 'warm', img: '/previews/mood-warm.webp',     name: 'อบอุ่น',         p: 'บรรยากาศอบอุ่นเป็นกันเอง แสงนวลโทนทอง สีอุ่นสบายตา',                thumb: 'linear-gradient(135deg,#f6d365 0%,#fda085 100%)' },
+  { id: 'premium', img: '/previews/mood-premium.webp',  name: 'พรีเมียมหรู',    p: 'บรรยากาศพรีเมียมหรูหรา แสงนุ่มคุมเงา โทนสีลึกสะอาด ดูมีระดับ',      thumb: 'linear-gradient(135deg,#434343 0%,#000000 100%)' },
+  { id: 'fun', img: '/previews/mood-fun.webp',      name: 'สนุกสดใส',       p: 'บรรยากาศสนุกสดใสมีพลัง สีจัดสว่าง จังหวะมีชีวิตชีวา',               thumb: 'linear-gradient(135deg,#fa709a 0%,#fee140 100%)' },
+  { id: 'minimal', img: '/previews/mood-minimal.webp',  name: 'มินิมอลสะอาด',   p: 'บรรยากาศมินิมอลสะอาดตา โทนสีเดียวเรียบ พื้นที่ว่างเยอะ เน้นสินค้าเด่น', thumb: 'linear-gradient(135deg,#ffffff 0%,#dfe9f3 100%)' },
+  { id: 'dramatic', img: '/previews/mood-dramatic.webp', name: 'ดราม่าเข้ม',     p: 'บรรยากาศดราม่าคอนทราสต์สูง แสงเน้นเฉพาะจุด เงาเข้ม ดูน่าตื่นเต้น',   thumb: 'linear-gradient(135deg,#0f0c29 0%,#302b63 50%,#24243e 100%)' },
 ]
 
 export const GEN_SOUNDS = [
@@ -83,10 +83,48 @@ export const GEN_ENGINES = [
   { id: 'agent', t: 'เอเจนต์',   d: 'AI เขียนเอง · เร็ว แต่หน้าอาจเพี้ยน' },
 ]
 
+// ── พรอมป์เขียนเอง (แยกตามหัวข้อ) ────────────────────────────────────────────
+// ผู้ใช้พิมพ์เองต่อหัวข้อ → ฉีดเข้า prompt เป็นบรรทัด "หัวข้อ: ข้อความ"
+// override = ทับ field พรีเซ็ตตัวไหนใน gen (ให้ทั้ง Gemini และ nano-banana compose เห็นค่าเดียวกัน)
+export const GEN_PROMPT_FIELDS = [
+  { key: 'scene',  label: 'ฉาก',        override: 'bgPrompt',    visual: true,  ph: 'เช่น ร้านกาแฟไม้โทนอุ่น มีต้นไม้ริมหน้าต่าง คนเบลอด้านหลัง' },
+  { key: 'light',  label: 'แสง',        visual: true,  ph: 'เช่น แสงธรรมชาติเข้าจากหน้าต่างซ้าย เงานุ่ม มี rim light ขอบไหล่' },
+  { key: 'mood',   label: 'อารมณ์/โทนสี', override: 'moodPrompt', visual: true,  ph: 'เช่น โทนฟิล์มอุ่น คอนทราสต์ต่ำ สีเขียว-ครีม' },
+  { key: 'camera', label: 'กล้อง/มุมภาพ', visual: true,  ph: 'เช่น เลนส์ 50mm ระดับสายตา หน้าชัดหลังเบลอ กล้องนิ่ง' },
+  { key: 'char',   label: 'ตัวละคร',     override: 'charDesc',   visual: true,  ph: 'เช่น ผู้หญิงไทย 25 ปี ผมยาวสีน้ำตาล เสื้อเชิ้ตขาว' },
+  { key: 'action', label: 'ท่าทาง/การเคลื่อนไหว', visual: true, i2v: true, ph: 'เช่น เริ่มจากถือสินค้าระดับอก แล้วหมุนโชว์ฉลากช้าๆ' },
+  { key: 'script', label: 'บทพูด',       i2v: true, ph: 'เช่น เปิดด้วย "อย่าเพิ่งเลื่อนผ่าน!" แล้วย้ำราคา 2 ครั้ง' },
+  { key: 'voice',  label: 'น้ำเสียง',    override: 'voicePrompt',  i2v: true, ph: 'เช่น เสียงผู้หญิงนุ่ม พูดช้า จริงใจ' },
+  { key: 'music',  label: 'เพลง/เสียงประกอบ', override: 'musicPrompt', i2v: true, ph: 'เช่น lo-fi เบาๆ ไม่กลบเสียงพูด' },
+  { key: 'avoid',  label: 'ข้อห้าม',     visual: true, i2v: true, ph: 'เช่น ห้ามมีตัวหนังสือบนจอ ห้ามมีคนอื่นในเฟรม' },
+]
+
 export const GEN_DEFAULT = {
   charId: 'robot', engine: 'i2v', style: 'hardsell', aud: 'all', bg: 'studio',
   len: 1, mood: 'warm', sound: 'voice', voice: 'bright', lang: 'th', music: 'upbeat',
+  prompts: {},        // { scene:'...', light:'...' } — เฉพาะหัวข้อที่ผู้ใช้พิมพ์
+  bgImage: null,      // dataURL รูปฉากหลังที่ผู้ใช้อัป → ใช้เป็นรูปอ้างอิงฉากใน Google Flow
+  bgImageName: '',
+  sceneId: '',        // id "ฉากของฉัน" ที่เลือกอยู่ (ไว้ไฮไลต์การ์ด — ไม่ส่งเข้า Flow)
 }
+
+// เก็บเฉพาะหัวข้อที่พิมพ์จริง (ตัดช่องว่าง/ค่าว่างทิ้ง)
+export function cleanPrompts(prompts = {}) {
+  const out = {}
+  for (const f of GEN_PROMPT_FIELDS) {
+    const v = String(prompts[f.key] || '').trim()
+    if (v) out[f.key] = v
+  }
+  return out
+}
+
+// ['ฉาก: ...', 'แสง: ...'] — รูปแบบที่ฉีดลง prompt ตรงๆ
+export const promptLinesOf = (prompts = {}) =>
+  GEN_PROMPT_FIELDS.filter(f => prompts[f.key]).map(f => `${f.label}: ${prompts[f.key]}`)
+
+// เฉพาะหัวข้อที่ยังมีผลในโหมด i2v (ภาพนิ่ง/ฉาก/หน้าตา ถูกล็อกด้วยเฟรมเริ่มไปแล้ว)
+export const motionLinesOf = (prompts = {}) =>
+  GEN_PROMPT_FIELDS.filter(f => f.i2v && prompts[f.key]).map(f => `${f.label}: ${prompts[f.key]}`)
 
 // ── รูปแบบสินค้า ──────────────────────────────────────────────────────────────
 // desktop DB คืน flat: {id,name,price,commission,image_url,cart_link,status}
@@ -133,7 +171,8 @@ export function buildGen(o, snapshot = null) {
   const vo   = pick(GEN_VOICES, o.voice)
   const lg   = pick(GEN_LANGS, o.lang)
   const mus  = pick(GEN_MUSICS, o.music)
-  return {
+  const prompts = cleanPrompts(o.prompts)
+  const gen = {
     charId: o.charId, engine: o.engine || 'i2v', style: o.style, len: o.len || 1,
     charName: ch.name, charDesc: ch.desc, charModel: ch.model || null,
     snapshot: snapshot || null,
@@ -144,5 +183,17 @@ export function buildGen(o, snapshot = null) {
     voiceName: vo.name, voicePrompt: vo.p,
     langName: lg.name, langPrompt: lg.p,
     musicName: mus.name, musicPrompt: mus.p,
+    // พรอมป์เขียนเอง: ส่งทั้งก้อน (ให้ background ฉีดเป็นบล็อกคำสั่งผู้ใช้) + รูปฉากหลัง
+    prompts, promptLines: promptLinesOf(prompts), motionLines: motionLinesOf(prompts),
+    bgImage: o.bgImage || null,
   }
+  // หัวข้อที่มี override → ทับค่าพรีเซ็ต เพื่อให้ทุกขั้น (Gemini + compose เฟรม) ใช้ข้อความเดียวกัน
+  for (const f of GEN_PROMPT_FIELDS) {
+    if (f.override && prompts[f.key]) {
+      gen[f.override] = prompts[f.key]
+      const nameKey = f.override.replace('Prompt', 'Name').replace('charDesc', 'charName')
+      if (nameKey !== 'charName' && gen[nameKey] !== undefined) gen[nameKey] = 'กำหนดเอง'
+    }
+  }
+  return gen
 }
