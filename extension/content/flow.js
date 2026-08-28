@@ -1776,14 +1776,24 @@ if (window._flowAutomatorLoaded) {
   // typeLabel = รูปภาพ/วิดีโอ · subLabel = เฟรม/ส่วนผสม · countLabel = 1x/x2… (ออปชั่น)
   // ช่องเฟรม "เริ่ม"/"สิ้นสุด" เป็น <div> เล็ก ~50x50 ข้อความตรงเป๊ะ (ไม่ใช่ปุ่ม → allClickable หาไม่เจอ)
   // Flow UI ใหม่ช่องเฟรมเป็นอังกฤษ "Start"/"End" — map ไทย↔อังกฤษ
-  const FRAME_ALT = { "เริ่ม": ["เริ่ม", "start"], "สิ้นสุด": ["สิ้นสุด", "end"] };
+  // Flow เรียกช่องนี้ไม่เหมือนกันในแต่ละเวอร์ชัน: "เริ่ม" · "เฟรมแรก" · "เฟรมเริ่มต้น" · "Start" · "Start frame"
+  // เดิมเทียบข้อความ "ตรงเป๊ะ" อย่างเดียว → เจอชื่อยาวขึ้นนิดเดียวก็หาไม่เจอ แล้วถือว่ายังไม่เข้าโหมดเฟรม
+  const FRAME_ALT = {
+    "เริ่ม":   ["เริ่ม", "start", "แรก", "first", "เฟรมแรก", "เฟรมเริ่มต้น", "start frame", "first frame"],
+    "สิ้นสุด": ["สิ้นสุด", "end", "สุดท้าย", "last", "เฟรมสุดท้าย", "end frame", "last frame"],
+  };
   function findFrameSlot(label) {
     const want = norm(label);
     const wants = FRAME_ALT[want] || [want];
-    return deepAll('div,span,button,[role="button"]')
+    const cands = deepAll('div,span,button,[role="button"]')
       .filter(isVisible)
-      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 130 && r.height > 8 && r.height <= 130; })
-      .find((el) => wants.includes(norm(el.innerText || el.textContent))) || null;
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 220 && r.height > 8 && r.height <= 220; });
+    // ตรงเป๊ะก่อน แล้วค่อยยอมรับแบบ "มีคำนั้นอยู่ในข้อความสั้น ๆ" (กันไปโดนย่อหน้ายาว)
+    return cands.find((el) => wants.includes(norm(el.innerText || el.textContent)))
+      || cands.find((el) => {
+        const t = norm(el.innerText || el.textContent);
+        return t.length > 0 && t.length <= 24 && wants.some((w) => t.includes(w));
+      }) || null;
   }
   // โหมด "เฟรม" พร้อม = มีช่องสลอต "เริ่ม/Start" โผล่ที่แถบ prompt
   const framesSubReady = () => !!findFrameSlot("เริ่ม");
@@ -2007,6 +2017,13 @@ if (window._flowAutomatorLoaded) {
     for (let w = 0; w < WAIT_MS / 2000; w++) {
       await sleep(2000);
       if (onTarget()) { _modeManualOnly = true; L(`ผู้ใช้ตั้งโหมดให้แล้ว → ไปต่อ ✓`); return true; }
+      // ผู้ใช้กดเลือกวิดีโอ/เฟรมแล้วแต่เราหาช่อง "เริ่ม" ไม่เจอ (Flow เปลี่ยนชื่อช่อง)
+      // เชื่อผู้ใช้แล้วไปต่อ — ถ้าช่องไม่มีจริง ขั้นเลือกเฟรมจะฟ้องพร้อมชื่อช่องที่เห็นจริงให้เอาไปแก้
+      if (/วิดีโอ/.test(typeLabel) && isVideoMode() && /เฟรม/.test(subLabel || "") && w >= 2) {
+        _modeManualOnly = true;
+        L(`อยู่โหมดวิดีโอแล้ว แต่หาช่องเฟรม "เริ่ม" ไม่เจอ — เชื่อว่าตั้งถูกแล้วและไปต่อ | แถบ prompt: ${dumpComposer()}`);
+        return true;
+      }
       if (w % 5 === 4) L(`ยังรออยู่… (${Math.round((WAIT_MS / 1000) - (w + 1) * 2)} วิ)`);
     }
     L("รอครบแล้วยังไม่ได้โหมดที่ต้องการ — ยกเลิกงานนี้");
