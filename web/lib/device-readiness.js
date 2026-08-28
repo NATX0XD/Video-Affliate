@@ -1,18 +1,16 @@
 /**
- * เช็คความพร้อมของเครื่องสำหรับ setup ฟาร์ม (F/E).
- * ok: true=ผ่าน, false=ไม่ผ่าน, null=ยังตรวจไม่ได้ (รอ backend)
- * fixable: เตรียมอัตโนมัติได้ด้วยปุ่มเดียว · calib: ต้องเข้า wizard จูนพิกัด
+ * เช็คความพร้อมของเครื่องสำหรับโพสต์ — แสดงเฉพาะข้อที่ "ตรวจได้จริง" เท่านั้น
+ * ok: true=ผ่าน · false=ยังไม่ผ่าน
  *
- * NOTE: ตอนนี้ ADBKeyboard/จอ/จูนพิกัด ยังเป็น null (mock) — จะต่อ backend เฟสถัดไป
+ * ของเดิมมี ADBKeyboard / จอไม่ดับ / จูนพิกัดรุ่น เป็น mock (backend ไม่เคยส่งค่ามา
+ * เลยค้างเป็นวงกลมว่างตลอด) — ถอดออกแล้ว จะใส่กลับเมื่อมีการตรวจจริง
+ * ส่วนพิกัดโพสต์ย้ายไปโชว์ในหัวข้อ "พิกัดโพสต์" ซึ่งอ่านค่าจริงจาก API
  */
 export function deviceReadiness(d = {}) {
   const items = [
-    { key: 'adb',   label: 'เชื่อมต่อ ADB',           ok: d.status === 'device',          fixable: false },
-    { key: 'label', label: 'ตั้งชื่อบัญชี',            ok: !!d.label,                       fixable: false },
-    { key: 'plat',  label: 'เลือกแพลตฟอร์ม',          ok: (d.platforms?.length || 0) > 0,  fixable: false },
-    { key: 'kbd',   label: 'ADBKeyboard (พิมพ์ไทย)',  ok: d.ready_kbd ?? null,             fixable: true  },
-    { key: 'awake', label: 'จอไม่ดับ / ปลดล็อก',      ok: d.ready_awake ?? null,           fixable: true  },
-    { key: 'calib', label: `จูนพิกัดรุ่น ${d.model || ''}`.trim(), ok: d.ready_calib ?? null, fixable: true, calib: true },
+    { key: 'adb',   label: 'เชื่อมต่อ ADB',    ok: d.status === 'device' },
+    { key: 'label', label: 'ตั้งชื่อบัญชี',     ok: !!d.label },
+    { key: 'plat',  label: 'เลือกแพลตฟอร์ม',   ok: (d.platforms?.length || 0) > 0 },
   ]
   const done    = items.filter(i => i.ok === true).length
   const pending = items.filter(i => i.ok !== true)

@@ -720,7 +720,7 @@ if (window._flowAutomatorLoaded) {
   }
 
   // ── generate flow ────────────────────────────────────────────────────
-  async function runGenerate({ prompt, imageDataUrl, charImageDataUrl, bgImageDataUrl, productId, _log, dry }) {
+  async function runGenerate({ prompt, imageDataUrl, charImageDataUrl, bgImageDataUrl, moodImageDataUrl, productId, _log, dry }) {
     // ถ้ามี _log (จาก runQueue/panel) ใช้ตัวนั้นพอ ไม่ส่ง flow_log ซ้ำ
     const log = _log ? _log : (m) => { try { chrome.runtime.sendMessage({ action: "flow_log", productId, msg: m }); } catch {} };
 
@@ -768,6 +768,11 @@ if (window._flowAutomatorLoaded) {
     if (bgImageDataUrl) {
       const up3 = await uploadImage(bgImageDataUrl, log);
       log(up3.ok ? `อัปรูปฉากหลังแล้ว${up3.addedToPrompt ? " + เข้าพรอมต์" : " (แต่ไม่ได้เข้าพรอมต์!)"}` : `ข้ามรูปฉากหลัง: ${up3.error}`);
+    }
+    // รูปอ้างอิงโทนสี/อารมณ์ (prompt ระบุว่าใช้แค่โทนสี ห้ามลอกวัตถุ)
+    if (moodImageDataUrl) {
+      const up4 = await uploadImage(moodImageDataUrl, log);
+      log(up4.ok ? `อัปรูปโทนสีแล้ว${up4.addedToPrompt ? " + เข้าพรอมต์" : " (แต่ไม่ได้เข้าพรอมต์!)"}` : `ข้ามรูปโทนสี: ${up4.error}`);
     }
     await human();
 
@@ -979,10 +984,12 @@ if (window._flowAutomatorLoaded) {
     // รูปตัวละครจาก modal (background เก็บเป็น dataURL ไว้ใน storage)
     let charImageDataUrl = null;
     let bgImageDataUrl = null;
+    let moodImageDataUrl = null;
     try {
-      const g = await chrome.storage.local.get(["flow_char_img", "flow_bg_img", "flow_gen"]);
+      const g = await chrome.storage.local.get(["flow_char_img", "flow_bg_img", "flow_mood_img", "flow_gen"]);
       charImageDataUrl = g.flow_char_img || null;
-      bgImageDataUrl = g.flow_bg_img || null;   // รูปฉากหลังที่ผู้ใช้อัป (ถ้ามี)
+      bgImageDataUrl = g.flow_bg_img || null;     // รูปฉากหลังที่ผู้ใช้อัป (ถ้ามี)
+      moodImageDataUrl = g.flow_mood_img || null; // รูปอ้างอิงโทนสี/อารมณ์ (ถ้ามี)
       if (g.flow_gen && g.flow_gen.charName) log(`ผู้รีวิว: ${g.flow_gen.charName} · สไตล์: ${g.flow_gen.style || "-"}`);
     } catch {}
 
@@ -996,7 +1003,7 @@ if (window._flowAutomatorLoaded) {
       if (res.dry) return { ok: true, dryRun: true };
     } else {
       // agent: prompt เดียว ระบุ 20 วิ → agent แบ่งเอง ~2 คลิป → เก็บทุกคลิปมาต่อ
-      res = await runGenerate({ prompt, imageDataUrl, charImageDataUrl, bgImageDataUrl, productId: p.product_id || "flow", _log: log, dry });
+      res = await runGenerate({ prompt, imageDataUrl, charImageDataUrl, bgImageDataUrl, moodImageDataUrl, productId: p.product_id || "flow", _log: log, dry });
       if (!res.ok) return res;
       if (res.dryRun) return { ok: true, dryRun: true };   // โหมดทดสอบ: ไม่แจ้ง desktop
     }
@@ -1582,7 +1589,9 @@ if (window._flowAutomatorLoaded) {
   // ปุ่มโหมด (มุมขวาแถบ prompt) — ข้อความมี "crop_9_16" ทั้งโหมด video และ image
   function findModeBtn() {
     // จับทุกโหมด/สัดส่วน: image(nano banana crop_9_16/16_9/square) · video(วิดีโอ · / omni flash)
-    const cands = allClickable().filter((el) => /crop_9_16|crop_16_9|crop_squa|nano banana|omni flash|วิดีโอ ·/i.test(el.innerText || ""));
+    // crop_free = Nano Banana 2 ตั้งสัดส่วนอิสระ (โชว์ "crop_free 768×1376") — ไม่จับตัวนี้ = หาปุ่มโหมดไม่เจอ
+    // ตั้งแต่คลิปที่ 2 (ที่สลับไป Nano Banana 2 แล้ว) → เปิดป๊อปอัปไม่ได้ → เข้าโหมดเฟรมไม่ได้
+    const cands = allClickable().filter((el) => /crop_9_16|crop_16_9|crop_squa|crop_free|nano banana|omni flash|วิดีโอ ·/i.test(el.innerText || ""));
     // ★ เลือก "pill จริง" = เล็กสุดที่ขนาดสมเหตุผล (ไม่ใช่ container ครอบทั้งแถบ → คลิก center โดนที่ว่าง = ป๊อปอัปไม่เปิด)
     cands.sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width);
     return cands.find((el) => { const r = el.getBoundingClientRect(); return r.width >= 60 && r.width <= 480 && r.height >= 20 && r.height <= 90; }) || cands[0] || null;
@@ -1602,7 +1611,7 @@ if (window._flowAutomatorLoaded) {
       .filter(isVisible)
       .filter((el) => {
         const t = norm(el.innerText || el.textContent);
-        if (/crop_9_16|crop_squa|·|nano banana|omni flash|arrow_forward/i.test(t)) return false;   // ตัด "ปุ่มโหมด"/ปุ่มส่ง เอง
+        if (/crop_9_16|crop_squa|crop_free|·|nano banana|omni flash|arrow_forward/i.test(t)) return false;   // ตัด "ปุ่มโหมด"/ปุ่มส่ง เอง
         const stripped = t.replace(/^[a-z_]{3,}\s+/, "");   // ตัด icon-ligature นำหน้า เช่น "image รูปภาพ"→"รูปภาพ", "videocam วิดีโอ"→"วิดีโอ"
         return wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w) || (t.includes(w) && t.length <= w.length + 16));
       })
@@ -1653,7 +1662,22 @@ if (window._flowAutomatorLoaded) {
   const isVideoMode = () => /วิดีโอ|\bvideo\b/i.test(modeBtnText());
   const isImageMode = () => !isVideoMode() && /รูปภาพ|\bimage\b|nano banana|🍌/i.test(modeBtnText());
   // สัดส่วนปัจจุบันจากปุ่มโหมด: crop_9_16→9:16, crop_16_9→16:9, crop_square→1:1
-  const currentAspect = () => { const t = modeBtnText(); if (/crop_9_16|9:16/i.test(t)) return "9:16"; if (/crop_16_9|16:9/i.test(t)) return "16:9"; if (/crop_squa|1:1/i.test(t)) return "1:1"; return "?"; };
+  // crop_free จะโชว์ขนาดจริงแทน (เช่น "crop_free 768×1376") → คำนวณอัตราส่วนเอาเอง
+  const currentAspect = () => {
+    const t = modeBtnText();
+    if (/crop_9_16|9:16/i.test(t)) return "9:16";
+    if (/crop_16_9|16:9/i.test(t)) return "16:9";
+    if (/crop_squa|1:1/i.test(t)) return "1:1";
+    const m = t.match(/(\d{3,5})\s*[x×]\s*(\d{3,5})/i);
+    if (m) {
+      const w = +m[1], h = +m[2], r = w / h;
+      if (Math.abs(r - 9 / 16) < 0.03) return "9:16";
+      if (Math.abs(r - 16 / 9) < 0.05) return "16:9";
+      if (Math.abs(r - 1) < 0.03) return "1:1";
+      return `${w}×${h}`;
+    }
+    return "?";
+  };
   const is916 = () => currentAspect() === "9:16";
   // ตรวจ "อยู่โหมดอะไร + สัดส่วนอะไร" ตอนนี้ — ใช้ log ให้ผู้ใช้เห็นก่อน/หลังทุกขั้น (จับข้าม/เลือกผิด)
   const modeSummary = () => `${isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : "?"} · ${currentAspect()}`;
@@ -1850,18 +1874,30 @@ if (window._flowAutomatorLoaded) {
   }
 
   // ป้ายแผงในรูป collage — 2 รูป = ครึ่งซ้าย/ครึ่งขวา · 3 รูป (มีรูปฉากหลังที่ผู้ใช้อัป) = แผงซ้าย/กลาง/ขวา
-  const panelNames = (hasBgRef) => (hasBgRef
-    ? { person: "แผงซ้าย", product: "แผงกลาง", bg: "แผงขวา" }
-    : { person: "ครึ่งซ้าย", product: "ครึ่งขวา", bg: null });
-  const panelIntro = (name, hasBgRef) => {
-    const p = panelNames(hasBgRef);
-    return hasBgRef
-      ? `ภาพอ้างอิงนี้วาง 3 รูปเรียงกัน: "${p.person} = ใบหน้า/ตัวบุคคล", "${p.product} = ${name || "สินค้า"}" และ "${p.bg} = ฉากหลังที่ต้องการ"`
-      : `ภาพอ้างอิงนี้วาง 2 รูปคู่กัน: "${p.person} = ใบหน้า/ตัวบุคคล" และ "${p.product} = ${name || "สินค้า"}"`;
+  const panelNames = (hasBgRef, hasMoodRef) => {
+    if (!hasBgRef && !hasMoodRef) return { person: "ครึ่งซ้าย", product: "ครึ่งขวา", bg: null, mood: null };
+    const n = { person: "แผงที่ 1 (ซ้ายสุด)", product: "แผงที่ 2", bg: null, mood: null };
+    let i = 3;
+    if (hasBgRef) n.bg = `แผงที่ ${i++}`;
+    if (hasMoodRef) n.mood = `แผงที่ ${i++}`;
+    return n;
   };
+  const panelIntro = (name, hasBgRef, hasMoodRef) => {
+    const p = panelNames(hasBgRef, hasMoodRef);
+    if (!hasBgRef && !hasMoodRef)
+      return `ภาพอ้างอิงนี้วาง 2 รูปคู่กัน: "${p.person} = ใบหน้า/ตัวบุคคล" และ "${p.product} = ${name || "สินค้า"}"`;
+    const parts = [`"${p.person} = ใบหน้า/ตัวบุคคล"`, `"${p.product} = ${name || "สินค้า"}"`];
+    if (hasBgRef) parts.push(`"${p.bg} = ฉากหลังที่ต้องการ"`);
+    if (hasMoodRef) parts.push(`"${p.mood} = ตัวอย่างโทนสี/อารมณ์ภาพ"`);
+    return `ภาพอ้างอิงนี้วาง ${parts.length} รูปเรียงกัน: ${parts.join(", ")}`;
+  };
+  // คำสั่งโทนสีจากรูปอ้างอิง — ใช้แค่สี/แสง ห้ามลอกวัตถุ
+  const moodDirective = (hasMoodRef, panel) => (hasMoodRef
+    ? ` · ★ โทนสีและแสงของภาพให้ไล่ตาม "${panel}" (ใช้แค่โทนสี ความอิ่มสี คอนทราสต์ ทิศแสง — ห้ามลอกวัตถุ คน หรือองค์ประกอบใน${panel}มาใส่ในภาพ)`
+    : "");
   // คำสั่งฉาก — ถ้ามีรูปฉากหลังให้ยึดรูปนั้นเป็นหลัก (ข้อความฉากเป็นรายละเอียดเสริม)
-  const bgDirective = (bg, hasBgRef) => (hasBgRef
-    ? `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็นฉากใน "แผงขวา" เท่านั้น — ใช้สถานที่ มุมมอง สี แสง จากแผงขวาให้ตรง แล้ววางบุคคลลงไปในฉากนั้นอย่างกลมกลืน (เงา/แสงบนตัวบุคคลต้องเข้ากับฉาก)${bg && bg.trim() ? ` · รายละเอียดฉากเพิ่มเติม: ${bg}` : ""} · ห้ามเอาคน/สินค้าที่ติดมาในแผงขวามาใส่ในภาพ ใช้แค่ฉาก · ลบ/แทนที่พื้นหลังเดิมของแผงซ้าย(รูปคน)ทิ้งทั้งหมด`
+  const bgDirective = (bg, hasBgRef, bgPanel) => (hasBgRef
+    ? `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็นฉากใน "${bgPanel}" เท่านั้น — ใช้สถานที่ มุมมอง สี แสง จาก${bgPanel}ให้ตรง แล้ววางบุคคลลงไปในฉากนั้นอย่างกลมกลืน (เงา/แสงบนตัวบุคคลต้องเข้ากับฉาก)${bg && bg.trim() ? ` · รายละเอียดฉากเพิ่มเติม: ${bg}` : ""} · ห้ามเอาคน/สินค้าที่ติดมาใน${bgPanel}มาใส่ในภาพ ใช้แค่ฉาก · ลบ/แทนที่พื้นหลังเดิมของแผงคน(รูปคน)ทิ้งทั้งหมด`
     : `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็น "${bg && bg.trim() ? bg : "ฉากเรียบสะอาดสีพื้น"}" เท่านั้น — สร้างฉากนี้ขึ้นใหม่ทั้งหมดรอบตัวบุคคล · ลบ/แทนที่พื้นหลังเดิมของรูปอ้างอิง(ครึ่งซ้าย รูปคน)ทิ้งทั้งหมด ห้ามคงพื้นหลังเดิมจากรูปอ้างอิงเด็ดขาด`);
   // พรอมป์ที่ผู้ใช้เขียนเอง (แสง/กล้อง/ตัวละคร/ท่าทาง/ข้อห้าม) → ต่อท้ายพรอมป์เฟรม
   const extraDirective = (extra) => (extra && extra.trim()
@@ -1869,36 +1905,39 @@ if (window._flowAutomatorLoaded) {
     : "");
 
   // prompt เฟรมเริ่มแบบ collage (อ้างอิงแผงต่าง ๆ ของรูปรวม)
-  const collageStartPrompt = (name, bg, pose, hasBgRef, extra) => {
-    const p = panelNames(hasBgRef);
-    return `${panelIntro(name, hasBgRef)} — ` +
+  const collageStartPrompt = (name, bg, pose, hasBgRef, extra, hasMoodRef) => {
+    const p = panelNames(hasBgRef, hasMoodRef);
+    return `${panelIntro(name, hasBgRef, hasMoodRef)} — ` +
       `สร้างภาพใหม่ 1 ภาพ ให้บุคคลจาก${p.person} (ใช้${name || "สินค้า"}จาก${p.product}) ${pose || startPoseFor("", name)} · ` +
       `คงใบหน้า ทรงผม สีผิว ให้เหมือน${p.person}เป๊ะทุกจุด ห้ามเปลี่ยนหน้า · คงรูปทรง สี ฉลาก สินค้าให้เหมือน${p.product}เป๊ะ · ` +
-      `${bgDirective(bg, hasBgRef)} · ` +
+      `${bgDirective(bg, hasBgRef, p.bg)} · ` +
       `มือจับธรรมชาตินิ้วครบ แนวตั้ง 9:16 แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย` +
+      moodDirective(hasMoodRef, p.mood) +
       extraDirective(extra);
   };
   // prompt เฟรมจบแบบ collage — คน/สินค้าเดิม แต่ท่าชี้ตะกร้า (ใช้ collage เดียวกับเฟรมเริ่ม → แนบชัวร์ หน้าเป๊ะเท่ากัน)
-  const endCollagePrompt = (name, hasBgRef) => {
-    const p = panelNames(hasBgRef);
-    return `${panelIntro(name, hasBgRef)} — ` +
+  const endCollagePrompt = (name, hasBgRef, hasMoodRef) => {
+    const p = panelNames(hasBgRef, hasMoodRef);
+    return `${panelIntro(name, hasBgRef, hasMoodRef)} — ` +
       `สร้างภาพใหม่ 1 ภาพ: บุคคลจาก${p.person} "มือซ้าย" ถือ${name || "สินค้า"}จาก${p.product}ระดับอก "มือขวา" ชี้นิ้วลงล่างชัดเจน (ชี้ปุ่มตะกร้าใต้จอ) สีหน้ามั่นใจ ยิ้มมองกล้อง · ` +
       `${HANDS_RULE} · คงใบหน้า ทรงผม สีผิว ให้เหมือน${p.person}เป๊ะ ห้ามเปลี่ยนหน้า · คงสินค้าเหมือน${p.product}เป๊ะ ห้ามเอาพื้นหลัง/ตัวอักษรในรูปมาด้วย · ` +
       `ครึ่งตัว แนวตั้ง 9:16 เว้นที่ว่างครึ่งล่างของเฟรมให้ปุ่มตะกร้า ` +
-      `${hasBgRef ? `พื้นหลังใช้ฉากจาก${p.bg}` : "พื้นหลังเรียบสะอาดสีพื้น"} แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย`;
+      `${hasBgRef ? `พื้นหลังใช้ฉากจาก${p.bg}` : "พื้นหลังเรียบสะอาดสีพื้น"} แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย` +
+      moodDirective(hasMoodRef, p.mood);
   };
 
   // เตรียม ref + prompt สำหรับ "เฟรมเริ่ม" — รวมรูปถ้าได้ (แนบเดียว) ไม่ได้ค่อย fallback แนบแยกรูป
-  async function startRefsAndPrompt(faceUrl, productUrl, name, optPrompt, log, bg, pose, bgImg, extra) {
-    const hasBgRef = !!bgImg;
+  async function startRefsAndPrompt(faceUrl, productUrl, name, optPrompt, log, bg, pose, bgImg, extra, moodImg) {
+    const hasBgRef = !!bgImg, hasMoodRef = !!moodImg;
+    const what = ["หน้า", "สินค้า"].concat(hasBgRef ? ["ฉากหลัง"] : [], hasMoodRef ? ["โทนสี"] : []).join("+");
     try {
-      const combined = await combineRefs(faceUrl, productUrl, bgImg);
-      log(hasBgRef ? "รวมหน้า+สินค้า+ฉากหลังเป็นรูปเดียว ✓ (แนบครั้งเดียว)" : "รวมหน้า+สินค้าเป็นรูปเดียว ✓ (แนบครั้งเดียว)");
-      return { refs: [combined], hasBgRef, prompt: optPrompt || collageStartPrompt(name, bg, pose, hasBgRef, extra) };
+      const combined = await combineRefs(faceUrl, productUrl, bgImg, moodImg);
+      log(`รวม${what}เป็นรูปเดียว ✓ (แนบครั้งเดียว)`);
+      return { refs: [combined], hasBgRef, hasMoodRef, prompt: optPrompt || collageStartPrompt(name, bg, pose, hasBgRef, extra, hasMoodRef) };
     } catch (e) {
       log(`รวมรูปไม่สำเร็จ (${e && e.message || e}) → แนบรูปแยกแทน`);
       return {
-        refs: [faceUrl, productUrl, bgImg].filter(Boolean), hasBgRef,
+        refs: [faceUrl, productUrl, bgImg, moodImg].filter(Boolean), hasBgRef, hasMoodRef,
         prompt: optPrompt || defaultComposePrompt(name, bg, pose, hasBgRef, extra),
       };
     }
@@ -1998,11 +2037,12 @@ if (window._flowAutomatorLoaded) {
     ["action", "ท่าทาง"], ["avoid", "ข้อห้าม"],
   ];
   async function resolveComposeInputs(opts) {
-    let { faceUrl, productUrl, name, bg, style, bgImg, extra } = opts;
+    let { faceUrl, productUrl, name, bg, style, bgImg, extra, moodImg } = opts;
     try {
-      const d = await chrome.storage.local.get(["flow_char_img", "flow_bg_img", "products", "flow_gen"]);
+      const d = await chrome.storage.local.get(["flow_char_img", "flow_bg_img", "flow_mood_img", "products", "flow_gen"]);
       faceUrl = faceUrl || d.flow_char_img;
       if (bgImg === undefined) bgImg = d.flow_bg_img || null;   // รูปฉากหลังที่ผู้ใช้อัปในหน้าเว็บ
+      if (moodImg === undefined) moodImg = d.flow_mood_img || null;   // รูปอ้างอิงโทนสี/อารมณ์
       const p = (d.products || [])[0];
       if (!productUrl) productUrl = (p && ((p.images_b64 || [])[0] || (p.images || [])[0])) || null;
       if (!name) name = p && p.basic_info && p.basic_info.name;
@@ -2015,7 +2055,7 @@ if (window._flowAutomatorLoaded) {
           .map(([k, label]) => `${label}: ${String(pr[k]).trim()}`).join(" · ");
       }
     } catch {}
-    return { faceUrl, productUrl, name, bg, style, bgImg: bgImg || null, extra: extra || "" };
+    return { faceUrl, productUrl, name, bg, style, bgImg: bgImg || null, moodImg: moodImg || null, extra: extra || "" };
   }
   const mkLog = (opts) => {
     const steps = [];
@@ -2026,15 +2066,16 @@ if (window._flowAutomatorLoaded) {
   // เฟรมเริ่มอย่างเดียว (เทส) — ภาพ "คนถือสินค้า"
   async function composeStill(opts = {}) {
     const { steps, log } = mkLog(opts);
-    const { faceUrl, productUrl, name, bg, style, bgImg, extra } = await resolveComposeInputs(opts);
+    const { faceUrl, productUrl, name, bg, style, bgImg, moodImg, extra } = await resolveComposeInputs(opts);
     if (!faceUrl) return { ok: false, error: "ไม่มีรูปหน้า (flow_char_img) — ตั้งค่าตัวละครก่อน", steps };
     if (!productUrl) return { ok: false, error: "ไม่มีรูปสินค้า — สแครปสินค้าก่อน", steps };
     if (bg) log(`ฉากหลังตามที่เลือก: ${bg.slice(0, 40)}`);
     if (bgImg) log("มีรูปฉากหลังที่ผู้ใช้อัป → ใช้เป็นภาพอ้างอิงฉาก");
+    if (moodImg) log("มีรูปอ้างอิงโทนสี → ใช้คุมสี/แสงของภาพ");
     if (extra) log(`พรอมป์ผู้ใช้ (เฟรม): ${extra.slice(0, 60)}`);
     const pose = startPoseFor(style, name);
     if (style === "demo") log("สไตล์ demo → เฟรมเริ่มเป็น 'กำลังใช้งานสินค้า' (สาธิตจริง)");
-    const { refs, prompt } = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose, bgImg, extra);
+    const { refs, prompt } = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose, bgImg, extra, moodImg);
     const r = await genImage({ refs, prompt, count: opts.count || "1x", log });
     return { ...r, steps };
   }
@@ -2043,14 +2084,15 @@ if (window._flowAutomatorLoaded) {
   // เฟรมเริ่ม + เฟรมจบ (CTA) — เฟรมจบสร้าง "จากเฟรมเริ่ม" ให้คน/ของ/ฉากเหมือนกัน → Veo interpolate นิ่ง
   async function composePair(opts = {}) {
     const { steps, log } = mkLog(opts);
-    const { faceUrl, productUrl, name, bg, style, bgImg, extra } = await resolveComposeInputs(opts);
+    const { faceUrl, productUrl, name, bg, style, bgImg, moodImg, extra } = await resolveComposeInputs(opts);
     if (!faceUrl) return { ok: false, error: "ไม่มีรูปหน้า (flow_char_img)", steps };
     if (!productUrl) return { ok: false, error: "ไม่มีรูปสินค้า", steps };
     const pose = startPoseFor(style, name);
     if (bgImg) log("มีรูปฉากหลังที่ผู้ใช้อัป → ใช้เป็นภาพอ้างอิงฉาก");
+    if (moodImg) log("มีรูปอ้างอิงโทนสี → ใช้คุมสี/แสงของภาพ");
     if (extra) log(`พรอมป์ผู้ใช้ (เฟรม): ${extra.slice(0, 60)}`);
     log(style === "demo" ? "=== [1/2] สร้างเฟรมเริ่ม: กำลังใช้งานสินค้า (สาธิตจริง) ===" : "=== [1/2] สร้างเฟรมเริ่ม: คนถือสินค้า ===");
-    const sp = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose, bgImg, extra);
+    const sp = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose, bgImg, extra, moodImg);
     const start = await genImage({ refs: sp.refs, prompt: sp.prompt, count: opts.count || "1x", log });
     if (!start.ok) return { ok: false, stage: "start", error: start.error, steps };
     const startUrl = start.images[start.images.length - 1];
@@ -2061,7 +2103,7 @@ if (window._flowAutomatorLoaded) {
       log("เอาเฟรมเริ่ม re-encode → ใช้เป็น ref เฟรมจบ (คน/ฉาก/แสงต่อเนื่องสุด)");
       end = await genImage({ refs: [reenc], prompt: opts.endPrompt || endComposePrompt(), count: "1x", log });
     } else {
-      end = await genImage({ refs: sp.refs, prompt: opts.endPrompt || endCollagePrompt(name, sp.hasBgRef), count: "1x", log });
+      end = await genImage({ refs: sp.refs, prompt: opts.endPrompt || endCollagePrompt(name, sp.hasBgRef, sp.hasMoodRef), count: "1x", log });
     }
     if (!end.ok) return { ok: false, stage: "end", error: end.error, startImage: startUrl, steps };
     const endUrl = end.images[end.images.length - 1];

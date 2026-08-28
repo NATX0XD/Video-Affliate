@@ -141,7 +141,7 @@ function CreateInner() {
         {step === 1 && (
           <StepReviewer o={o} set={set} selfPhoto={selfPhoto} onSelfPhoto={setSelfPhoto}
             modelRef={modelRef} onSnap={() => { const s = modelRef.current?.capture?.(); if (s) setPresetSnap(s) }}
-            onError={m => toast.error(m)} />
+            onNotify={m => toast.success(m)} onError={m => toast.error(m)} />
         )}
         {step === 2 && <StepStyle o={o} set={set} />}
         {step === 3 && <StepLook o={o} set={set} onNotify={m => toast.success(m)} onError={m => toast.error(m)} />}

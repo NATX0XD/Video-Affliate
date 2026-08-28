@@ -7,7 +7,7 @@ import { GEN_PROMPT_FIELDS } from '@/lib/gen-options'
 
 const fieldOf = key => GEN_PROMPT_FIELDS.find(f => f.key === key)
 
-export function Topic({ label, fieldKey, prompts, onPrompts, hint, children, onClear }) {
+export function Topic({ label, fieldKey, prompts, onPrompts, hint, children, onClear, custom: extra }) {
   const typed = !!(prompts[fieldKey] || '').trim()
   const [custom, setCustom] = useState(typed)
   const f = fieldOf(fieldKey)
@@ -37,13 +37,17 @@ export function Topic({ label, fieldKey, prompts, onPrompts, hint, children, onC
       </div>
 
       {custom
-        ? <textarea
-            value={prompts[fieldKey] || ''}
-            onChange={e => onPrompts({ ...prompts, [fieldKey]: e.target.value })}
-            placeholder={f?.ph}
-            rows={3}
-            className="w-full resize-y rounded-xl border border-accent/40 bg-surface px-3.5 py-2.5 t-body
-                       text-ink placeholder:text-ink-mute outline-none focus:border-accent" />
+        ? <div className="flex flex-col gap-3">
+            <textarea
+              value={prompts[fieldKey] || ''}
+              onChange={e => onPrompts({ ...prompts, [fieldKey]: e.target.value })}
+              placeholder={f?.ph}
+              rows={3}
+              className="w-full resize-y rounded-xl border border-accent/40 bg-surface px-3.5 py-2.5 t-body
+                         text-ink placeholder:text-ink-mute outline-none focus:border-accent" />
+            {/* กล่องอัปรูป/บันทึกของหัวข้อนั้น — โผล่ทันทีที่กด "เขียนเอง" ไม่ต้องรอพิมพ์ก่อน */}
+            {extra}
+          </div>
         : children}
     </section>
   )

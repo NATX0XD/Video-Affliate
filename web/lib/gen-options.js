@@ -91,6 +91,7 @@ export const GEN_PROMPT_FIELDS = [
   { key: 'light',  label: 'แสง',        visual: true,  ph: 'เช่น แสงธรรมชาติเข้าจากหน้าต่างซ้าย เงานุ่ม มี rim light ขอบไหล่' },
   { key: 'mood',   label: 'อารมณ์/โทนสี', override: 'moodPrompt', visual: true,  ph: 'เช่น โทนฟิล์มอุ่น คอนทราสต์ต่ำ สีเขียว-ครีม' },
   { key: 'camera', label: 'กล้อง/มุมภาพ', visual: true,  ph: 'เช่น เลนส์ 50mm ระดับสายตา หน้าชัดหลังเบลอ กล้องนิ่ง' },
+  { key: 'aud',    label: 'กลุ่มเป้าหมาย', override: 'audHint', ph: 'เช่น แม่ค้าออนไลน์อายุ 30-45 ที่อยากได้ของช่วยแพ็กของเร็วขึ้น' },
   { key: 'char',   label: 'ตัวละคร',     override: 'charDesc',   visual: true,  ph: 'เช่น ผู้หญิงไทย 25 ปี ผมยาวสีน้ำตาล เสื้อเชิ้ตขาว' },
   { key: 'action', label: 'ท่าทาง/การเคลื่อนไหว', visual: true, i2v: true, ph: 'เช่น เริ่มจากถือสินค้าระดับอก แล้วหมุนโชว์ฉลากช้าๆ' },
   { key: 'script', label: 'บทพูด',       i2v: true, ph: 'เช่น เปิดด้วย "อย่าเพิ่งเลื่อนผ่าน!" แล้วย้ำราคา 2 ครั้ง' },
@@ -106,6 +107,9 @@ export const GEN_DEFAULT = {
   bgImage: null,      // dataURL รูปฉากหลังที่ผู้ใช้อัป → ใช้เป็นรูปอ้างอิงฉากใน Google Flow
   bgImageName: '',
   sceneId: '',        // id "ฉากของฉัน" ที่เลือกอยู่ (ไว้ไฮไลต์การ์ด — ไม่ส่งเข้า Flow)
+  moodImage: null,    // dataURL รูปอ้างอิง "โทนสี/อารมณ์ภาพ" ที่ผู้ใช้อัป
+  moodImageName: '',
+  faceId: '',         // id รูปหน้าที่บันทึกไว้ (ไว้ไฮไลต์การ์ด)
 }
 
 // เก็บเฉพาะหัวข้อที่พิมพ์จริง (ตัดช่องว่าง/ค่าว่างทิ้ง)
@@ -186,6 +190,7 @@ export function buildGen(o, snapshot = null) {
     // พรอมป์เขียนเอง: ส่งทั้งก้อน (ให้ background ฉีดเป็นบล็อกคำสั่งผู้ใช้) + รูปฉากหลัง
     prompts, promptLines: promptLinesOf(prompts), motionLines: motionLinesOf(prompts),
     bgImage: o.bgImage || null,
+    moodImage: o.moodImage || null,
   }
   // หัวข้อที่มี override → ทับค่าพรีเซ็ต เพื่อให้ทุกขั้น (Gemini + compose เฟรม) ใช้ข้อความเดียวกัน
   for (const f of GEN_PROMPT_FIELDS) {

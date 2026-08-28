@@ -331,6 +331,56 @@ class WebServer:
                 self.db.set_config(f"post_coords:{serial}", "")
             return {"ok": True}
 
+        # ── ชุดพิกัดที่บันทึกไว้ (ใช้ซ้ำข้ามเครื่องรุ่นเดียวกัน) ──────────────
+        # builtin = ชุดที่มากับโปรแกรม (แยกตามความละเอียดจอ) · saved = ที่ผู้ใช้บันทึกเอง
+        def _coord_sets() -> dict:
+            if not self.db:
+                return {}
+            raw = self.db.get_config("coord_sets", "") or ""
+            try:
+                d = json.loads(raw) if raw.strip() else {}
+                return d if isinstance(d, dict) else {}
+            except Exception:
+                return {}
+
+        @app.get("/api/coords/presets")
+        def list_coord_presets():
+            from services.adb.autoposter import AutoPoster
+            builtin = [
+                {"id": f"builtin:{w}x{h}", "name": f"จอ {w}×{h} (มากับโปรแกรม)",
+                 "coords": {k: list(v) for k, v in c.items()}, "builtin": True}
+                for (w, h), c in AutoPoster.R_PRESETS.items()
+            ]
+            saved = [{"id": f"saved:{n}", "name": n, "coords": c, "builtin": False}
+                     for n, c in _coord_sets().items()]
+            return {"ok": True, "presets": builtin + saved}
+
+        @app.post("/api/coords/presets")
+        async def save_coord_preset(body: dict):
+            """บันทึกชุดพิกัดปัจจุบันไว้ใช้กับเครื่องอื่น — {name, coords}"""
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            name = (body.get("name") or "").strip()
+            coords = body.get("coords")
+            if not name:
+                return {"ok": False, "error": "ยังไม่ได้ตั้งชื่อชุดพิกัด"}
+            if not isinstance(coords, dict) or not coords:
+                return {"ok": False, "error": "ยังไม่มีพิกัดให้บันทึก"}
+            sets = _coord_sets()
+            replaced = name in sets
+            sets[name] = coords
+            self.db.set_config("coord_sets", json.dumps(sets, ensure_ascii=False))
+            return {"ok": True, "replaced": replaced}
+
+        @app.delete("/api/coords/presets/{name}")
+        def delete_coord_preset(name: str):
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            sets = _coord_sets()
+            sets.pop(name, None)
+            self.db.set_config("coord_sets", json.dumps(sets, ensure_ascii=False))
+            return {"ok": True}
+
         @app.post("/api/mirror/start/{serial}")
         def mirror_start(serial: str):
             self._ensure_mirror(serial)
@@ -978,16 +1028,110 @@ class WebServer:
 
         # ── อัปเดต extension เอง (ปุ่มในหน้า Settings) — ดึงล่าสุดจาก GitHub ลงโฟลเดอร์ extension ──
         # ใช้คำสั่งเดียวกับที่ผู้ใช้พิมพ์ใน Terminal (curl|tar) แต่รันให้จากเซิร์ฟเวอร์
+        # ── อัปเดตตัวโปรแกรม ────────────────────────────────────────────────
+        # โฟลเดอร์ติดตั้งเป็น git clone อยู่แล้ว → เทียบ commit ที่รันอยู่กับ main บน GitHub
+        def _app_root():
+            from pathlib import Path
+            return Path(__file__).resolve().parents[2]
+
+        def _git(*args, timeout=25):
+            import subprocess
+            try:
+                r = subprocess.run(["git", *args], cwd=str(_app_root()), timeout=timeout,
+                                   capture_output=True, text=True)
+                return r.returncode == 0, (r.stdout or r.stderr or "").strip()
+            except Exception as e:
+                return False, str(e)[:200]
+
+        @app.get("/api/app/update-check")
+        def app_update_check():
+            import httpx
+            root = _app_root()
+            if not (root / ".git").exists():
+                return {"ok": True, "supported": False,
+                        "reason": "โฟลเดอร์นี้ไม่ได้ติดตั้งผ่าน git — อัปเดตด้วยการโหลดตัวติดตั้งใหม่"}
+            ok, cur = _git("rev-parse", "HEAD")
+            if not ok:
+                return {"ok": True, "supported": False, "reason": "อ่านเวอร์ชันในเครื่องไม่ได้"}
+            try:
+                r = httpx.get("https://api.github.com/repos/NATX0XD/Video-Affliate/commits/main",
+                              timeout=12, headers={"Accept": "application/vnd.github+json"})
+                data = r.json()
+                latest = data.get("sha") or ""
+                msg = ((data.get("commit") or {}).get("message") or "").split("\n")[0]
+            except Exception as e:
+                return {"ok": False, "supported": True, "error": f"เช็กอัปเดตไม่ได้: {str(e)[:120]}"}
+            if not latest:
+                return {"ok": False, "supported": True, "error": "GitHub ไม่ตอบข้อมูลเวอร์ชัน"}
+            return {"ok": True, "supported": True, "current": cur[:7], "latest": latest[:7],
+                    "update_available": cur[:40] != latest[:40], "message": msg}
+
+        @app.post("/api/app/update")
+        def app_update():
+            """ดึงโค้ดล่าสุดจาก main — ต้องปิดเปิดโปรแกรมเองหลังอัปเดต"""
+            root = _app_root()
+            if not (root / ".git").exists():
+                return {"ok": False, "error": "โฟลเดอร์นี้ไม่ได้ติดตั้งผ่าน git — ต้องโหลดตัวติดตั้งใหม่"}
+            ok, out = _git("status", "--porcelain")
+            if ok and out.strip():
+                return {"ok": False, "error": "มีไฟล์ที่แก้ค้างไว้ในโฟลเดอร์ติดตั้ง — อัปเดตอัตโนมัติไม่ได้ (กันงานหาย)"}
+            ok, out = _git("fetch", "--depth", "1", "origin", "main", timeout=90)
+            if not ok:
+                return {"ok": False, "error": f"ดึงข้อมูลไม่สำเร็จ: {out[:180]}"}
+            ok, out = _git("reset", "--hard", "origin/main", timeout=60)
+            if not ok:
+                return {"ok": False, "error": f"อัปเดตไม่สำเร็จ: {out[:180]}"}
+            _, ver = _git("rev-parse", "--short", "HEAD")
+            self.emit_log(f"[UPDATE] อัปเดตโปรแกรมเป็น {ver} แล้ว — ปิดแล้วเปิดโปรแกรมใหม่เพื่อใช้เวอร์ชันใหม่")
+            return {"ok": True, "version": ver, "restart_required": True}
+
+        # ดึงโฟลเดอร์ extension ล่าสุดจาก GitHub — ต้องทำงานได้ทั้ง mac/linux และ Windows
+        # เดิมใช้ `curl | tar ... 'path'` ผ่าน shell: cmd.exe ไม่รู้จัก single quote และไม่มี pipe แบบเดียวกัน
+        # → บน Windows ล้มเงียบทุกครั้ง. เปลี่ยนมาโหลดไฟล์แล้วแตกด้วย Python เอง (ไม่พึ่ง shell)
+        def _pull_ext(root, timeout=90):
+            import io, tarfile, shutil, tempfile, urllib.request
+            from types import SimpleNamespace
+            url = "https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz"
+            try:
+                with urllib.request.urlopen(url, timeout=timeout) as resp:
+                    blob = resp.read()
+            except Exception as e:
+                return SimpleNamespace(returncode=1, stderr=f"โหลดไฟล์ไม่ได้: {str(e)[:160]}")
+            prefix = "Video-Affliate-main/extension/"
+            tmp = tempfile.mkdtemp(prefix="vgap-ext-")
+            try:
+                with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
+                    members = [m for m in tf.getmembers() if m.name.startswith(prefix)]
+                    if not members:
+                        return SimpleNamespace(returncode=1, stderr="ไม่พบโฟลเดอร์ extension ในไฟล์ที่โหลดมา")
+                    for m in members:
+                        rel = m.name[len(prefix):]
+                        if not rel or ".." in rel.split("/"):   # กัน path traversal
+                            continue
+                        m2 = tf.getmember(m.name)
+                        m2.name = rel
+                        tf.extract(m2, tmp)
+                dest = root / "extension"
+                for item in Path(tmp).iterdir():               # ทับทีละไฟล์ ไม่ลบทั้งโฟลเดอร์ก่อน
+                    target = dest / item.name
+                    if item.is_dir():
+                        shutil.copytree(item, target, dirs_exist_ok=True)
+                    else:
+                        dest.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(item, target)
+                return SimpleNamespace(returncode=0, stderr="")
+            except Exception as e:
+                return SimpleNamespace(returncode=1, stderr=f"แตกไฟล์ไม่สำเร็จ: {str(e)[:160]}")
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+
         @app.post("/api/ext/update")
         def ext_update():
             import subprocess, json as _json
             from pathlib import Path
             root = Path(__file__).resolve().parents[2]      # โฟลเดอร์ติดตั้ง (มี extension/ อยู่ข้างใน)
-            cmd = ("curl -fsSL https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz "
-                   "| tar xz --strip-components=1 'Video-Affliate-main/extension'")
             try:
-                r = subprocess.run(cmd, shell=True, cwd=str(root), timeout=90,
-                                   capture_output=True, text=True)
+                r = _pull_ext(root, timeout=90)
                 if r.returncode != 0:
                     return {"ok": False, "error": (r.stderr or "ดึงไฟล์ไม่สำเร็จ").strip()[:300]}
                 ver = _json.loads((root / "extension" / "manifest.json").read_text())["version"]
@@ -1005,10 +1149,8 @@ class WebServer:
             if _os.environ.get("VGAP_NO_EXT_PULL") == "1":
                 return
             root = Path(__file__).resolve().parents[2]
-            cmd = ("curl -fsSL https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz "
-                   "| tar xz --strip-components=1 'Video-Affliate-main/extension'")
             try:
-                subprocess.run(cmd, shell=True, cwd=str(root), timeout=90, capture_output=True)
+                _pull_ext(root, timeout=90)
             except Exception:
                 pass
         try:
@@ -1415,6 +1557,79 @@ class WebServer:
             self.ws.broadcast_sync({"type": "flow_video", "pid": pid, "name": sidecar["name"]})
             ready = self.db.count(GENERATED)   # คลิปพร้อมโพสต์
             return {"ok": True, "pid": pid, "ready": ready}
+
+        # ── บัญชี Google Flow (หมุนอัตโนมัติเมื่อเครดิตหมด) ─────────────────
+        # เก็บแค่ "อีเมล" ไม่เก็บรหัสผ่าน — ผู้ใช้ล็อกอินเองใน Chrome ครั้งเดียวต่อบัญชี
+        # extension ดึงรายการนี้ไปไว้ใน chrome.storage แล้วสลับด้วยเมนูบัญชีของ Google เอง
+        def _flow_accounts() -> list:
+            if not self.db:
+                return []
+            raw = self.db.get_config("flow_accounts", "") or ""
+            try:
+                d = json.loads(raw) if raw.strip() else []
+                return d if isinstance(d, list) else []
+            except Exception:
+                return []
+
+        def _flow_credits() -> dict:
+            if not self.db:
+                return {}
+            raw = self.db.get_config("flow_credits", "") or ""
+            try:
+                d = json.loads(raw) if raw.strip() else {}
+                return d if isinstance(d, dict) else {}
+            except Exception:
+                return {}
+
+        @app.get("/api/flow/accounts")
+        def list_flow_accounts():
+            accts = _flow_accounts()
+            credits = _flow_credits()
+            per_clip = 15
+            for a in accts:
+                c = credits.get((a.get("email") or "").lower()) or {}
+                a["credit"] = c.get("value")
+                a["credit_at"] = c.get("at")
+                a["usable"] = (not a.get("paused")) and (c.get("value") is None or c.get("value") >= per_clip)
+            return {"ok": True, "accounts": accts, "per_clip": per_clip}
+
+        @app.post("/api/flow/accounts")
+        async def save_flow_accounts(body: dict):
+            """บันทึกรายการบัญชีทั้งชุด — [{email, label, paused}]"""
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            accts = body.get("accounts")
+            if not isinstance(accts, list):
+                return {"ok": False, "error": "รูปแบบข้อมูลไม่ถูกต้อง"}
+            clean, seen = [], set()
+            for a in accts:
+                if not isinstance(a, dict):
+                    continue
+                email = (a.get("email") or "").strip().lower()
+                if not email or "@" not in email or email in seen:
+                    continue
+                seen.add(email)
+                clean.append({"email": email,
+                              "label": (a.get("label") or "").strip(),
+                              "paused": bool(a.get("paused"))})
+            self.db.set_config("flow_accounts", json.dumps(clean, ensure_ascii=False))
+            self.emit_log(f"[FLOW] บัญชีสำหรับหมุนเครดิต: {len(clean)} บัญชี")
+            return {"ok": True, "count": len(clean)}
+
+        @app.post("/api/flow/credits")
+        async def report_flow_credits(body: dict):
+            """extension รายงานเครดิตที่อ่านได้จากหน้า Flow — {email, value}"""
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            self._touch_extension()
+            email = (body.get("email") or "").strip().lower()
+            val = body.get("value")
+            if not email:
+                return {"ok": False, "error": "ไม่มีอีเมล"}
+            credits = _flow_credits()
+            credits[email] = {"value": val, "at": int(time.time())}
+            self.db.set_config("flow_credits", json.dumps(credits, ensure_ascii=False))
+            return {"ok": True}
 
         @app.get("/api/flow/status")
         def flow_status():

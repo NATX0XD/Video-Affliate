@@ -9,7 +9,8 @@ import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { CaptionBuilder } from '@/components/ui/CaptionBuilder'
 import { useToast } from '@/components/ui/Toast'
 import { termTh, termHint, MSG } from '@/lib/copy'
-import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound, Wrench, RefreshCw } from 'lucide-react'
+import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound, Wrench, RefreshCw, Users } from 'lucide-react'
+import { FlowAccounts } from '@/components/settings/FlowAccounts'
 
 // ── helpers ───────────────────────────────────────────────────────
 
@@ -199,6 +200,15 @@ export default function SettingsPage() {
                    info={termHint('google_api_key')}
                    value={apiKey} onChange={setApiKey}
                    placeholder={keySet ? 'ตั้งไว้แล้ว ✓ — กรอกใหม่เพื่อเปลี่ยน' : 'วางคีย์ที่นี่ (ขึ้นต้น AIza…)'} />
+          </Row>
+
+          {/* ══ บัญชี Google Flow ═════════════════════ */}
+          <Section title="บัญชี Google Flow" subtitle="ใส่หลายบัญชีให้ระบบสลับเองเมื่อเครดิตหมด — เก็บแค่อีเมล ไม่เก็บรหัสผ่าน" />
+          <Row icon={Users} delay={33}
+               title="บัญชีสำหรับหมุนเครดิต"
+               info="เครดิต Flow หมดต่อบัญชี ระบบจะสลับไปบัญชีถัดไปที่ยังมีเครดิตแล้วรันคิวต่อให้เอง ต้องล็อกอินบัญชีนั้นค้างไว้ใน Chrome ก่อน"
+               desc="เพิ่ม/ลบบัญชี ดูเครดิตคงเหลือรายบัญชี และพักบัญชีที่ไม่อยากให้ใช้ชั่วคราว">
+            <FlowAccounts onNotify={m => toast.success(m)} onError={m => toast.error(m)} />
           </Row>
 
           {/* ══ ตัวเชื่อม Google Flow ═════════════════════ */}

@@ -46,7 +46,10 @@ echo    - อินเทอร์เน็ตหลุด / ดาวน์โ�
 echo    - ขึ้นว่าไม่พบ winget  =^> อัปเดต "App Installer" จาก Microsoft Store ก่อน
 echo    - ติด SmartScreen/Antivirus  =^> กด "More info" แล้ว "Run anyway"
 echo.
-echo  ลองดับเบิลคลิก "ติดตั้ง.bat" ใหม่อีกครั้ง หรือส่งรูปข้อความ error มาให้ทีมงาน
+echo  ลองดับเบิลคลิก "ติดตั้ง.bat" ใหม่อีกครั้ง
+echo.
+echo  ส่ง log ให้ทีมงานดูได้ที่:
+echo    %LOCALAPPDATA%\vgap-tools\setup-log.txt
 echo.
 pause
 exit /b 1

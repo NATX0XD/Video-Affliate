@@ -18,7 +18,20 @@ import {
 } from 'lucide-react'
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
-const FARM_SIZE = 20   // จำนวนช่องในฟาร์ม (โชว์ค้างไว้ รอเชื่อมต่อ)
+const FARM_SIZE = 20   // เพดานจำนวนเครื่องที่รองรับ (ใช้โชว์ตัวเลข "ออนไลน์ x/20")
+
+// รูปแบบการจัดกริด — จำค่าที่ผู้ใช้เลือกไว้ใน localStorage
+const VIEWS = [
+  { id: 'auto',  label: 'พอดีเครื่องที่ต่อ', hint: 'โชว์เครื่องที่ต่ออยู่ + ช่องว่าง 1 ช่อง' },
+  { id: 'all',   label: 'ทุกช่อง',          hint: `โชว์ครบ ${FARM_SIZE} ช่อง` },
+]
+
+// ขนาดการ์ด — จอกว้างขึ้นควรได้การ์ดใหญ่ขึ้น ไม่ใช่ยัดเพิ่มจนแคบ
+const SIZES = [
+  { id: 'lg', label: 'ใหญ่',  min: 300 },
+  { id: 'md', label: 'กลาง', min: 230 },
+  { id: 'sm', label: 'เล็ก',  min: 170 },
+]
 
 export default function MirrorFarmPage() {
   const { state, patch } = useApp()
@@ -32,6 +45,20 @@ export default function MirrorFarmPage() {
 
   const devices = state.devices || []
   const online  = devices.filter(d => d.status === 'device')
+
+  // รูปแบบกริด (จำค่าไว้ในเครื่อง) — auto = เท่าที่ต่อ + ว่าง 1 ช่อง
+  const [view, setView] = useState('auto')
+  useEffect(() => {
+    try { const v = localStorage.getItem('farm_view'); if (v) setView(v) } catch {}
+  }, [])
+  useEffect(() => { try { localStorage.setItem('farm_view', view) } catch {} }, [view])
+  const [size, setSize] = useState('lg')
+  useEffect(() => {
+    try { const z = localStorage.getItem('farm_size'); if (z) setSize(z) } catch {}
+  }, [])
+  useEffect(() => { try { localStorage.setItem('farm_size', size) } catch {} }, [size])
+  const cardMin = (SIZES.find(z => z.id === size) || SIZES[0]).min
+  const slotCount = view === 'all' ? Math.max(FARM_SIZE, online.length) : online.length + 1
   const ready   = state.ws_connected   // ต้องเชื่อมต่อโปรแกรมหลักก่อน จึงสแกน/เชื่อมมือถือได้
 
   useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
@@ -132,9 +159,33 @@ export default function MirrorFarmPage() {
         </div>
       )}
 
+      {/* เลือกรูปแบบการแสดง — ฟาร์ม 20 ช่องเปล่าดูรกเวลาต่อเครื่องเดียว */}
+      <div className="flex items-center gap-2 flex-wrap animate-fade-up">
+        <span className="t-cap">การแสดงผล</span>
+        {VIEWS.map(v => (
+          <button key={v.id} type="button" onClick={() => setView(v.id)} title={v.hint}
+            className={`px-3 py-1.5 rounded-lg t-cap font-semibold border transition-colors
+              ${view === v.id
+                ? 'border-accent bg-accent-wash text-accent-ink'
+                : 'border-border text-muted-foreground hover:text-foreground'}`}>
+            {v.label}
+          </button>
+        ))}
+        <span className="t-cap ml-3">ขนาดการ์ด</span>
+        {SIZES.map(z => (
+          <button key={z.id} type="button" onClick={() => setSize(z.id)}
+            className={`px-3 py-1.5 rounded-lg t-cap font-semibold border transition-colors
+              ${size === z.id
+                ? 'border-accent bg-accent-wash text-accent-ink'
+                : 'border-border text-muted-foreground hover:text-foreground'}`}>
+            {z.label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid gap-4 lg:gap-5 animate-fade-up"
-           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-        {Array.from({ length: Math.max(FARM_SIZE, online.length) }).map((_, i) => (
+           style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${cardMin}px), 1fr))` }}>
+        {Array.from({ length: slotCount }).map((_, i) => (
           online[i]
             ? <PhoneCard key={online[i].serial} device={online[i]} ts={ts} live={live === true} index={i} onOpen={() => setFs(online[i].serial)} />
             : <EmptySlot key={`slot-${i}`} n={i + 1} />

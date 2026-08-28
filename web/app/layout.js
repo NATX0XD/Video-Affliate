@@ -1,6 +1,7 @@
 import './globals.css'
 import { Inter, IBM_Plex_Sans_Thai } from 'next/font/google'
 import { ToastProvider } from '@/components/ui/Toast'
+import { UpdatePrompt } from '@/components/UpdatePrompt'
 import { PWA } from '@/components/ui/PWA'
 
 const inter = Inter({
@@ -52,6 +53,7 @@ export default function RootLayout({ children }) {
         <ToastProvider>
           {children}
           <PWA />
+          <UpdatePrompt />
         </ToastProvider>
       </body>
     </html>

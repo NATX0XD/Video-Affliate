@@ -1,106 +1,180 @@
-# setup-prereqs.ps1 - install everything via direct download (NO winget, NO admin needed)
-# Installs: Python 3.11, Node.js (portable), adb, scrcpy v4.0, ffmpeg (+ PATH), pip deps, build web
-# Run:  powershell -ExecutionPolicy Bypass -File setup-prereqs.ps1
+# setup-prereqs.ps1 - ติดตั้งเครื่องมือทั้งหมดด้วยการโหลดตรง (ไม่ใช้ winget ไม่ต้องสิทธิ์แอดมิน)
+# ลง: Python 3.11, adb, scrcpy v4.0, ffmpeg (+ ใส่ PATH), pip deps, (Node เฉพาะตอนต้อง build เว็บ)
+# รัน:  powershell -ExecutionPolicy Bypass -File setup-prereqs.ps1
+#
+# หลักการ: แต่ละขั้นแยกกัน ล้มขั้นไหนก็บอกชัด ๆ แล้วไปต่อ (ยกเว้น Python + pip ที่ขาดไม่ได้)
+# ทุกอย่างเขียนลง log ไฟล์เดียว ผู้ใช้ส่งไฟล์นี้มาให้ดูได้เลยเวลาติดปัญหา
 
-$ErrorActionPreference = "Stop"
-$ProgressPreference = "SilentlyContinue"   # speeds up Invoke-WebRequest a lot
+$ProgressPreference = "SilentlyContinue"   # เร็วขึ้นมากตอน Invoke-WebRequest
 $root  = $PSScriptRoot
 if (-not $root) { $root = (Get-Location).Path }
 $tools = Join-Path $env:LOCALAPPDATA "vgap-tools"
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
+$LogFile = Join-Path $tools "setup-log.txt"
+"=== VDO Gen Auto Pilot setup · $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File $LogFile -Encoding utf8
 
+$script:Failures = @()
+
+function Log($msg) {
+  $msg | Out-File $LogFile -Append -Encoding utf8
+}
+function Say($msg, $color = "Gray") {
+  Write-Host $msg -ForegroundColor $color
+  Log $msg
+}
+function Step($name, [scriptblock]$body, [switch]$Required) {
+  Say "`n=== $name ===" "Cyan"
+  try {
+    & $body
+    Say "  OK" "Green"
+    return $true
+  } catch {
+    $err = $_.Exception.Message
+    Say "  ล้มเหลว: $err" "Yellow"
+    Log ($_ | Out-String)
+    $script:Failures += "$name : $err"
+    if ($Required) { throw "ขั้นที่จำเป็นล้มเหลว: $name" }
+    return $false
+  }
+}
+function Download($url, $dest) {
+  # ลอง 3 ครั้ง — เน็ตสะดุดบ่อยกว่าที่คิด และ TLS 1.2 ต้องบังคับบน Windows รุ่นเก่า
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  for ($i = 1; $i -le 3; $i++) {
+    try {
+      Log "  download ($i/3): $url"
+      Invoke-WebRequest $url -OutFile $dest -UseBasicParsing -TimeoutSec 300
+      if ((Get-Item $dest).Length -lt 1024) { throw "ไฟล์ที่โหลดมาเล็กผิดปกติ" }
+      return
+    } catch {
+      if ($i -eq 3) { throw "โหลดไม่สำเร็จหลังลอง 3 ครั้ง: $url — $($_.Exception.Message)" }
+      Start-Sleep -Seconds 3
+    }
+  }
+}
 function Add-UserPath($dir) {
+  if (-not $dir -or -not (Test-Path $dir)) { throw "ไม่พบโฟลเดอร์ที่จะใส่ PATH: '$dir'" }
   $cur = [Environment]::GetEnvironmentVariable("Path", "User")
   if ($cur -notlike "*$dir*") { [Environment]::SetEnvironmentVariable("Path", "$dir;$cur", "User") }
   $env:Path = "$dir;$env:Path"
+  Log "  PATH += $dir"
 }
 function Refresh-Path {
   $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
 }
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
+function FirstDir($path) {
+  $d = Get-ChildItem $path -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($d) { return $d.FullName }
+  return $path      # zip บางตัวแตกไฟล์ไว้ที่รากเลย ไม่มีโฟลเดอร์ย่อย
+}
 
-Write-Host "`n=== [1/6] Python 3.11 ===" -ForegroundColor Cyan
-# บังคับ Python 3.11 โดยเฉพาะ (ไม่ข้ามเพราะเครื่องมี python อื่น เช่น 3.13 ที่ Pillow ไม่มี wheel → build ล้ม)
+Say "log เก็บที่: $LogFile" "DarkGray"
+Log "PowerShell $($PSVersionTable.PSVersion) · OS $([Environment]::OSVersion.VersionString)"
+
+# ── Python 3.11 (จำเป็น) ───────────────────────────────────────────────────
 $pyDir = "$env:LOCALAPPDATA\Programs\Python\Python311"
 $PY311 = "$pyDir\python.exe"
-if (Test-Path $PY311) {
-  Write-Host "  Python 3.11 already installed"
-} else {
-  $py = "$tools\python-3.11.9-amd64.exe"
-  Write-Host "  downloading Python 3.11 installer..."
-  Invoke-WebRequest "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $py
-  Write-Host "  installing (per-user, no admin)..."
-  Start-Process $py -ArgumentList "/quiet","InstallAllUsers=0","PrependPath=1","Include_pip=1","Include_launcher=1" -Wait
-  Refresh-Path
-}
-if (Test-Path $PY311) { Add-UserPath $pyDir; Add-UserPath "$pyDir\Scripts" }
-else { $PY311 = "python" }   # fallback เผื่อ path ต่าง
+Step "[1/5] Python 3.11" {
+  # บังคับ 3.11 โดยเฉพาะ — เครื่องที่มี python 3.13 จะไม่มี wheel ของ Pillow แล้ว build ล้ม
+  if (Test-Path $PY311) {
+    Say "  มีอยู่แล้ว: $PY311"
+  } else {
+    $py = "$tools\python-3.11.9-amd64.exe"
+    Say "  โหลดตัวติดตั้ง Python 3.11 ..."
+    Download "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" $py
+    Say "  กำลังติดตั้ง (เฉพาะผู้ใช้นี้ ไม่ต้องแอดมิน) ..."
+    $p = Start-Process $py -ArgumentList "/quiet","InstallAllUsers=0","PrependPath=1","Include_pip=1","Include_launcher=1" -Wait -PassThru
+    Log "  installer exit code: $($p.ExitCode)"
+    Refresh-Path
+    if (-not (Test-Path $PY311)) {
+      throw "ติดตั้ง Python แล้วแต่ไม่พบ $PY311 (exit=$($p.ExitCode)) — ถ้ามี Antivirus/SmartScreen บล็อกให้อนุญาตแล้วรันใหม่"
+    }
+  }
+  Add-UserPath $pyDir
+  Add-UserPath "$pyDir\Scripts"
+  $v = & $PY311 --version 2>&1
+  Say "  $v"
+} -Required
 
-Write-Host "`n=== [2/6] Node.js LTS (portable) ===" -ForegroundColor Cyan
-if (Have "node") {
-  Write-Host "  already installed"
-} else {
-  Write-Host "  finding latest v20 LTS..."
-  $idx = Invoke-RestMethod "https://nodejs.org/dist/index.json"
-  $lts = ($idx | Where-Object { $_.lts -and $_.version -like 'v20.*' } | Select-Object -First 1).version
-  Write-Host "  downloading Node $lts ..."
-  Invoke-WebRequest "https://nodejs.org/dist/$lts/node-$lts-win-x64.zip" -OutFile "$tools\node.zip"
-  Expand-Archive "$tools\node.zip" -DestinationPath "$tools\node" -Force
-  $nodeDir = (Get-ChildItem "$tools\node" -Directory | Select-Object -First 1).FullName
-  Add-UserPath $nodeDir
-}
-
-Write-Host "`n=== [3/6] adb (Android platform-tools) ===" -ForegroundColor Cyan
-if (Have "adb") {
-  Write-Host "  already installed"
-} else {
-  Invoke-WebRequest "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" -OutFile "$tools\pt.zip"
+# ── adb ────────────────────────────────────────────────────────────────────
+Step "[2/5] adb (Android platform-tools)" {
+  if (Have "adb") { Say "  มีอยู่แล้ว"; return }
+  Download "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" "$tools\pt.zip"
   Expand-Archive "$tools\pt.zip" -DestinationPath $tools -Force
   Add-UserPath "$tools\platform-tools"
 }
 
-Write-Host "`n=== [4/6] scrcpy v4.0 (pinned to match code) ===" -ForegroundColor Cyan
-if (Have "scrcpy") {
-  Write-Host "  already installed"
-} else {
-  Invoke-WebRequest "https://github.com/Genymobile/scrcpy/releases/download/v4.0/scrcpy-win64-v4.0.zip" -OutFile "$tools\scrcpy.zip"
+# ── scrcpy (ต้องเป็น 4.0 ให้ตรงกับโค้ด ไม่งั้น server abort แล้วโพสต์ล้ม) ──
+Step "[3/5] scrcpy v4.0" {
+  if (Have "scrcpy") { Say "  มีอยู่แล้ว"; return }
+  Download "https://github.com/Genymobile/scrcpy/releases/download/v4.0/scrcpy-win64-v4.0.zip" "$tools\scrcpy.zip"
   Expand-Archive "$tools\scrcpy.zip" -DestinationPath "$tools\scrcpy" -Force
-  $scd = (Get-ChildItem "$tools\scrcpy" -Directory | Select-Object -First 1).FullName
+  $scd = FirstDir "$tools\scrcpy"
+  if (-not (Test-Path (Join-Path $scd "scrcpy.exe"))) { throw "แตกไฟล์ scrcpy แล้วไม่เจอ scrcpy.exe ใน $scd" }
   Add-UserPath $scd
 }
 
-Write-Host "`n=== [5/6] ffmpeg ===" -ForegroundColor Cyan
-if (Have "ffmpeg") {
-  Write-Host "  already installed"
-} else {
-  Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "$tools\ff.zip"
+# ── ffmpeg (ใช้ต่อคลิป 20/30 วิ — ขาดได้ แต่คลิปยาวจะต่อไม่ได้) ──────────
+Step "[4/5] ffmpeg" {
+  if (Have "ffmpeg") { Say "  มีอยู่แล้ว"; return }
+  Download "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" "$tools\ff.zip"
   Expand-Archive "$tools\ff.zip" -DestinationPath "$tools\ff" -Force
-  $ffbin = (Get-ChildItem "$tools\ff" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).Directory.FullName
-  Add-UserPath $ffbin
+  $ffexe = Get-ChildItem "$tools\ff" -Recurse -Filter ffmpeg.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $ffexe) { throw "แตกไฟล์ ffmpeg แล้วไม่เจอ ffmpeg.exe" }
+  Add-UserPath $ffexe.Directory.FullName
 }
 
 Refresh-Path
 
-Write-Host "`n=== [6/6] pip deps + build web ===" -ForegroundColor Cyan
-Push-Location (Join-Path $root "desktop")
-& $PY311 -m pip install --upgrade pip
-& $PY311 -m pip install -r requirements.txt
-Pop-Location
-# หน้าเว็บ: ถ้ามี web\out อยู่แล้ว (แจกแบบ prebuilt) → ข้าม build ได้เลย ไม่ต้องใช้ Node
+# ── ไลบรารี Python (จำเป็น) + หน้าเว็บ ────────────────────────────────────
+Step "[5/5] ไลบรารี Python" {
+  Push-Location (Join-Path $root "desktop")
+  try {
+    & $PY311 -m pip install --upgrade pip 2>&1 | Tee-Object -Variable o | Out-Null
+    Log ($o -join "`n")
+    & $PY311 -m pip install -r requirements.txt 2>&1 | Tee-Object -Variable o2 | Out-Null
+    Log ($o2 -join "`n")
+    if ($LASTEXITCODE -ne 0) { throw "pip install ล้มเหลว (ดูรายละเอียดใน $LogFile)" }
+  } finally { Pop-Location }
+} -Required
+
+# หน้าเว็บ: ปกติแจกมาพร้อม web\out แล้ว → ไม่ต้องใช้ Node เลย
 if (Test-Path (Join-Path $root "web\out\index.html")) {
-  Write-Host "  web\out พร้อมแล้ว — ข้าม build (ไม่ต้องลง Node)"
+  Say "`nหน้าเว็บ: มี web\out พร้อมแล้ว — ข้ามการติดตั้ง Node" "Green"
 } else {
-  Push-Location (Join-Path $root "web")
-  npm install
-  npm run build
-  Pop-Location
+  Step "หน้าเว็บ (ต้อง build เอง — โหลด Node)" {
+    if (-not (Have "node")) {
+      $idx = Invoke-RestMethod "https://nodejs.org/dist/index.json" -TimeoutSec 60
+      $lts = ($idx | Where-Object { $_.lts -and $_.version -like 'v20.*' } | Select-Object -First 1).version
+      if (-not $lts) { $lts = ($idx | Where-Object { $_.lts } | Select-Object -First 1).version }
+      Download "https://nodejs.org/dist/$lts/node-$lts-win-x64.zip" "$tools\node.zip"
+      Expand-Archive "$tools\node.zip" -DestinationPath "$tools\node" -Force
+      Add-UserPath (FirstDir "$tools\node")
+    }
+    Push-Location (Join-Path $root "web")
+    try { npm install; npm run build } finally { Pop-Location }
+  }
 }
 
-Write-Host "`n--- tool check ---" -ForegroundColor Cyan
-foreach ($c in "python","node","adb","scrcpy","ffmpeg") {
-  $mark = if (Have $c) { "OK" } else { "MISSING" }
-  Write-Host ("  {0,-8} {1}" -f $c, $mark)
+# ── สรุปผล ────────────────────────────────────────────────────────────────
+Say "`n--- ตรวจเครื่องมือ ---" "Cyan"
+$missing = @()
+foreach ($c in "python","adb","scrcpy","ffmpeg") {
+  $ok = Have $c
+  if (-not $ok -and $c -eq "python") { $ok = Test-Path $PY311 }
+  if (-not $ok) { $missing += $c }
+  Say ("  {0,-8} {1}" -f $c, $(if ($ok) { "OK" } else { "ไม่พบ" })) $(if ($ok) { "Green" } else { "Yellow" })
 }
 
-Write-Host "`nDONE. เปิดโปรแกรมได้จากทางลัดบน Desktop / 'เปิดโปรแกรม.vbs'" -ForegroundColor Green
+if ($script:Failures.Count -gt 0) {
+  Say "`nติดตั้งเสร็จ แต่มีบางขั้นที่ล้มเหลว:" "Yellow"
+  foreach ($f in $script:Failures) { Say "  - $f" "Yellow" }
+  Say "  ผลกระทบ: adb ขาด = โพสต์ไม่ได้ · scrcpy ขาด = ดูจอสดไม่ได้ · ffmpeg ขาด = ต่อคลิป 20/30 วิ ไม่ได้" "Yellow"
+  Say "  log เต็ม: $LogFile" "DarkGray"
+} else {
+  Say "`nติดตั้งครบทุกอย่างแล้ว" "Green"
+}
+
+Say "`nเปิดโปรแกรมได้จากทางลัดบน Desktop หรือไฟล์ 'เปิดโปรแกรม.vbs'" "Green"
 exit 0
