@@ -8,9 +8,11 @@
 """
 from __future__ import annotations
 
-import json
+import re
 import subprocess
 from pathlib import Path
+
+from services.ffmpeg_path import ffmpeg
 
 # กันไม่ให้ตัดทับ "หน้า" ในจังหวะที่ต้องเห็นคน
 HEAD_KEEP = 2.5    # วิ ต้นคลิป — hook ต้องเห็นหน้าคนพูด
@@ -19,31 +21,41 @@ CUT_LEN   = 1.6    # วิ ต่อ 1 ช่วง footage — สั้นพ
 GAP_MIN   = 1.2    # วิ เว้นระหว่างช่วง — ตัดถี่กว่านี้ดูวูบวาบ
 
 
+def _identify(video: Path) -> str:
+    """stderr ของ `ffmpeg -i <ไฟล์>` — มีทั้งความยาว ขนาดภาพ และสตรีมเสียง
+
+    ★ ตั้งใจไม่ใช้ ffprobe: ตัวติดตั้งทั้งแมคและวินโดวส์แถมมาแต่ ffmpeg
+    เครื่องที่ไม่มี Homebrew จะไม่มี ffprobe เลย แล้ว B-roll จะเงียบไปทั้งฟีเจอร์
+    (ffmpeg -i โดยไม่ใส่ output จบด้วย exit code 1 เป็นปกติ — อ่าน stderr ได้ตามปกติ)
+    """
+    try:
+        r = subprocess.run([ffmpeg(), "-hide_banner", "-i", str(video)],
+                           capture_output=True, timeout=60)
+        return r.stderr.decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
 def probe(video: Path) -> dict:
     """คืน {w,h,dur} ของวิดีโอ — ค่าที่อ่านไม่ได้จะเป็น 0"""
-    try:
-        r = subprocess.run(
-            ["ffprobe", "-v", "error", "-print_format", "json",
-             "-show_entries", "stream=width,height:format=duration",
-             "-select_streams", "v:0", str(video)],
-            capture_output=True, timeout=30)
-        d = json.loads(r.stdout.decode() or "{}")
-        st = (d.get("streams") or [{}])[0]
-        return {"w": int(st.get("width") or 0), "h": int(st.get("height") or 0),
-                "dur": float((d.get("format") or {}).get("duration") or 0)}
-    except Exception:
-        return {"w": 0, "h": 0, "dur": 0.0}
+    info = _identify(video)
+    dur = 0.0
+    m = re.search(r"Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)", info)
+    if m:
+        dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    w = h = 0
+    for line in info.splitlines():
+        if ": Video:" not in line:
+            continue
+        d = re.search(r"[,\s](\d{2,5})x(\d{2,5})(?:[\s,\[]|$)", line)
+        if d:
+            w, h = int(d.group(1)), int(d.group(2))
+            break
+    return {"w": w, "h": h, "dur": dur}
 
 
 def has_audio(video: Path) -> bool:
-    try:
-        r = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries",
-             "stream=index", "-of", "csv=p=0", str(video)],
-            capture_output=True, timeout=30)
-        return bool(r.stdout.strip())
-    except Exception:
-        return False
+    return bool(re.search(r"Stream #\d+:\d+.*: Audio:", _identify(video)))
 
 
 def plan_cuts(dur: float, n_assets: int) -> list[tuple[float, float]]:
@@ -113,7 +125,7 @@ def insert(main: Path, assets: list[Path], out: Path, log=None) -> bool:
         filters.append(f"[{last}][b{i}]overlay=0:0:enable='between(t,{s},{e})'[{nxt}]")
         last = nxt
 
-    cmd = ["ffmpeg", "-y", "-i", str(main), *ins,
+    cmd = [ffmpeg(), "-y", "-i", str(main), *ins,
            "-filter_complex", ";".join(filters), "-map", f"[{last}]"]
     if has_audio(main):
         cmd += ["-map", "0:a", "-c:a", "copy"]      # ★ เสียงพูดเดิมทั้งเส้น ไม่แตะ
