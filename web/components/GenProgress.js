@@ -18,6 +18,7 @@ export function GenProgress() {
   const gp = state.genProgress
   const [dismissed, setDismissed] = useState(null)
   const [showDetail, setShowDetail] = useState(false)
+  const [copied, setCopied] = useState(false)
   const reachedRef = useRef(0)   // ดัชนีขั้นที่ไปถึงไกลสุด — กัน error ทำ checklist ถอยหลัง
 
   // อัปเดต "ขั้นที่ไปถึงไกลสุด" + รีเซ็ตเมื่อเริ่มงานใหม่ (stage กลับมา prompt)
@@ -57,16 +58,16 @@ export function GenProgress() {
   const rawDetail = isErr ? (gp.error || gp.detail || '') : (gp.detail || '')
 
   return (
-    <div className="rounded-2xl border overflow-hidden"
+    <div className="rounded-2xl border overflow-hidden flex flex-col max-h-[70vh]"
          style={{ background: '#13131f', borderColor: isErr ? 'rgba(244,63,94,0.3)' : 'rgba(124,58,237,0.25)' }}>
       {/* header */}
-      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2">
+      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2 shrink-0">
         <span className="text-white text-sm font-semibold flex-1">
           {isErr ? 'สร้างคลิปไม่สำเร็จ' : isDone ? 'สร้างคลิปเสร็จแล้ว' : 'กำลังสร้างคลิป…'}
         </span>
         {(isErr || isDone) && (
-          <button onClick={() => setDismissed(gp.ts)}
-                  className="text-slate-600 hover:text-white transition-colors">
+          <button onClick={() => setDismissed(gp.ts)} title="ปิด"
+                  className="p-1 -m-1 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
             <X size={16} />
           </button>
         )}
@@ -127,14 +128,21 @@ export function GenProgress() {
 
       {/* accordion: log ดิบ / รายละเอียด */}
       {rawDetail && (
-        <div className="border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-          <button onClick={() => setShowDetail(v => !v)}
-                  className="w-full flex items-center gap-1.5 px-4 py-2 text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
-            <ChevronDown size={13} className={`transition-transform ${showDetail ? 'rotate-180' : ''}`} />
-            รายละเอียด
-          </button>
+        <div className="border-t flex flex-col min-h-0" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center shrink-0">
+            <button onClick={() => setShowDetail(v => !v)}
+                    className="flex-1 flex items-center gap-1.5 px-4 py-2 text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
+              <ChevronDown size={13} className={`transition-transform ${showDetail ? 'rotate-180' : ''}`} />
+              รายละเอียด
+            </button>
+            {/* ข้อความ error ยาวมาก (dump ของ Flow) — คัดลอกส่งต่อง่ายกว่าถ่ายรูปจอ */}
+            <button onClick={() => { navigator.clipboard?.writeText(rawDetail); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+                    className="px-3 py-2 text-[11px] text-slate-500 hover:text-slate-300 transition-colors">
+              {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
+            </button>
+          </div>
           {showDetail && (
-            <p className={`px-4 pb-3 text-[11px] leading-relaxed break-words ${isErr ? 'text-rose-400' : 'text-slate-500'}`}>
+            <p className={`px-4 pb-3 text-[11px] leading-relaxed break-words overflow-y-auto min-h-0 ${isErr ? 'text-rose-400' : 'text-slate-500'}`}>
               {rawDetail}
             </p>
           )}
