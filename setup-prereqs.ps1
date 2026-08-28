@@ -89,10 +89,21 @@ Step "[1/5] Python 3.11" {
     Say "  โหลดตัวติดตั้ง Python 3.11 ..."
     Download "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" $py
     Say "  กำลังติดตั้ง (เฉพาะผู้ใช้นี้ ไม่ต้องแอดมิน) ..."
-    $p = Start-Process $py -ArgumentList "/quiet","InstallAllUsers=0","PrependPath=1","Include_pip=1","Include_launcher=1" -Wait -PassThru
+    # ★ Include_launcher=0 + InstallLauncherAllUsers=0 สำคัญมาก
+    #   ดีฟอลต์ของ Python คือลง py.exe ให้ทุกผู้ใช้ (ลง C:\Windows) → เด้ง UAC ขอรหัสแอดมิน
+    #   บัญชีที่ไม่ใช่แอดมินจะติดตั้งไม่ได้เลย เราเรียก python.exe ด้วยพาธเต็มอยู่แล้ว ไม่ต้องใช้ py.exe
+    #   Include_test=0 ตัด test suite ~30MB ที่ไม่ได้ใช้
+    $pyArgs = @("/quiet","InstallAllUsers=0","PrependPath=1","Include_pip=1",
+              "Include_launcher=0","InstallLauncherAllUsers=0","Include_test=0")
+    Log "  python installer args: $($pyArgs -join ' ')"
+    $p = Start-Process $py -ArgumentList $pyArgs -Wait -PassThru
     Log "  installer exit code: $($p.ExitCode)"
     Refresh-Path
     if (-not (Test-Path $PY311)) {
+      # 1602 = ผู้ใช้กดยกเลิก · 1223 = กด No ที่กล่อง UAC
+      if ($p.ExitCode -in 1602,1223) {
+        throw "ติดตั้ง Python ถูกยกเลิก (exit=$($p.ExitCode)) — ถ้ามีกล่องขอรหัสผ่านแอดมินเด้งขึ้นมา แปลว่าเจอเวอร์ชันเก่า ให้โหลดตัวติดตั้งใหม่จากหน้าเว็บ"
+      }
       throw "ติดตั้ง Python แล้วแต่ไม่พบ $PY311 (exit=$($p.ExitCode)) — ถ้ามี Antivirus/SmartScreen บล็อกให้อนุญาตแล้วรันใหม่"
     }
   }
