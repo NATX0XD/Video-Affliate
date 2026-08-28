@@ -1188,6 +1188,13 @@ class WebServer:
             if _os.environ.get("VGAP_NO_EXT_PULL") == "1":
                 return
             root = Path(__file__).resolve().parents[2]
+            # ★ เป็น git repo = โฟลเดอร์งานของนักพัฒนา ไม่ใช่โฟลเดอร์ติดตั้ง → ห้ามดึงทับเด็ดขาด
+            #   ตัวติดตั้งแตกจาก tarball ไม่มี .git ส่วนโฟลเดอร์งานมี — แยกกันได้ชัดเจน
+            #   เคยกินงานที่แก้ไว้แต่ยังไม่ push ไปแล้ว (โค้ด B-roll ฝั่ง extension หายทั้งก้อนแบบเงียบ ๆ)
+            #   ธง env มีอยู่แล้วแต่เป็นแบบ "ต้องนึกได้เองก่อน" ซึ่งพึ่งไม่ได้
+            if (root / ".git").exists():
+                self.emit_log("[EXT] โฟลเดอร์นี้เป็น git repo — ข้ามการดึง extension จาก main (กันทับงานที่แก้ค้างไว้)")
+                return
             try:
                 _pull_ext(root, timeout=90)
             except Exception:
@@ -1546,7 +1553,10 @@ class WebServer:
                     broll_b64 += [f["data"] for f in (mine or []) if isinstance(f, dict) and f.get("data")][:4]
                 except Exception as e:
                     self.emit_log(f"[B-ROLL] อ่าน footage ของฉันไม่ได้: {e}")
+            if body.get("broll_use_uploads") and not broll_b64:
+                self.emit_log("[B-ROLL] เปิด footage ไว้แต่ยังไม่มีไฟล์ — คลิปนี้ไม่มีการตัดสลับ")
             if broll_b64:
+                self.emit_log(f"[B-ROLL] ได้ footage {len(broll_b64)} ชิ้น — กำลังตัดสลับเข้าคลิป")
                 from services import broll as _broll
                 tmp = []
                 try:
