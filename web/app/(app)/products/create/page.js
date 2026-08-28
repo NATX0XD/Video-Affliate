@@ -65,17 +65,17 @@ function CreateInner() {
     go(Math.min(step + 1, STEPS.length - 1))
   }
 
-  const useTemplate = () => {
-    const t = getTemplate(tplPick)
+  const useTemplate = async () => {
+    const t = await getTemplate(tplPick)
     if (!t) return
     replace(t.opts)
     go(STEPS.length - 1)
     toast.success(`ใช้สูตร "${t.name}" แล้ว`)
   }
 
-  const pickTemplate = id => {
+  const pickTemplate = async id => {
     setTplPick(id)
-    const t = getTemplate(id)
+    const t = await getTemplate(id)
     if (t) replace(t.opts)
   }
 

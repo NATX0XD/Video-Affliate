@@ -3,8 +3,10 @@
 // ร่างผูกกับชุดสินค้าที่เลือก (ids) — เปิดด้วยสินค้าคนละชุดถือว่าเริ่มใหม่
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { GEN_DEFAULT } from '@/lib/gen-options'
+import { loadStore, saveStore } from '@/lib/gen-store'
 
-const KEY = 'gen_draft_v1'
+// ร่างเก็บใน app.db ผ่าน gen-store — ย้ายมาจาก localStorage (ดูเหตุผลใน gen-store.js)
+const NAME = 'draft'
 const fresh = () => ({ ...GEN_DEFAULT, prompts: {} })
 
 export function useGenDraft(ids) {
@@ -15,25 +17,32 @@ export function useGenDraft(ids) {
   const idsKey = (ids || []).join(',')
   const skipSave = useRef(true)
 
-  // โหลดร่างครั้งแรก (เฉพาะฝั่ง client)
+  // โหลดร่างครั้งแรก — อ่านจากโปรแกรมหลัก ไม่ใช่เบราว์เซอร์
   useEffect(() => {
-    try {
-      const d = JSON.parse(localStorage.getItem(KEY) || 'null')
+    let dead = false
+    loadStore(NAME, null).then(d => {
+      if (dead) return
       if (d && d.ids === idsKey && d.o) {
         setO({ ...fresh(), ...d.o, prompts: { ...(d.o.prompts || {}) } })
         setStep(d.step || 0)
         setMaxStep(d.maxStep || d.step || 0)
       }
-    } catch {}
-    setLoaded(true)
-    skipSave.current = false
+    }).catch(() => {}).finally(() => {
+      if (dead) return
+      setLoaded(true)
+      skipSave.current = false
+    })
+    return () => { dead = true }
   }, [idsKey])
 
-  // เซฟร่างทุกครั้งที่เปลี่ยน (ข้ามรอบแรกกันเขียนทับด้วยค่าเริ่มต้น)
+  // เซฟร่างเมื่อหยุดแก้ ~600ms (ข้ามรอบแรกกันเขียนทับด้วยค่าเริ่มต้น)
+  // หน่วงไว้เพราะทุกการพิมพ์ 1 ตัวอักษรจะยิง API — เดิมเขียน localStorage เลยไม่ต้องหน่วง
   useEffect(() => {
     if (skipSave.current || !loaded) return
-    try { localStorage.setItem(KEY, JSON.stringify({ ids: idsKey, o, step, maxStep, at: Date.now() })) }
-    catch {}
+    const t = setTimeout(() => {
+      saveStore(NAME, { ids: idsKey, o, step, maxStep, at: Date.now() })
+    }, 600)
+    return () => clearTimeout(t)
   }, [o, step, maxStep, idsKey, loaded])
 
   const set = useCallback(patch => setO(prev => ({ ...prev, ...patch })), [])
@@ -45,7 +54,7 @@ export function useGenDraft(ids) {
 
   const reset = useCallback(() => {
     setO(fresh()); setStep(0); setMaxStep(0)
-    try { localStorage.removeItem(KEY) } catch {}
+    saveStore(NAME, null)
   }, [])
 
   // แทนค่าทั้งชุด (โหลดเทมเพลต)
@@ -53,7 +62,7 @@ export function useGenDraft(ids) {
     setO({ ...fresh(), ...next, prompts: { ...(next.prompts || {}) } })
   }, [])
 
-  const clearDraft = useCallback(() => { try { localStorage.removeItem(KEY) } catch {} }, [])
+  const clearDraft = useCallback(() => { saveStore(NAME, null) }, [])
 
   return { o, set, replace, step, go, maxStep, reset, clearDraft, loaded }
 }

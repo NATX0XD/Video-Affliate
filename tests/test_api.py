@@ -174,3 +174,40 @@ def test_flow_adapter_update_without_url_keeps_version(web):
     assert body["version"] == "bundled-1"        # คงเวอร์ชันเดิม ไม่ทับ
     # ยืนยันว่า GET ยังคืน bundled เดิม (ไม่ถูกเปลี่ยน)
     assert client.get("/api/flow/adapter").json()["version"] == "bundled-1"
+
+
+# ── /api/gen/store — เทมเพลต/ฉาก/หน้า/ร่าง (ย้ายมาจาก localStorage) ──────────
+
+def test_gen_store_roundtrip(web):
+    client, ws, db = web
+    assert client.get("/api/gen/store/templates").json() == {"ok": True, "value": None}
+
+    tpl = [{"id": "tpl_1", "name": "สูตรทดสอบ", "at": 123}]
+    assert client.post("/api/gen/store/templates", json={"value": tpl}).json()["ok"] is True
+    assert client.get("/api/gen/store/templates").json()["value"] == tpl
+
+    # แต่ละที่เก็บแยกกัน ไม่ปนกัน
+    assert client.get("/api/gen/store/faces").json()["value"] is None
+
+    # null = ล้างร่างทิ้ง (ไม่ใช่ error)
+    assert client.post("/api/gen/store/draft", json={"value": None}).json()["ok"] is True
+    assert client.get("/api/gen/store/draft").json()["value"] is None
+
+
+def test_gen_store_rejects_unknown_name(web):
+    client, ws, db = web
+    r = client.get("/api/gen/store/hack")
+    assert r.json()["ok"] is False
+    # path traversal ถูกปัดตกก่อนถึง handler (โดน normalize เป็น /api/etc → ไม่มี route)
+    r = client.post("/api/gen/store/../../etc", json={"value": 1})
+    assert r.status_code in (404, 405)
+    # ชื่อนอกลิสต์ต้องไม่ถูกเขียนลง db เลย
+    client.post("/api/gen/store/hack", json={"value": [1, 2]})
+    assert db.get_config("gen_store:hack", None) is None
+
+
+def test_gen_store_survives_corrupt_value(web):
+    """ค่าใน db เสีย → ถือว่ายังไม่มี ดีกว่าพังทั้งหน้า"""
+    client, ws, db = web
+    db.set_config("gen_store:scenes", "{ไม่ใช่ json}")
+    assert client.get("/api/gen/store/scenes").json() == {"ok": True, "value": None}

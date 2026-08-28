@@ -60,7 +60,7 @@ class _FakePoster:
     def __init__(self, result):
         self.result = result
 
-    def process(self, serial, video_path, product, dry_run=False):
+    def process(self, serial, video_path, product, dry_run=False, coords_override=None):
         return self.result
 
 

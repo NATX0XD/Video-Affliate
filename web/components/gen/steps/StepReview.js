@@ -38,8 +38,8 @@ export function StepReview({ o, set, products, onNotify, onError }) {
     ['เพลง', custom.music ? 'กำหนดเอง' : GEN_MUSICS.find(m => m.id === o.music)?.name],
   ]
 
-  const save = () => {
-    const r = saveTemplate(name, o)
+  const save = async () => {
+    const r = await saveTemplate(name, o)
     if (!r.ok) { onError(r.error); return }
     setNaming(false)
     onNotify(r.replaced ? `ทับสูตร "${name.trim()}" แล้ว` : `บันทึกสูตร "${name.trim()}" แล้ว`)

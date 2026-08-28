@@ -35,6 +35,9 @@ export const api = {
   devices:         ()         => req('GET',  '/api/devices'),   // รายการมือถือ + รุ่น/ยี่ห้อ
   getSettings:     ()         => req('GET',  '/api/settings'),
   saveSettings:    (data)     => req('POST', '/api/settings', data),
+  // ที่เก็บของหน้าสร้างคลิป (templates / scenes / faces / draft) — อยู่ใน app.db ไม่ใช่ localStorage
+  genStore:        (name)        => req('GET',  `/api/gen/store/${name}`),
+  genStoreSet:     (name, value) => req('POST', `/api/gen/store/${name}`, { value }),
   // โชว์เฉพาะแพลตฟอร์มที่จูนกับเครื่องจริงแล้ว (ตอนนี้ = Shopee)
   // ตัวที่ยัง "ต้องจูน" มีโค้ดโพสต์อยู่แต่ยังไม่เคยจูนพิกัด กดเลือกได้แล้วโพสต์ล้ม
   // กรองที่จุดเดียวตรงนี้ ทุกหน้าจะเห็นตรงกัน — จูนเสร็จเมื่อไหร่ค่อยตั้ง tuned=True ใน platforms.py

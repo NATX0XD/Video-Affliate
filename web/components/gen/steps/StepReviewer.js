@@ -13,21 +13,21 @@ export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap,
   const prompts = o.prompts || {}
   const onPrompts = p => set({ prompts: p })
   const [faces, setFaces] = useState([])
-  useEffect(() => { setFaces(listFaces()) }, [])
+  useEffect(() => { listFaces().then(setFaces).catch(() => {}) }, [])
 
   // อัปรูปใหม่ → ใช้เลย + เก็บเข้าคลัง "หน้าของฉัน" อัตโนมัติ (จะได้ไม่ต้องอัปซ้ำรอบหน้า)
-  const pickPhoto = (img, fname) => {
+  const pickPhoto = async (img, fname) => {
     onSelfPhoto(img)
-    const r = addFace(img, fname?.replace(/\.[^.]+$/, '') || '')
-    if (r.ok) { setFaces(listFaces()); set({ faceId: r.id }); if (!r.dup) onNotify?.('เก็บรูปนี้ไว้ในคลังหน้าแล้ว') }
+    const r = await addFace(img, fname?.replace(/\.[^.]+$/, '') || '')
+    if (r.ok) { setFaces(await listFaces()); set({ faceId: r.id }); if (!r.dup) onNotify?.('เก็บรูปนี้ไว้ในคลังหน้าแล้ว') }
     else onError?.(r.error)
   }
 
   const useFace = f => { onSelfPhoto(f.image); set({ faceId: f.id }) }
 
-  const removeFace = (f, e) => {
+  const removeFace = async (f, e) => {
     e.stopPropagation()
-    deleteFace(f.id); setFaces(listFaces())
+    await deleteFace(f.id); setFaces(await listFaces())
     if (o.faceId === f.id) set({ faceId: '' })
     onNotify?.('ลบรูปแล้ว')
   }
