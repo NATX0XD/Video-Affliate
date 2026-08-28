@@ -310,7 +310,32 @@ if (window._flowAutomatorLoaded) {
       return `พิกัด ${x},${y} ตกลงบน <${hit.tagName.toLowerCase()}> "${t}" ไม่ใช่ปุ่มเป้าหมาย (zoom ~${z}% · dpr ${window.devicePixelRatio})`;
     } catch { return ""; }
   }
+  // ── คลิกแบบอ้าง element (วิธีหลัก) ───────────────────────────────────────
+  // ติด marker ให้ element แล้วให้ background ถามพิกัดจากเบราว์เซอร์เอง (DOM.getContentQuads)
+  // ไม่คำนวณพิกัดเอง = ไม่พังเมื่อ zoom / DPI / ขนาดหน้าต่าง / ตำแหน่ง scroll ต่างกันในแต่ละเครื่อง
+  let _hitSeq = 0;
+  async function trustedClickNodeEl(el, log) {
+    const id = `h${Date.now().toString(36)}${_hitSeq++}`;
+    const panel = document.getElementById("__flow_panel");
+    const prev = panel ? panel.style.display : null;
+    if (panel) panel.style.display = "none";
+    el.setAttribute("data-vgap-hit", id);
+    try {
+      await sleep(40);
+      return await sendTrusted({ action: "flow_trusted_click_node", hitId: id });
+    } finally {
+      el.removeAttribute("data-vgap-hit");
+      if (panel) panel.style.display = prev || "";
+    }
+  }
   async function trustedClickEl(el, log) {
+    // 1) ให้เบราว์เซอร์บอกพิกัดเอง — ถูกต้องทุกเครื่องโดยไม่ต้องแปลงหน่วย
+    const byNode = await trustedClickNodeEl(el, log).catch((e) => ({ ok: false, error: String((e && e.message) || e) }));
+    if (byNode && byNode.ok) return byNode;
+    if (log) log(`คลิกตาม element ไม่ได้ (${byNode && byNode.error}) → ถอยไปใช้พิกัดที่คำนวณเอง`);
+    return await trustedClickXY(el, log);
+  }
+  async function trustedClickXY(el, log) {
     // ซ่อน panel ชั่วขณะ — กันคลิกจริงโดน panel ที่ลอยทับช่อง/ปุ่มของ Flow
     const panel = document.getElementById("__flow_panel");
     const prev = panel ? panel.style.display : null;
@@ -1788,7 +1813,16 @@ if (window._flowAutomatorLoaded) {
     if (log && !res.ok) log(`คลิกจริง (${Math.round(fx * 100)}%) ล้มเหลว: ${res.error}`);
     return res;
   }
-  // กดปุ่มด้วยคีย์บอร์ด — บาง widget ของ Flow ไม่ตอบ mouse event ที่ยิงมาจากพิกัด แต่ตอบ Enter/Space ตอนโฟกัส
+  // โฟกัส element แล้วกด Enter จริงผ่าน CDP — trusted และไม่ใช้พิกัดเลย
+  // ใช้ได้ทุกขนาดจอ/zoom เพราะไม่มีการคำนวณตำแหน่งเข้ามาเกี่ยว
+  async function trustedKeyActivate(el, log) {
+    try { el.focus({ preventScroll: true }); } catch {}
+    await sleep(150);
+    const res = await sendTrusted({ action: "flow_trusted_key" });
+    if (log && !res.ok) log(`โฟกัส+Enter ล้มเหลว: ${res.error}`);
+    return res;
+  }
+  // กดปุ่มด้วยคีย์บอร์ดแบบ synthetic — สำรองสุดท้ายเมื่อ CDP ใช้ไม่ได้
   async function keyActivate(el) {
     try {
       el.focus({ preventScroll: true });
@@ -1861,12 +1895,14 @@ if (window._flowAutomatorLoaded) {
     for (let w = 0; w < 8 && isGenerating(); w++) await sleep(1000);
     // หมุนวิธีกดหลายแบบ — ปุ่มโหมดเป็นแถบยาวที่มีชิปย่อย คลิกกลางบางทีตกร่องว่างระหว่างชิป
     // แล้วป๊อปอัปไม่เปิดเลยสักรอบ (อาการ "ป๊อปอัป: (ไม่เปิด)" ที่เจอตอนคลิปที่ 2 เป็นต้นไป)
+    // เรียงจาก "ไม่พึ่งพิกัด" ไป "พึ่งพิกัด" — สองอันแรกใช้ได้ทุกขนาดจอ/zoom
     const STRATS = [
-      { name: "กลาง",   run: (b) => trustedClickEl(b, log) },
-      { name: "ซ้าย22%", run: (b) => trustedClickFrac(b, 0.22, log) },
-      { name: "ขวา78%",  run: (b) => trustedClickFrac(b, 0.78, log) },
-      { name: "native",  run: async (b) => nativeClickEl(b) },
-      { name: "คีย์บอร์ด", run: (b) => keyActivate(b) },
+      { name: "ตาม element", run: (b) => trustedClickEl(b, log) },
+      { name: "โฟกัส+Enter",  run: (b) => trustedKeyActivate(b, log) },
+      { name: "ซ้าย22%",      run: (b) => trustedClickFrac(b, 0.22, log) },
+      { name: "ขวา78%",       run: (b) => trustedClickFrac(b, 0.78, log) },
+      { name: "native",       run: async (b) => nativeClickEl(b) },
+      { name: "คีย์บอร์ด",     run: (b) => keyActivate(b) },
     ];
     for (let k = 0; k < 12; k++) {
       const btn = findModeBtn();

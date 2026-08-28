@@ -798,14 +798,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // ── trusted input ผ่าน chrome.debugger (สำหรับ Flow ที่ guard isTrusted) ──
-  if (msg.action === 'flow_trusted_click' || msg.action === 'flow_trusted_hover' || msg.action === 'flow_trusted_key' || msg.action === 'flow_trusted_type') {
+  if (msg.action === 'flow_trusted_click' || msg.action === 'flow_trusted_click_node' || msg.action === 'flow_trusted_hover' || msg.action === 'flow_trusted_key' || msg.action === 'flow_trusted_type') {
     const tabId = sender.tab && sender.tab.id;
     if (!tabId) { sendResponse({ ok: false, error: 'no tab' }); return true; }
     (async () => {
+      let at = null;                                  // พิกัดที่คลิกจริง (โหมด node) — ส่งกลับไว้ debug
       const run = async () => {
         await attachDebugger(tabId);
         if (msg.action === 'flow_trusted_click') {
           await trustedClick(tabId, msg.x, msg.y);
+        } else if (msg.action === 'flow_trusted_click_node') {
+          at = await trustedClickNode(tabId, msg.hitId);
         } else if (msg.action === 'flow_trusted_hover') {
           await trustedHover(tabId, msg.x, msg.y);
         } else if (msg.action === 'flow_trusted_type') {
@@ -816,13 +819,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       };
       try {
         await run();
-        sendResponse({ ok: true });
+        sendResponse({ ok: true, at });
       } catch (e) {
         // debugger หลุดกลางทาง (ผู้ใช้กดปิดแถบเตือน / SW restart) → cdp() เคลียร์
         // _attached ให้แล้ว ลอง attach ใหม่อีกรอบเดียวก่อนยอมแพ้
         try {
           await run();
-          sendResponse({ ok: true });
+          sendResponse({ ok: true, at });
         } catch (e2) {
           sendResponse({ ok: false, error: String(e2 && e2.message || e2) });
         }
@@ -1054,6 +1057,51 @@ function cdp(tabId, method, params) {
     });
   });
 }
+// ── คลิก "ตาม element" ไม่ใช่ตามพิกัดที่เราคำนวณเอง ──────────────────────
+// getBoundingClientRect กับพิกัดที่ CDP ยิง อยู่คนละระบบเมื่อ browser zoom ไม่ใช่ 100%
+// → คลิกลงข้างปุ่มแบบเงียบ ๆ และเพี้ยนต่างกันไปในแต่ละเครื่อง (จอ/DPI/zoom ไม่เท่ากัน)
+// DOM.getContentQuads ให้เบราว์เซอร์บอกพิกัดเองในระบบเดียวกับ Input.dispatchMouseEvent
+// เป็นวิธีเดียวกับที่ Puppeteer/Playwright ใช้ จึงถูกต้องทุกเครื่องโดยไม่ต้องแปลงอะไร
+const quadArea = (q) => Math.abs(
+  (q[0] * q[3] - q[2] * q[1]) + (q[2] * q[5] - q[4] * q[3]) +
+  (q[4] * q[7] - q[6] * q[5]) + (q[6] * q[1] - q[0] * q[7])) / 2;
+
+// หา element จาก marker โดยไล่เข้า shadow root ด้วย (Flow ใช้ web component หลายจุด)
+const hitExpr = (id) => `(() => {
+  const find = (root) => {
+    const el = root.querySelector('[data-vgap-hit="${id}"]');
+    if (el) return el;
+    for (const n of root.querySelectorAll('*')) {
+      if (n.shadowRoot) { const r = find(n.shadowRoot); if (r) return r; }
+    }
+    return null;
+  };
+  return find(document);
+})()`;
+
+async function trustedClickNode(tabId, hitId) {
+  await cdp(tabId, 'DOM.enable', {});
+  await cdp(tabId, 'DOM.getDocument', { depth: 0 });        // ต้องเรียกก่อน requestNode ไม่งั้น node map ว่าง
+  const ev = await cdp(tabId, 'Runtime.evaluate', { expression: hitExpr(hitId) });
+  const objectId = ev && ev.result && ev.result.objectId;
+  if (!objectId) throw new Error('หา element ไม่เจอในหน้า');
+  try {
+    const rn = await cdp(tabId, 'DOM.requestNode', { objectId });
+    if (!rn || !rn.nodeId) throw new Error('แปลง element เป็น nodeId ไม่ได้');
+    try { await cdp(tabId, 'DOM.scrollIntoViewIfNeeded', { nodeId: rn.nodeId }); } catch {}
+    const gq = await cdp(tabId, 'DOM.getContentQuads', { nodeId: rn.nodeId });
+    const quads = (gq && gq.quads || []).filter((q) => quadArea(q) > 1);
+    if (!quads.length) throw new Error('element ไม่มีพื้นที่ให้คลิก (ถูกซ่อนหรืออยู่นอกจอ)');
+    const q = quads.sort((a, b) => quadArea(b) - quadArea(a))[0];
+    const x = Math.round((q[0] + q[2] + q[4] + q[6]) / 4);
+    const y = Math.round((q[1] + q[3] + q[5] + q[7]) / 4);
+    await trustedClick(tabId, x, y);
+    return { x, y };
+  } finally {
+    cdp(tabId, 'Runtime.releaseObject', { objectId }).catch(() => {});
+  }
+}
+
 async function trustedClick(tabId, x, y) {
   await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
   await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
