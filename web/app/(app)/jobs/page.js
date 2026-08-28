@@ -5,6 +5,7 @@ import { api }        from '@/lib/api'
 import { Button }     from '@/components/ui/Button'
 import { SkeletonJobItem } from '@/components/ui/Skeleton'
 import { PageHeader, JOB_STATUS } from '@/components/layout/PageHeader'
+import { useApp } from '@/app/(app)/layout'
 import { LazyVideo } from '@/components/ui/LazyVideo'
 import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check, Film, FlaskConical, Play, X, Coins, Search, ArrowUpDown, Smartphone, CheckSquare, Square } from 'lucide-react'
 
@@ -37,6 +38,7 @@ const jobCardEqual = (a, b) =>
   a.job === b.job &&
   a.devices === b.devices &&
   a.selected === b.selected &&
+  a.fresh === b.fresh &&
   (a.busy === a.job.id)    === (b.busy === b.job.id) &&
   (a.dryBusy === a.job.id) === (b.dryBusy === b.job.id) &&
   (a.copied === a.job.id)  === (b.copied === b.job.id)
@@ -76,6 +78,19 @@ export default function JobsPage() {
     finally { setLoading(false) }
   }, [])
   useEffect(() => { load(); const id = setInterval(load, 4000); return () => clearInterval(id) }, [load])
+
+  // คลิปโพสต์จบ → รีเฟรชทันที ไม่ต้องรอรอบ poll ถัดไป และไฮไลต์ใบที่เพิ่งจบไว้ให้เห็น
+  const postResult = useApp()?.state?.postResult
+  const [justDone, setJustDone] = useState(() => new Map())   // id → outcome
+  useEffect(() => {
+    if (!postResult?.jobId) return
+    load()
+    setJustDone(prev => new Map(prev).set(postResult.jobId, postResult.outcome))
+    const t = setTimeout(() => setJustDone(prev => {
+      const n = new Map(prev); n.delete(postResult.jobId); return n
+    }), 30000)
+    return () => clearTimeout(t)
+  }, [postResult, load])
 
   // โหลดรายการเครื่อง (poll เบา ๆ ทุก 8 วิ — เผื่อเสียบ/ถอดเครื่อง)
   const loadDevices = useCallback(async () => {
@@ -246,7 +261,7 @@ export default function JobsPage() {
                   <AnimatePresence initial={false}>
                     {notPosted.map(j => (
                       <JobCard key={j.id} job={j} busy={busy} dryBusy={dryBusy} copied={copied}
-                        devices={onlineDevices} selected={sel.has(j.id)} onToggleSel={toggleSel} onAssign={assignOne}
+                        devices={onlineDevices} selected={sel.has(j.id)} fresh={justDone.get(j.id)} onToggleSel={toggleSel} onAssign={assignOne}
                         onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onOpen={setPreview} />
                     ))}
                   </AnimatePresence>
@@ -260,7 +275,7 @@ export default function JobsPage() {
                   <AnimatePresence initial={false}>
                     {posted.map(j => (
                       <JobCard key={j.id} job={j} busy={busy} dryBusy={dryBusy} copied={copied}
-                        devices={onlineDevices} selected={sel.has(j.id)} onToggleSel={toggleSel} onAssign={assignOne}
+                        devices={onlineDevices} selected={sel.has(j.id)} fresh={justDone.get(j.id)} onToggleSel={toggleSel} onAssign={assignOne}
                         onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onOpen={setPreview} />
                     ))}
                   </AnimatePresence>
@@ -347,11 +362,19 @@ function GroupHeader({ title, count, tone }) {
 }
 
 // ── การ์ดงาน 1 ใบ ──
-const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, devices = [], selected, onToggleSel, onAssign, onCopy, onDry, onPost, onCancel, onRemove, onOpen }) {
+const FRESH_NOTE = {
+  posted:     { text: 'เพิ่งโพสต์สำเร็จ',                          cls: 'bg-success/12 text-success border-success/30' },
+  unverified: { text: 'เพิ่งโพสต์ — แต่ยืนยันผลไม่ได้ ตรวจในแอป', cls: 'bg-amber-500/12 text-amber-500 border-amber-500/30' },
+  retry:      { text: 'เพิ่งพลาด — กำลังลองใหม่',                 cls: 'bg-accent-wash text-accent border-accent/30' },
+  error:      { text: 'เพิ่งโพสต์ไม่สำเร็จ',                       cls: 'bg-danger/12 text-danger border-danger/30' },
+}
+
+const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, devices = [], selected, fresh, onToggleSel, onAssign, onCopy, onDry, onPost, onCancel, onRemove, onOpen }) {
   const s = JOB_STATUS[j.status] ?? JOB_STATUS.pending
   const isErr = j.status === 'error'
   const assigned = j.assigned_serial || ''
   const assignedDev = assigned ? devices.find(d => d.serial === assigned) : null
+  const note = fresh ? FRESH_NOTE[fresh] : null
   return (
     <motion.div
       key={j.id}
@@ -359,8 +382,15 @@ const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, devices =
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: -16, transition: { duration: 0.18 } }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="group rounded-xl bg-card text-card-foreground border border-border shadow-card p-4 lift"
+      className={`group rounded-xl bg-card text-card-foreground border shadow-card p-4 lift transition-colors
+        ${note ? 'border-accent/60 ring-1 ring-accent/25' : 'border-border'}`}
     >
+      {/* ป้ายชั่วคราว ~30 วิ — บอกว่าใบนี้เพิ่งเปลี่ยนสถานะ ไม่ใช่ของเก่าที่นั่งอยู่ตรงนี้มานาน */}
+      {note && (
+        <div className={`mb-3 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-semibold ${note.cls}`}>
+          <Check size={11} strokeWidth={3} /> {note.text}
+        </div>
+      )}
       <div className="flex items-center gap-4">
         {/* checkbox เลือกหลายคลิป */}
         <button onClick={() => onToggleSel?.(j.id)} title="เลือกเพื่อจับคู่หลายคลิป"

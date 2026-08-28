@@ -85,6 +85,7 @@ def main():
     autopilot.log             = server.emit_log
     autopilot.on_status_change = server.emit_worker_status
     autopilot.on_stats_update  = lambda done, err, q: server.emit_stats(done, err, q)
+    autopilot.on_post_result   = server.emit_post_result
     server.autopilot = autopilot
 
     adb.log = server.emit_log

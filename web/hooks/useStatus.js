@@ -12,6 +12,7 @@ const DEFAULT = {
   currentItem: null,
   genProgress: null,
   extension: { connected: false, last_ping_ts: 0 },   // สัญญาณส่วนเสริม (P2.1) — onboarding เช็ค "เชื่อมแล้ว"
+  postResult: null,   // ผลโพสต์ล่าสุด {job_id,name,outcome,serial,platforms,detail,ts} — layout เอาไปเด้งแจ้ง
 }
 
 export function useStatus() {
@@ -49,6 +50,15 @@ export function useStatus() {
           jobId: msg.jobId ?? msg.pid, pid: msg.jobId ?? msg.pid,
           stage: msg.stage, detail: msg.detail, pct: msg.pct ?? null,
           error: msg.stage === 'error' ? msg.detail : null, ts: Date.now(),
+        }})
+        break
+
+      // คลิปโพสต์จบแล้ว — ts ทำให้ทุกครั้งเป็นค่าใหม่เสมอ (โพสต์คลิปเดิมซ้ำก็ยังเด้ง)
+      case 'post_result':
+        patch({ postResult: {
+          jobId: msg.job_id, pid: msg.pid, name: msg.name || '',
+          outcome: msg.outcome, serial: msg.serial || '',
+          platforms: msg.platforms || [], detail: msg.detail || '', ts: Date.now(),
         }})
         break
 

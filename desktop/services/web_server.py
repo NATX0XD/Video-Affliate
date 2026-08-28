@@ -2276,6 +2276,11 @@ class WebServer:
     def emit_worker_status(self, pid: str, status: str):
         self.ws.broadcast_sync({"type": "worker_status", "pid": pid, "status": status})
 
+    def emit_post_result(self, r: dict):
+        """คลิปโพสต์จบแล้ว (สำเร็จ/ล้ม/ยืนยันไม่ได้) → เด้งบอกหน้าเว็บทันที
+        หน้ารายการ poll ทุก 4 วิอยู่แล้ว แต่ผู้ใช้ไม่รู้ว่ามีอะไรเปลี่ยนถ้าไม่นั่งจ้อง"""
+        self.ws.broadcast_sync({"type": "post_result", **(r or {})})
+
     # ── Start/Stop ────────────────────────────────────────────
 
     def start(self):
