@@ -59,7 +59,9 @@ export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap,
                 title="รูปหน้าของคุณ"
                 hint="รูปชัด หน้าตรง แสงสว่าง — ใช้เป็นภาพอ้างอิงใบหน้าในคลิป"
                 image={selfPhoto} imageName=""
-                max={512}
+                // ★ 1024 ไม่ใช่ 512 — ที่ 512 ใบหน้าเหลือไม่กี่ร้อย px หลังโมเดลย่ออีกที
+                //   เอกลักษณ์หายจนได้ "คนหน้าคล้าย" แทนคนเดิม (รูปอื่นใช้ 512 พอ)
+                max={1024}
                 onPick={pickPhoto}
                 onClear={() => { onSelfPhoto(null); set({ faceId: '' }) }}
                 onError={onError} />

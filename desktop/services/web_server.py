@@ -861,6 +861,14 @@ class WebServer:
                 return {"ok": self.autopilot.post_job_now(jid)}
             return {"ok": False}
 
+        @app.post("/api/jobs/post")
+        def post_jobs_bulk(body: dict):
+            """โพสต์หลายคลิปรวดเดียว — {ids:[..], serial:"" }  (serial ว่าง = ใช้ที่ assign ไว้)"""
+            if not self.autopilot:
+                return {"ok": False, "error": "ตัวโพสต์ยังไม่พร้อม"}
+            b = body or {}
+            return self.autopilot.post_jobs_now(b.get("ids") or [], (b.get("serial") or "").strip())
+
         @app.post("/api/jobs/{jid}/dryrun")
         def dry_post_job(jid: int):
             """ทดสอบโพสต์ (dry) — รัน ADB flow ถึง caption ไม่โพสต์จริง ไม่เปลี่ยนสถานะ."""
@@ -1089,7 +1097,7 @@ class WebServer:
         # เดิมเก็บใน localStorage ของเบราว์เซอร์ ซึ่งผูกกับ origin ไม่ใช่กับโปรแกรม
         # → ถอนโปรแกรมแล้วข้อมูลยังอยู่ · ล้าง cache เบราว์เซอร์แล้วข้อมูลหาย (ผิดทั้งสองทาง)
         # ย้ายมาเก็บใน app.db ให้อยู่/หายไปพร้อมโปรแกรม และย้ายเครื่องได้พร้อมข้อมูล
-        GEN_STORES = ("templates", "scenes", "faces", "draft")
+        GEN_STORES = ("templates", "scenes", "faces", "draft", "footage")
 
         @app.get("/api/gen/store/{name}")
         def gen_store_get(name: str):
@@ -1525,6 +1533,40 @@ class WebServer:
                         try: s.unlink()
                         except Exception: pass
                     self.emit_log(f"[FLOW] ต่อ {len(srcs)} คลิป → {out_mp4.name}")
+
+            # ── footage แทรก (B-roll) — เฉพาะเมื่อผู้ใช้เปิดใช้ ──
+            # ล้มเหลวตรงนี้ = ใช้คลิปเดิมต่อ ไม่ทำให้ทั้งงานพัง (ผู้ใช้เสียเครดิตสร้างคลิปไปแล้ว)
+            broll_b64 = list(body.get("broll_b64") or [])
+            # "footage ของฉัน" อยู่ใน app.db อยู่แล้ว — อ่านตรงนี้แทนที่จะให้ extension แบก dataURL
+            # ก้อนวิดีโอผ่านคิวงานทำให้ payload บวมเป็นสิบเมกะไบต์โดยไม่จำเป็น
+            if body.get("broll_use_uploads") and self.db:
+                try:
+                    raw = self.db.get_config("gen_store:footage", "") or ""
+                    mine = json.loads(raw) if raw.strip() else []
+                    broll_b64 += [f["data"] for f in (mine or []) if isinstance(f, dict) and f.get("data")][:4]
+                except Exception as e:
+                    self.emit_log(f"[B-ROLL] อ่าน footage ของฉันไม่ได้: {e}")
+            if broll_b64:
+                from services import broll as _broll
+                tmp = []
+                try:
+                    for i, item in enumerate(broll_b64):
+                        raw = (item or "")
+                        head, _, data = raw.partition(",")
+                        ext = ".mp4" if "video/" in head else (".png" if "image/png" in head else ".jpg")
+                        p = cfg.PENDING_DIR / f"{pid}_broll{i + 1}{ext}"
+                        p.write_bytes(base64.b64decode(data or raw))
+                        tmp.append(p)
+                    mixed = cfg.PENDING_DIR / f"{pid}_broll.mp4"
+                    if _broll.insert(out_mp4, tmp, mixed, self.emit_log):
+                        out_mp4.unlink(missing_ok=True)
+                        mixed.rename(out_mp4)
+                except Exception as e:
+                    self.emit_log(f"[B-ROLL] ข้ามการแทรก footage: {e}")
+                finally:
+                    for p in tmp:
+                        try: p.unlink()
+                        except Exception: pass
 
             # ปกคลิป = เฟรมแรกของวิดีโอ — ดึงด้วย ffmpeg เป็น <pid>_cover.jpg (ไม่ gen, ฟรี)
             cover_name = ""

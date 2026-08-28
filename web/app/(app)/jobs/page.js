@@ -60,7 +60,10 @@ export default function JobsPage() {
   const [sort, setSort]   = useState('new')
   const [query, setQuery] = useState('')
   const [devices, setDevices] = useState([])          // เครื่องที่ต่ออยู่ (สำหรับจับคู่)
-  const [sel, setSel]     = useState(() => new Set())  // id คลิปที่เลือก (assign หลายอัน)
+  const [sel, setSel]     = useState(() => new Set())  // id คลิปที่เลือก (จับคู่/โพสต์หลายอัน)
+  const [batchSerial, setBatchSerial] = useState('')   // เครื่องปลายทางของชุดที่เลือก ('' = ตามที่จับคู่ไว้)
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [batchNote, setBatchNote] = useState('')       // ผลของคำสั่งชุดล่าสุด (สำเร็จกี่คลิป/ข้ามกี่คลิป)
   const copy = (text, id) => { try { navigator.clipboard?.writeText(text) } catch {}; setCopied(id); setTimeout(() => setCopied(null), 1500) }
 
   const load = useCallback(async () => {
@@ -91,18 +94,38 @@ export default function JobsPage() {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, assigned_serial: serial || '' } : j))
     api.assignJob(id, serial).catch(() => {}).finally(load)
   }, [load])
-  // จับคู่หลายคลิป
-  const assignMany = (serial) => {
+  // จับคู่หลายคลิป (ไม่โพสต์ — แค่ผูกเครื่องไว้ให้ออโต้/โพสต์ทีหลัง)
+  const assignMany = () => {
     const ids = [...sel]
     if (!ids.length) return
-    setJobs(prev => prev.map(j => ids.includes(j.id) ? { ...j, assigned_serial: serial || '' } : j))
-    api.assignJobs(ids, serial).catch(() => {}).finally(load)
+    setJobs(prev => prev.map(j => ids.includes(j.id) ? { ...j, assigned_serial: batchSerial } : j))
+    api.assignJobs(ids, batchSerial).catch(() => {}).finally(load)
+    setBatchNote(`จับคู่ ${ids.length} คลิปแล้ว`)
     setSel(new Set())
+  }
+  // โพสต์หลายคลิปรวดเดียว — เครื่องที่เลือกในแถบนี้ทับที่จับคู่ไว้ ('' = ใช้ที่จับคู่ไว้ต่อคลิป)
+  const postMany = async () => {
+    const ids = [...sel]
+    if (!ids.length || batchBusy) return
+    setBatchBusy(true); setBatchNote('')
+    try {
+      const r = await api.postJobs(ids, batchSerial)
+      if (r?.ok) {
+        const skip = (r.skipped || []).length
+        setBatchNote(`เข้าคิวโพสต์ ${r.queued} คลิป${skip ? ` · ข้าม ${skip} (ไม่พร้อม/ไม่มีเครื่อง)` : ''}`)
+        setSel(new Set())
+      } else {
+        setBatchNote(r?.error || 'สั่งโพสต์ไม่สำเร็จ')
+      }
+    } catch { setBatchNote('ต่อโปรแกรมหลักไม่ได้') }
+    finally { setBatchBusy(false); load() }
   }
   const toggleSel = useCallback((id) => setSel(prev => {
     const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n
   }), [])
-  const clearSel = () => setSel(new Set())
+  const clearSel = () => { setSel(new Set()); setBatchNote('') }
+  // เลือกทั้งหมดที่ "พร้อมโพสต์" ในรายการที่เห็นอยู่ — ไม่ต้องไล่ติ๊กทีละใบ
+  const selectReady = (list) => setSel(new Set(list.filter(j => j.status === 'generated').map(j => j.id)))
 
   const postNow = async (id) => { setBusy(id); try { await api.postJob(id) } catch {}; setTimeout(() => { setBusy(null); load() }, 1500) }
   const dryNow  = async (id) => { setDryBusy(id); try { await api.dryPostJob(id) } catch {}; setTimeout(() => setDryBusy(null), 3000) }
@@ -210,7 +233,15 @@ export default function JobsPage() {
           >
             {notPosted.length > 0 && (
               <section>
-                <GroupHeader title="ยังไม่ได้โพสต์" count={notPosted.length} tone="accent" />
+                <div className="flex items-center justify-between gap-3">
+                  <GroupHeader title="ยังไม่ได้โพสต์" count={notPosted.length} tone="accent" />
+                  {notPosted.some(j => j.status === 'generated') && (
+                    <button onClick={() => selectReady(notPosted)}
+                      className="mb-3 text-xs text-accent hover:underline flex items-center gap-1 shrink-0">
+                      <CheckSquare size={13} /> เลือกทั้งหมดที่พร้อมโพสต์
+                    </button>
+                  )}
+                </div>
                 <div className="flex flex-col gap-2.5">
                   <AnimatePresence initial={false}>
                     {notPosted.map(j => (
@@ -248,28 +279,52 @@ export default function JobsPage() {
         )}
       </AnimatePresence>
 
-      {/* แถบจับคู่หลายคลิป (sticky ล่าง) */}
+      {/* แถบคำสั่งชุด (sticky ล่าง) — เลือกคลิป → เลือกเครื่อง → โพสต์ทีเดียว */}
       <AnimatePresence>
         {sel.size > 0 && (
-          <motion.div key="assignbar" initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-3 rounded-2xl border border-border bg-card shadow-lift">
-            <span className="text-sm text-foreground font-semibold flex items-center gap-1.5">
-              <CheckSquare size={15} className="text-accent" /> assign {sel.size} คลิป
-            </span>
-            <div className="relative flex items-center">
-              <Smartphone size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              <select defaultValue="" onChange={(e) => { assignMany(e.target.value); e.target.value = '' }}
-                className="appearance-none pl-8 pr-7 py-1.5 text-xs font-medium bg-secondary border border-border rounded-lg text-foreground outline-none focus:border-accent/50 cursor-pointer">
-                <option value="" disabled>เลือกเครื่อง…</option>
-                <option value="">อัตโนมัติ</option>
-                {onlineDevices.length === 0
-                  ? <option disabled>ไม่มีเครื่องต่ออยู่</option>
-                  : onlineDevices.map(d => <option key={d.serial} value={d.serial}>{deviceName(d)}</option>)}
-              </select>
+          <motion.div key="batchbar" initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex flex-col gap-2 px-4 py-3 rounded-2xl border border-border bg-card shadow-lift max-w-[calc(100vw-2rem)]">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm text-foreground font-semibold flex items-center gap-1.5">
+                <CheckSquare size={15} className="text-accent" /> เลือกไว้ <span className="nums">{sel.size}</span> คลิป
+              </span>
+              <div className="relative flex items-center">
+                <Smartphone size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <select value={batchSerial} onChange={(e) => setBatchSerial(e.target.value)}
+                  className="appearance-none pl-8 pr-7 py-1.5 text-xs font-medium bg-secondary border border-border rounded-lg text-foreground outline-none focus:border-accent/50 cursor-pointer">
+                  <option value="">ตามที่จับคู่ไว้ / อัตโนมัติ</option>
+                  {onlineDevices.length === 0
+                    ? <option disabled>ไม่มีเครื่องต่ออยู่</option>
+                    : onlineDevices.map(d => <option key={d.serial} value={d.serial}>{deviceName(d)}</option>)}
+                </select>
+              </div>
+              <button onClick={assignMany}
+                title="ผูกเครื่องไว้เฉย ๆ ยังไม่โพสต์"
+                className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-secondary text-foreground hover:border-accent/50 transition-all">
+                จับคู่เครื่อง
+              </button>
+              <button onClick={postMany} disabled={batchBusy}
+                title="โพสต์คลิปที่เลือกทั้งหมด — ทีละคลิปต่อเครื่อง"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50 transition-all">
+                {batchBusy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                โพสต์ <span className="nums">{sel.size}</span> คลิป
+              </button>
+              <button onClick={clearSel} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                <Square size={13} /> ล้าง
+              </button>
             </div>
-            <button onClick={clearSel} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
-              <Square size={13} /> ล้าง
-            </button>
+            {batchNote && <p className="text-xs text-muted-foreground px-0.5">{batchNote}</p>}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ผลของคำสั่งชุดหลังเคลียร์ selection แล้ว (แถบข้างบนหายไป) */}
+      <AnimatePresence>
+        {sel.size === 0 && batchNote && (
+          <motion.div key="batchnote" initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+            onAnimationComplete={() => setTimeout(() => setBatchNote(''), 4000)}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 px-4 py-2.5 rounded-xl border border-border bg-card shadow-lift text-xs text-foreground">
+            {batchNote}
           </motion.div>
         )}
       </AnimatePresence>

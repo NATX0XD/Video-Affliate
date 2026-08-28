@@ -8,6 +8,7 @@ import { listScenes, saveScene, deleteScene } from '@/lib/gen-scenes'
 import { PickCard } from '@/components/gen/PickCard'
 import { ImageSlot } from '@/components/gen/ImageSlot'
 import { Topic, PromptBox } from '@/components/gen/CustomField'
+import { BrollPicker } from '@/components/gen/BrollPicker'
 
 export function StepLook({ o, set, onNotify, onError }) {
   const prompts = o.prompts || {}
@@ -117,6 +118,10 @@ export function StepLook({ o, set, onNotify, onError }) {
           ))}
         </div>
       </Topic>
+
+      <div className="h-px bg-line" />
+
+      <BrollPicker o={o} set={set} onNotify={onNotify} onError={onError} />
 
       <div className="h-px bg-line" />
 
