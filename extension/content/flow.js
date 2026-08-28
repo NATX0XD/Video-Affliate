@@ -336,11 +336,7 @@ if (window._flowAutomatorLoaded) {
   async function trustedClickEl(el, log) {
     // 1) ให้เบราว์เซอร์บอกพิกัดเอง — ถูกต้องทุกเครื่องโดยไม่ต้องแปลงหน่วย
     const byNode = await trustedClickNodeEl(el, log).catch((e) => ({ ok: false, error: String((e && e.message) || e) }));
-    if (byNode && byNode.ok) {
-      // เบราว์เซอร์คำนวณพิกัดให้แล้ว แต่ยังต้องเช็คว่าไม่มีอะไรมาบังตรงจุดนั้น
-      if (byNode.at && log) { const miss = hitCheck(el, byNode.at.x, byNode.at.y); if (miss) log(`⚠ คลิกตาม element แต่โดนของอื่น: ${miss}`); }
-      return byNode;
-    }
+    if (byNode && byNode.ok) return byNode;
     if (log) log(`คลิกตาม element ไม่ได้ (${byNode && byNode.error}) → ถอยไปใช้พิกัดที่คำนวณเอง`);
     return await trustedClickXY(el, log);
   }
@@ -2261,11 +2257,21 @@ if (window._flowAutomatorLoaded) {
     : "");
 
   // prompt เฟรมเริ่มแบบ collage (อ้างอิงแผงต่าง ๆ ของรูปรวม)
+  // สินค้าที่ออกมามักเพี้ยน — เปลี่ยนสี เปลี่ยนขนาด หรือกลายเป็นสินค้าคนละตัว
+  // สาเหตุใหญ่: รูปสินค้าจากร้านมักเป็นภาพโฆษณาที่มีหลายสี/หลายชิ้น/มีข้อความกำกับ
+  // โมเดลเลยเลือกชิ้นผิดหรือผสมสีจากหลายชิ้นเข้าด้วยกัน
+  const productFidelity = (name, panel) =>
+    `★★ ${name || "สินค้า"} ต้องเป็นชิ้นเดียวกับใน${panel} เป๊ะทุกจุด: รูปทรง สัดส่วน สี วัสดุ พื้นผิว ฉลาก โลโก้ ตัวอักษรบนตัวสินค้า จำนวนชิ้นส่วน ` +
+    `· ห้ามเปลี่ยนสีเด็ดขาด (แม้เฉดเดียว) ห้ามเปลี่ยนขนาด/สัดส่วน ห้ามเพิ่ม-ลดชิ้นส่วน ห้ามออกแบบใหม่ให้ "คล้าย" ` +
+    `· ถ้า${panel}มีสินค้าหลายสีหรือหลายชิ้นวางเรียงกัน ให้เลือก "ชิ้นหลักชิ้นเดียว" ที่ใหญ่สุด/อยู่กลางภาพ แล้วคัดลอกชิ้นนั้นมาทั้งชิ้น ห้ามผสมสีจากชิ้นอื่น ` +
+    `· ห้ามเอาพื้นหลัง ตัวอักษรโฆษณา ป้ายราคา ไอคอน กรอบ ลายน้ำ ใน${panel}มาด้วย เอาแต่ตัวสินค้า ` +
+    `· ถ้าไม่แน่ใจรายละเอียดไหน ให้คัดลอกจาก${panel}ตรง ๆ อย่าเดา`;
+
   const collageStartPrompt = (name, bg, pose, hasBgRef, extra, hasMoodRef) => {
     const p = panelNames(hasBgRef, hasMoodRef);
     return `${panelIntro(name, hasBgRef, hasMoodRef)} — ` +
       `สร้างภาพใหม่ 1 ภาพ ให้บุคคลจาก${p.person} (ใช้${name || "สินค้า"}จาก${p.product}) ${pose || startPoseFor("", name)} · ` +
-      `คงใบหน้า ทรงผม สีผิว ให้เหมือน${p.person}เป๊ะทุกจุด ห้ามเปลี่ยนหน้า · คงรูปทรง สี ฉลาก สินค้าให้เหมือน${p.product}เป๊ะ · ` +
+      `คงใบหน้า ทรงผม สีผิว ให้เหมือน${p.person}เป๊ะทุกจุด ห้ามเปลี่ยนหน้า · ` + productFidelity(name, p.product) + ` · ` +
       `${bgDirective(bg, hasBgRef, p.bg)} · ` +
       `มือจับธรรมชาตินิ้วครบ แนวตั้ง 9:16 แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย` +
       moodDirective(hasMoodRef, p.mood) +
@@ -2276,7 +2282,7 @@ if (window._flowAutomatorLoaded) {
     const p = panelNames(hasBgRef, hasMoodRef);
     return `${panelIntro(name, hasBgRef, hasMoodRef)} — ` +
       `สร้างภาพใหม่ 1 ภาพ: บุคคลจาก${p.person} "มือซ้าย" ถือ${name || "สินค้า"}จาก${p.product}ระดับอก "มือขวา" ชี้นิ้วลงล่างชัดเจน (ชี้ปุ่มตะกร้าใต้จอ) สีหน้ามั่นใจ ยิ้มมองกล้อง · ` +
-      `${HANDS_RULE} · คงใบหน้า ทรงผม สีผิว ให้เหมือน${p.person}เป๊ะ ห้ามเปลี่ยนหน้า · คงสินค้าเหมือน${p.product}เป๊ะ ห้ามเอาพื้นหลัง/ตัวอักษรในรูปมาด้วย · ` +
+      `${HANDS_RULE} · คงใบหน้า ทรงผม สีผิว ให้เหมือน${p.person}เป๊ะ ห้ามเปลี่ยนหน้า · ` + productFidelity(name, p.product) + ` · ` +
       `ครึ่งตัว แนวตั้ง 9:16 เว้นที่ว่างครึ่งล่างของเฟรมให้ปุ่มตะกร้า ` +
       `${hasBgRef ? `พื้นหลังใช้ฉากจาก${p.bg}` : "พื้นหลังเรียบสะอาดสีพื้น"} แสงนุ่มสว่าง สมจริงเหมือนรูปถ่าย` +
       moodDirective(hasMoodRef, p.mood);
