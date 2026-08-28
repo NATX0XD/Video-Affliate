@@ -335,7 +335,11 @@ if (window._flowAutomatorLoaded) {
   async function trustedClickEl(el, log) {
     // 1) ให้เบราว์เซอร์บอกพิกัดเอง — ถูกต้องทุกเครื่องโดยไม่ต้องแปลงหน่วย
     const byNode = await trustedClickNodeEl(el, log).catch((e) => ({ ok: false, error: String((e && e.message) || e) }));
-    if (byNode && byNode.ok) return byNode;
+    if (byNode && byNode.ok) {
+      // เบราว์เซอร์คำนวณพิกัดให้แล้ว แต่ยังต้องเช็คว่าไม่มีอะไรมาบังตรงจุดนั้น
+      if (byNode.at && log) { const miss = hitCheck(el, byNode.at.x, byNode.at.y); if (miss) log(`⚠ คลิกตาม element แต่โดนของอื่น: ${miss}`); }
+      return byNode;
+    }
     if (log) log(`คลิกตาม element ไม่ได้ (${byNode && byNode.error}) → ถอยไปใช้พิกัดที่คำนวณเอง`);
     return await trustedClickXY(el, log);
   }
@@ -2058,14 +2062,26 @@ if (window._flowAutomatorLoaded) {
       // 3) โหมดย่อย (เฟรม/ส่วนผสม) — โผล่หลังเลือกวิดีโอ · กดเฉพาะเมื่อ sub ยังไม่ตรง · ย้ำได้ 4 รอบ
       if (subLabel) {
         const wantSub = /เฟรม/.test(subLabel) ? "เฟรม" : "ส่วนผสม";
-        for (let j = 0; j < 4; j++) {
+        // Flow ตั้ง "ส่วนผสม" เป็นค่าเริ่มต้นตอนสลับเป็นวิดีโอ — ต้องกด "เฟรม" ให้ติดจริง
+        // กดวิธีเดิมซ้ำ 4 รอบไม่ช่วยถ้าวิธีนั้นใช้ไม่ได้ → สลับวิธีทุกรอบแทน
+        const SUB_WAYS = [
+          ["ตาม element", (el) => trustedClickEl(el, log)],
+          ["โฟกัส+Enter", (el) => trustedKeyActivate(el, log)],
+          ["native",      async (el) => nativeClickEl(el)],
+          ["el.click()",  async (el) => { try { el.click(); } catch {} }],
+        ];
+        for (let j = 0; j < SUB_WAYS.length; j++) {
           st = readModeState();
-          if (st.sub === wantSub) break;                                  // ตรงแล้ว หยุด
+          if (st.sub === wantSub) { if (j) L(`เลือก "${subLabel}" ติดด้วยวิธี "${SUB_WAYS[j - 1][0]}" ✓`); break; }
           const el = findModeOption(subLabel);
-          if (el) { await trustedClickEl(el, log); await sleep(750); }
-          else { await sleep(450); }                                       // ยังไม่โผล่ รออีก
-          if (j === 3 && readModeState().sub !== wantSub) L(`เลือกโหมดย่อย "${subLabel}" ไม่ตรง (ได้=${readModeState().sub || "?"}) | ป๊อปอัป: ${dumpPopup()}`);
+          if (!el) { L(`ยังไม่เจอตัวเลือก "${subLabel}" รออีก`); await sleep(450); continue; }
+          const [wayName, run] = SUB_WAYS[j];
+          await run(el);
+          await sleep(750);
+          if (readModeState().sub !== wantSub) L(`กด "${subLabel}" ด้วยวิธี "${wayName}" ไม่ติด (ยังเป็น ${readModeState().sub || "?"})`);
         }
+        if (readModeState().sub !== wantSub)
+          L(`เลือกโหมดย่อย "${subLabel}" ไม่ตรง (ได้=${readModeState().sub || "?"}) — ลองครบทุกวิธีแล้ว | ป๊อปอัป: ${dumpPopup()}`);
       }
       if (countLabel) { await clickModeOption(countLabel, log); await sleep(500); }   // 1x/x2…
       // บังคับสัดส่วน 9:16 (รูป+วิดีโอต้องแนวตั้ง) — กดเฉพาะเมื่อยังไม่ถูกเลือก
