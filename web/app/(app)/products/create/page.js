@@ -18,6 +18,7 @@ import { StepLook } from '@/components/gen/steps/StepLook'
 import { StepAudio } from '@/components/gen/steps/StepAudio'
 import { StepReview } from '@/components/gen/steps/StepReview'
 import { getTemplate } from '@/lib/gen-templates'
+import { getFace } from '@/lib/gen-faces'
 
 const STEPS = [
   { label: 'สูตร' }, { label: 'ผู้รีวิว' }, { label: 'สไตล์' },
@@ -60,6 +61,15 @@ function CreateInner() {
     return null
   }
 
+  // เทมเพลตกับร่างเก็บแค่ "faceId" ไม่ได้เก็บตัวรูป (รูปอยู่ในคลังหน้าของฉัน)
+  // โหลดเทมเพลตแล้วไม่ดึงรูปกลับมา → buildGen ได้ snapshot=null → ขึ้น "ไม่มีรูปหน้า (flow_char_img)"
+  useEffect(() => {
+    if (o.charId !== 'self' || !o.faceId || selfPhoto) return
+    let dead = false
+    getFace(o.faceId).then(f => { if (!dead && f?.image) setSelfPhoto(f.image) }).catch(() => {})
+    return () => { dead = true }
+  }, [o.charId, o.faceId, selfPhoto])
+
   const next = () => {
     if (step === 1) captureModel()   // เก็บมุมโมเดลที่ผู้ใช้หมุนไว้ก่อนออกจากขั้นตัวละคร
     go(Math.min(step + 1, STEPS.length - 1))
@@ -84,6 +94,15 @@ function CreateInner() {
     setBusy(true)
     try {
       const snapshot = o.charId === 'self' ? selfPhoto : (presetSnap || captureModel())
+      // จับตั้งแต่ตรงนี้ ดีกว่าปล่อยไปล้มในส่วนขยายแล้วขึ้น "ไม่มีรูปหน้า (flow_char_img)"
+      // เกิดได้เมื่อโหลดเทมเพลตที่อ้างรูปในคลังซึ่งถูกลบไปแล้ว
+      if (!snapshot) {
+        toast.error(o.charId === 'self'
+          ? 'ยังไม่มีรูปหน้า — กลับไปขั้น "ใครเป็นคนรีวิว" แล้วเลือก/อัปรูปใหม่ (รูปที่เทมเพลตนี้อ้างถึงอาจถูกลบไปแล้ว)'
+          : 'ยังไม่มีภาพตัวละคร — กลับไปขั้น "ใครเป็นคนรีวิว" อีกครั้ง')
+        setBusy(false)
+        return
+      }
       const gen = buildGen(o, snapshot)
       const clean = products.map(p => toExtProduct(p))
       await api.queuePush({ payload: { type: 'flow_start', products: clean, gen, dry }, priority: dry ? 0 : 1 })
