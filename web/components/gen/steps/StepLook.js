@@ -15,21 +15,21 @@ export function StepLook({ o, set, onNotify, onError }) {
   const [scenes, setScenes] = useState([])
   const [naming, setNaming] = useState(false)
   const [name, setName] = useState('')
-  useEffect(() => { setScenes(listScenes()) }, [])
+  useEffect(() => { listScenes().then(setScenes).catch(() => {}) }, [])
 
   const applyScene = s =>
     set({ prompts: { ...prompts, scene: s.prompt }, bgImage: s.image || null, bgImageName: s.imageName || '', sceneId: s.id })
 
-  const save = () => {
-    const r = saveScene({ name, prompt: prompts.scene, image: o.bgImage, imageName: o.bgImageName })
+  const save = async () => {
+    const r = await saveScene({ name, prompt: prompts.scene, image: o.bgImage, imageName: o.bgImageName })
     if (!r.ok) { onError(r.error); return }
-    setScenes(listScenes()); setNaming(false); set({ sceneId: r.id })
+    setScenes(await listScenes()); setNaming(false); set({ sceneId: r.id })
     onNotify(r.replaced ? `ทับฉาก "${name.trim()}" แล้ว` : `บันทึกฉาก "${name.trim()}" แล้ว`)
   }
 
-  const removeScene = (s, e) => {
+  const removeScene = async (s, e) => {
     e.stopPropagation()
-    deleteScene(s.id); setScenes(listScenes())
+    await deleteScene(s.id); setScenes(await listScenes())
     if (o.sceneId === s.id) set({ sceneId: '' })
     onNotify('ลบฉากแล้ว')
   }

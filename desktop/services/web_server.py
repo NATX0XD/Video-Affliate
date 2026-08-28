@@ -1085,6 +1085,36 @@ class WebServer:
             self.emit_log(f"[UPDATE] อัปเดตโปรแกรมเป็น {ver} แล้ว — ปิดแล้วเปิดโปรแกรมใหม่เพื่อใช้เวอร์ชันใหม่")
             return {"ok": True, "version": ver, "restart_required": True}
 
+        # ── ที่เก็บของหน้าสร้างคลิป: เทมเพลต / ฉากของฉัน / หน้าของฉัน / ร่าง ──────
+        # เดิมเก็บใน localStorage ของเบราว์เซอร์ ซึ่งผูกกับ origin ไม่ใช่กับโปรแกรม
+        # → ถอนโปรแกรมแล้วข้อมูลยังอยู่ · ล้าง cache เบราว์เซอร์แล้วข้อมูลหาย (ผิดทั้งสองทาง)
+        # ย้ายมาเก็บใน app.db ให้อยู่/หายไปพร้อมโปรแกรม และย้ายเครื่องได้พร้อมข้อมูล
+        GEN_STORES = ("templates", "scenes", "faces", "draft")
+
+        @app.get("/api/gen/store/{name}")
+        def gen_store_get(name: str):
+            if name not in GEN_STORES:
+                return {"ok": False, "error": f"ไม่รู้จักที่เก็บ '{name}'"}
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            raw = self.db.get_config(f"gen_store:{name}", "") or ""
+            try:
+                return {"ok": True, "value": json.loads(raw) if raw.strip() else None}
+            except Exception:
+                return {"ok": True, "value": None}      # ค่าเสีย = ถือว่ายังไม่มี ดีกว่าพังทั้งหน้า
+
+        @app.post("/api/gen/store/{name}")
+        async def gen_store_set(name: str, body: dict):
+            if name not in GEN_STORES:
+                return {"ok": False, "error": f"ไม่รู้จักที่เก็บ '{name}'"}
+            if not self.db:
+                return {"ok": False, "error": "db ไม่พร้อม"}
+            try:
+                self.db.set_config(f"gen_store:{name}", json.dumps(body.get("value"), ensure_ascii=False))
+            except Exception as e:
+                return {"ok": False, "error": str(e)[:200]}
+            return {"ok": True}
+
         # ดึงโฟลเดอร์ extension ล่าสุดจาก GitHub — ต้องทำงานได้ทั้ง mac/linux และ Windows
         # เดิมใช้ `curl | tar ... 'path'` ผ่าน shell: cmd.exe ไม่รู้จัก single quote และไม่มี pipe แบบเดียวกัน
         # → บน Windows ล้มเงียบทุกครั้ง. เปลี่ยนมาโหลดไฟล์แล้วแตกด้วย Python เอง (ไม่พึ่ง shell)

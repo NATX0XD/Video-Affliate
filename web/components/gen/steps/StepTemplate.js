@@ -19,11 +19,11 @@ function summary(o) {
 
 export function StepTemplate({ o, onUse, onFresh, picked, onPick, onNotify }) {
   const [list, setList] = useState([])
-  useEffect(() => { setList(listTemplates()) }, [])
+  useEffect(() => { listTemplates().then(setList).catch(() => {}) }, [])
 
   const remove = (id, e) => {
     e.stopPropagation()
-    deleteTemplate(id); setList(listTemplates())
+    deleteTemplate(id).then(() => listTemplates()).then(setList).catch(() => {})
     if (picked === id) onPick('')
     onNotify?.('ลบสูตรแล้ว')
   }
