@@ -583,6 +583,53 @@ if (window._flowAutomatorLoaded) {
     if (cond && !cond()) { log && log("CDP click ไม่ติด → ลอง native click"); nativeClickEl(el); await sleep(900); }
     return true;
   }
+  // ยังไม่ได้ล็อกอิน = เจอปุ่มลงชื่อเข้าใช้ และไม่มีช่องแชต
+  const signedOut = () => {
+    try {
+      if (hasChatBox()) return false;
+      return allClickable().some((el) => /^(ลงชื่อเข้าใช้|เข้าสู่ระบบ|sign in|log in)$/i.test(txt(el).trim()));
+    } catch { return false; }
+  };
+
+  // ── ตรวจความพร้อมของ Google Flow ก่อนเริ่มงาน ────────────────────────────
+  // เครื่องที่ยังไม่ได้ตั้งค่า (ไม่ล็อกอิน / ยังไม่เคยเปิด Flow / ค้างหน้า error) เดิมจะไหลไปพัง
+  // กลางทางแล้วขึ้น error ยาวเหยียดที่อ่านไม่รู้เรื่อง — เช็คให้ครบก่อนแล้วบอกเป็นข้อ ๆ ว่าต้องไปทำอะไร
+  async function flowPreflight(log) {
+    const L = (m) => { try { log && log(m); } catch {} };
+    const problems = [], passed = [];
+
+    if (!/labs\.google/i.test(location.host))
+      return { ok: false, problems: [`แท็บนี้ไม่ใช่ Google Flow (อยู่ที่ ${location.host}) — เปิด labs.google/fx/th/tools/flow ก่อน`], checks: [] };
+
+    if (signedOut()) problems.push("ยังไม่ได้ล็อกอิน Google ในแท็บนี้ — กดลงชื่อเข้าใช้ให้เรียบร้อยก่อน");
+    else passed.push("ล็อกอินแล้ว");
+
+    if (isFlowErrorPage()) problems.push("หน้า Flow กำลังขึ้น error — รีโหลดหน้าแล้วลองใหม่");
+
+    try { await ensureChatPage(L); } catch (e) { problems.push(`เข้าโปรเจกต์ไม่ได้: ${(e && e.message) || e}`); }
+
+    if (!(await waitFor(findEditable, 15000, 700))) problems.push("ไม่พบช่องพิมพ์พรอมต์ — ยังเข้าโปรเจกต์ Flow ไม่ได้");
+    else passed.push("เข้าโปรเจกต์ได้");
+
+    if (!(await waitFor(findModeBtn, 15000, 700))) {
+      problems.push("ไม่พบปุ่มเลือกโหมด (รูปภาพ/วิดีโอ) บนแถบพรอมต์");
+    } else {
+      passed.push(`ปุ่มโหมดอ่านได้: ${modeSummary()}`);
+      // จุดนี้คือที่พังบ่อยสุด — เปิดเมนูโหมดไม่ได้ = สลับไปโหมดเฟรมไม่ได้ = สร้างวิดีโอไม่ได้
+      if (!(await openModePopup(L)))
+        problems.push(`เปิดเมนูโหมดไม่ได้ → สลับโหมดรูปภาพ/วิดีโอไม่ได้ (ปุ่มโหมด: ${modeBtnInfo()} | แถบพรอมต์: ${dumpComposer()})`);
+      else {
+        document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await sleep(400);
+        passed.push("เมนูโหมดเปิดได้");
+      }
+    }
+
+    L(`ตรวจความพร้อม Flow: ${passed.join(" · ") || "-"}${problems.length ? " | ติด: " + problems.join(" / ") : " — พร้อม ✓"}`);
+    return { ok: problems.length === 0, problems, checks: passed };
+  }
+  window._flowPreflight = flowPreflight;   // เทสมือ: _flowPreflight(console.log)
+
   async function ensureChatPage(log) {
     // ★ เช็คก่อน: อยู่ในโปรเจกต์แล้ว (มีช่องแชต) → ข้าม ไม่กดสร้างโปรเจกต์ใหม่ (กันสร้างซ้ำ/รีเซ็ต)
     if (hasChatBox()) {
@@ -1576,16 +1623,6 @@ if (window._flowAutomatorLoaded) {
   const startPoseFor = (style, name) => (STYLE_POSE[style] ? STYLE_POSE[style](name)
     : `ครึ่งตัว หันหน้าเข้ากล้องตรง ๆ ยิ้มเป็นธรรมชาติ ถือ${name || "สินค้า"}ระดับอก`);
 
-  const defaultComposePrompt = (name, bg, pose, hasBgRef, extra) =>
-    `รวมภาพ: ใช้ "ใบหน้าและบุคคล" จากรูปแรกเป็นหลัก (สำคัญสุด — คงใบหน้า ทรงผม สีผิว ให้เหมือนรูปแรกเป๊ะทุกจุด ห้ามเปลี่ยน) ` +
-    `นำ${name || "สินค้า"}จากรูปที่สองมาด้วย — ใช้เฉพาะ "ตัวสินค้า" เท่านั้น ห้ามเอาพื้นหลัง/ตัวอักษร/ป้ายราคา/ลายน้ำ/กรอบ ในรูปที่สองมาด้วย ` +
-    `ท่าทาง: ${pose || startPoseFor("", name)} มือจับธรรมชาติ นิ้วครบ ` +
-    (hasBgRef
-      ? `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็นฉากใน "รูปที่สาม" เท่านั้น — ใช้สถานที่ มุมมอง สี แสง จากรูปที่สามให้ตรง แล้ววางบุคคลลงไปกลมกลืน${bg && bg.trim() ? ` (รายละเอียดเพิ่ม: ${bg})` : ""} · ห้ามเอาคน/สินค้าที่ติดมาในรูปที่สามมาใส่ · ลบ/แทนพื้นหลังเดิมของรูปคนทิ้งทั้งหมด `
-      : `★★ พื้นหลัง/ฉากของทั้งภาพต้องเป็น "${bg && bg.trim() ? bg : "ฉากเรียบสะอาดสีพื้น"}" เท่านั้น — สร้างฉากนี้ขึ้นใหม่ ลบ/แทนพื้นหลังเดิมของรูปคนทิ้งทั้งหมด ห้ามคงพื้นหลังเดิม `) +
-    `· ภาพแนวตั้ง 9:16 แสงนุ่มสว่าง คมชัด สมจริงเหมือนรูปถ่าย` +
-    extraDirective(extra);
-
   // ปุ่มโหมด (มุมขวาแถบ prompt) — ข้อความมี "crop_9_16" ทั้งโหมด video และ image
   function findModeBtn() {
     // จับทุกโหมด/สัดส่วน: image(nano banana crop_9_16/16_9/square) · video(วิดีโอ · / omni flash)
@@ -1715,8 +1752,53 @@ if (window._flowAutomatorLoaded) {
       el.dispatchEvent(new MouseEvent("click", { ...o, button: 0 }));   // ★ ยิง click ครั้งเดียว (อย่าเรียก el.click() ซ้ำ — ปุ่ม toggle จะปิดกลับ)
     } catch {}
   }
+  // คลิกที่ "สัดส่วนตำแหน่งแนวนอน" ของ element แทนจุดกึ่งกลาง
+  // ปุ่มโหมดของ Flow เป็นแถบยาวที่ประกอบด้วยชิปย่อย (รุ่น / สัดส่วน / จำนวน) — คลิกกลางอาจตกร่องว่างระหว่างชิป
+  async function trustedClickFrac(el, fx, log) {
+    const panel = document.getElementById("__flow_panel");
+    const prev = panel ? panel.style.display : null;
+    if (panel) panel.style.display = "none";
+    await sleep(40);
+    const r = el.getBoundingClientRect();
+    const res = await sendTrusted({ action: "flow_trusted_click", x: Math.round(r.left + r.width * fx), y: Math.round(r.top + r.height / 2) });
+    if (panel) panel.style.display = prev || "";
+    if (log && !res.ok) log(`คลิกจริง (${Math.round(fx * 100)}%) ล้มเหลว: ${res.error}`);
+    return res;
+  }
+  // กดปุ่มด้วยคีย์บอร์ด — บาง widget ของ Flow ไม่ตอบ mouse event ที่ยิงมาจากพิกัด แต่ตอบ Enter/Space ตอนโฟกัส
+  async function keyActivate(el) {
+    try {
+      el.focus({ preventScroll: true });
+      await sleep(120);
+      for (const key of ["Enter", " "]) {
+        const o = { key, code: key === " " ? "Space" : "Enter", bubbles: true, cancelable: true };
+        el.dispatchEvent(new KeyboardEvent("keydown", o));
+        el.dispatchEvent(new KeyboardEvent("keyup", o));
+        await sleep(200);
+      }
+    } catch {}
+  }
   // ป๊อปอัปโหมดโผล่ไหม = เจอแท็บ รูปภาพ/วิดีโอ/เฟรม (findModeOption ตัด sidebar x<110 แล้ว)
   const popupTabsShown = () => !!(findModeOption("รูปภาพ") || findModeOption("วิดีโอ") || findModeOption("เฟรม"));
+  // dump ทุก element ในโซนแถบ prompt (ล่างจอ) พร้อม tag/พิกัด — ใช้หาว่าปุ่มโหมดจริงคือชิ้นไหน
+  // ปุ่มโหมดหลบอยู่ล่างจอเสมอ ส่วน "🍌 Nano Banana 2 / crop_free 768×1376" ที่ขวาจอเป็นป้ายกำกับรูปที่สร้างแล้ว ไม่ใช่ปุ่ม
+  function dumpComposer() {
+    try {
+      const ed = findEditable();
+      const top = ed ? ed.getBoundingClientRect().top - 80 : window.innerHeight * 0.6;
+      const seen = new Set(); const out = [];
+      for (const el of deepAll('button,[role="button"],[tabindex],div,span')) {
+        if (!isVisible(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.top < top || r.width < 8 || r.width > 900 || r.height > 120) continue;
+        const t = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 26);
+        if (!t || seen.has(t)) continue; seen.add(t);
+        out.push(`[${Math.round(r.left)},${Math.round(r.top)} ${el.tagName.toLowerCase()} ${Math.round(r.width)}x${Math.round(r.height)}]${t}`);
+        if (out.length >= 22) break;
+      }
+      return out.join(" · ");
+    } catch { return ""; }
+  }
   // เปิดป๊อปอัปโหมดให้ชัวร์ — รอ UI นิ่งก่อน + scrollIntoView + re-fetch ปุ่ม + retry เยอะ
   // (CDP click บางทีไม่ติดถ้าปุ่มยัง disabled ตอน Flow ยังเรนเดอร์ หรือปุ่มอยู่นอกจอ)
   async function openModePopup(log) {
@@ -1724,16 +1806,26 @@ if (window._flowAutomatorLoaded) {
     if (popupTabsShown()) return true;
     // รอ Flow ไม่ "กำลังสร้าง" ก่อน (ปุ่มโหมดอาจกดไม่ติดตอนยังเรนเดอร์) — สูงสุด ~8 วิ
     for (let w = 0; w < 8 && isGenerating(); w++) await sleep(1000);
-    for (let k = 0; k < 10; k++) {
+    // หมุนวิธีกดหลายแบบ — ปุ่มโหมดเป็นแถบยาวที่มีชิปย่อย คลิกกลางบางทีตกร่องว่างระหว่างชิป
+    // แล้วป๊อปอัปไม่เปิดเลยสักรอบ (อาการ "ป๊อปอัป: (ไม่เปิด)" ที่เจอตอนคลิปที่ 2 เป็นต้นไป)
+    const STRATS = [
+      { name: "กลาง",   run: (b) => trustedClickEl(b, log) },
+      { name: "ซ้าย22%", run: (b) => trustedClickFrac(b, 0.22, log) },
+      { name: "ขวา78%",  run: (b) => trustedClickFrac(b, 0.78, log) },
+      { name: "native",  run: async (b) => nativeClickEl(b) },
+      { name: "คีย์บอร์ด", run: (b) => keyActivate(b) },
+    ];
+    for (let k = 0; k < 12; k++) {
       const btn = findModeBtn();
       if (!btn) { L("เปิดป๊อปอัป: ยังไม่เจอปุ่มโหมด รออีก"); await sleep(700); continue; }
       try { btn.scrollIntoView({ block: "center", inline: "center" }); } catch {}
       await sleep(150);
-      // ใช้ CDP trusted เป็นหลัก (ของจริง) · ทุก 3 รอบเสริม native (เผื่อ CDP พลาด) — ไม่ยิงซ้อนรอบเดียวกัน (toggle ปิดกลับ)
-      if (k % 3 === 2) nativeClickEl(btn); else await trustedClickEl(btn, log);
+      const s = STRATS[k % STRATS.length];
+      await s.run(btn);                                   // ยิงวิธีเดียวต่อรอบ — ยิงซ้อนกันปุ่ม toggle จะปิดกลับ
       await sleep(1000);
       const d = dumpPopup(); if (d.length > (_modePopupDump || "").length) _modePopupDump = d;
-      if (popupTabsShown()) { L(`เปิดป๊อปอัปโหมดสำเร็จ (รอบ ${k + 1})`); return true; }
+      if (popupTabsShown()) { L(`เปิดป๊อปอัปโหมดสำเร็จ (รอบ ${k + 1} วิธี "${s.name}")`); return true; }
+      if (k === STRATS.length - 1) L(`ลองครบทุกวิธีแล้วยังไม่เปิด (ปุ่มโหมด: ${modeBtnInfo()}) | แถบ prompt: ${dumpComposer()}`);
     }
     return false;
   }
@@ -1846,7 +1938,8 @@ if (window._flowAutomatorLoaded) {
       });
     };
     const imgs = await Promise.all(list.map(load));
-    const H = 768;                                              // สูงเท่ากัน ปรับกว้างตามสัดส่วน
+    const H = 1152;                                             // สูงเท่ากัน ปรับกว้างตามสัดส่วน
+    // เดิม 768 — พอต่อ 2-4 รูปแล้วโมเดลย่อทั้งแผ่นลงอ่าน หน้าคนเหลือไม่กี่ร้อย px จนเปลี่ยนคน
     const gap = 24;
     const ws = imgs.map((im) => Math.max(1, Math.round(im.width * H / im.height)));
     const cv = document.createElement("canvas");
@@ -1873,8 +1966,19 @@ if (window._flowAutomatorLoaded) {
     return cv.toDataURL("image/jpeg", 0.95);
   }
 
-  // ป้ายแผงในรูป collage — 2 รูป = ครึ่งซ้าย/ครึ่งขวา · 3 รูป (มีรูปฉากหลังที่ผู้ใช้อัป) = แผงซ้าย/กลาง/ขวา
+  // โหมดอ้างอิงของรอบนี้: true = แนบแยกรูป (ค่าเริ่มต้น) · false = รวมเป็น collage รูปเดียว
+  // แยกรูปให้คุณภาพดีกว่ามาก — collage ย่อทุกรูปเหลือสูง 768 แล้วต่อกัน พอโมเดลย่อลงอีกตอนอ่าน
+  // หน้าคนเหลือไม่กี่ร้อย px เอกลักษณ์หาย (เคยได้คนละคน คนละสินค้า)
+  let _refSep = true;
+  // ป้ายอ้างอิง — แนบแยก = "รูปที่ 1/2/3" · collage = ครึ่งซ้าย/ครึ่งขวา หรือ แผงที่ 1/2/3
   const panelNames = (hasBgRef, hasMoodRef) => {
+    if (_refSep) {
+      const n = { person: "รูปที่ 1", product: "รูปที่ 2", bg: null, mood: null };
+      let i = 3;
+      if (hasBgRef) n.bg = `รูปที่ ${i++}`;
+      if (hasMoodRef) n.mood = `รูปที่ ${i++}`;
+      return n;
+    }
     if (!hasBgRef && !hasMoodRef) return { person: "ครึ่งซ้าย", product: "ครึ่งขวา", bg: null, mood: null };
     const n = { person: "แผงที่ 1 (ซ้ายสุด)", product: "แผงที่ 2", bg: null, mood: null };
     let i = 3;
@@ -1884,11 +1988,12 @@ if (window._flowAutomatorLoaded) {
   };
   const panelIntro = (name, hasBgRef, hasMoodRef) => {
     const p = panelNames(hasBgRef, hasMoodRef);
-    if (!hasBgRef && !hasMoodRef)
-      return `ภาพอ้างอิงนี้วาง 2 รูปคู่กัน: "${p.person} = ใบหน้า/ตัวบุคคล" และ "${p.product} = ${name || "สินค้า"}"`;
     const parts = [`"${p.person} = ใบหน้า/ตัวบุคคล"`, `"${p.product} = ${name || "สินค้า"}"`];
     if (hasBgRef) parts.push(`"${p.bg} = ฉากหลังที่ต้องการ"`);
     if (hasMoodRef) parts.push(`"${p.mood} = ตัวอย่างโทนสี/อารมณ์ภาพ"`);
+    if (_refSep) return `แนบรูปอ้างอิงมา ${parts.length} รูป เรียงตามลำดับที่แนบ: ${parts.join(", ")}`;
+    if (!hasBgRef && !hasMoodRef)
+      return `ภาพอ้างอิงนี้วาง 2 รูปคู่กัน: "${p.person} = ใบหน้า/ตัวบุคคล" และ "${p.product} = ${name || "สินค้า"}"`;
     return `ภาพอ้างอิงนี้วาง ${parts.length} รูปเรียงกัน: ${parts.join(", ")}`;
   };
   // คำสั่งโทนสีจากรูปอ้างอิง — ใช้แค่สี/แสง ห้ามลอกวัตถุ
@@ -1930,16 +2035,21 @@ if (window._flowAutomatorLoaded) {
   async function startRefsAndPrompt(faceUrl, productUrl, name, optPrompt, log, bg, pose, bgImg, extra, moodImg) {
     const hasBgRef = !!bgImg, hasMoodRef = !!moodImg;
     const what = ["หน้า", "สินค้า"].concat(hasBgRef ? ["ฉากหลัง"] : [], hasMoodRef ? ["โทนสี"] : []).join("+");
+    const refs = [faceUrl, productUrl, bgImg, moodImg].filter(Boolean);
+    // ค่าเริ่มต้น = แนบแยกรูป (แต่ละรูปเข้าโมเดลเต็มความละเอียด หน้าไม่เพี้ยน)
+    // ตั้ง flow_ref_mode = "collage" ใน storage ถ้าอยากกลับไปรวมรูปเดียวแบบเดิม
+    if (_refSep) {
+      log(`แนบ${what}แยก ${refs.length} รูป (คงความละเอียดเต็ม)`);
+      return { refs, hasBgRef, hasMoodRef, prompt: optPrompt || collageStartPrompt(name, bg, pose, hasBgRef, extra, hasMoodRef) };
+    }
     try {
       const combined = await combineRefs(faceUrl, productUrl, bgImg, moodImg);
       log(`รวม${what}เป็นรูปเดียว ✓ (แนบครั้งเดียว)`);
       return { refs: [combined], hasBgRef, hasMoodRef, prompt: optPrompt || collageStartPrompt(name, bg, pose, hasBgRef, extra, hasMoodRef) };
     } catch (e) {
       log(`รวมรูปไม่สำเร็จ (${e && e.message || e}) → แนบรูปแยกแทน`);
-      return {
-        refs: [faceUrl, productUrl, bgImg, moodImg].filter(Boolean), hasBgRef, hasMoodRef,
-        prompt: optPrompt || defaultComposePrompt(name, bg, pose, hasBgRef, extra),
-      };
+      _refSep = true;
+      return { refs, hasBgRef, hasMoodRef, prompt: optPrompt || collageStartPrompt(name, bg, pose, hasBgRef, extra, hasMoodRef) };
     }
   }
 
@@ -2084,6 +2194,9 @@ if (window._flowAutomatorLoaded) {
   // เฟรมเริ่ม + เฟรมจบ (CTA) — เฟรมจบสร้าง "จากเฟรมเริ่ม" ให้คน/ของ/ฉากเหมือนกัน → Veo interpolate นิ่ง
   async function composePair(opts = {}) {
     const { steps, log } = mkLog(opts);
+    // เช็คความพร้อมของ Flow ก่อน — ล้มตรงนี้บอกได้ว่าต้องไปแก้อะไร ดีกว่าไหลไปพังกลางทาง
+    const pre = await flowPreflight(log);
+    if (!pre.ok) return { ok: false, stage: "preflight", error: `Google Flow ยังไม่พร้อม: ${pre.problems.join(" / ")}`, steps };
     const { faceUrl, productUrl, name, bg, style, bgImg, moodImg, extra } = await resolveComposeInputs(opts);
     if (!faceUrl) return { ok: false, error: "ไม่มีรูปหน้า (flow_char_img)", steps };
     if (!productUrl) return { ok: false, error: "ไม่มีรูปสินค้า", steps };
@@ -2176,7 +2289,7 @@ if (window._flowAutomatorLoaded) {
     }
     log(`ตรวจโหมดก่อนทำวิดีโอ: ${modeSummary()}`);                      // เช็คก่อน (จับข้าม/เลือกผิด)
     const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);            // วิดีโอ + เฟรม + บังคับ 9:16
-    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
+    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มโหมด: ${modeBtnInfo()} | แถบ prompt: ${dumpComposer()} | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
     if (!is916()) log(`⚠ วิดีโอสัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()})`);
     log(`โหมดหลังตั้งค่า: ${modeSummary()} ${isVideoMode() ? "✓" : ""}`);   // เช็คหลัง
     await sleep(900);
