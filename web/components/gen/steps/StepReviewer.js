@@ -1,24 +1,35 @@
 'use client'
 // ขั้น 2 — ใครเป็นคนรีวิว + ขายให้ใคร
-import { useRef } from 'react'
-import { Upload } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
+import { useState, useEffect } from 'react'
 import { GEN_CHARS, GEN_AUDS } from '@/lib/gen-options'
-import { downscale } from '@/lib/downscale'
+import { listFaces, addFace, deleteFace } from '@/lib/gen-faces'
 import { PickCard } from '@/components/gen/PickCard'
-import { Topic, PromptBox } from '@/components/gen/CustomField'
+import { ImageSlot } from '@/components/gen/ImageSlot'
+import { Topic } from '@/components/gen/CustomField'
 import { ModelPreview } from '@/components/gen/ModelPreview'
 
-export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap, onError }) {
-  const fileRef = useRef(null)
+export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap, onNotify, onError }) {
   const char = GEN_CHARS.find(c => c.id === o.charId) || GEN_CHARS[0]
   const prompts = o.prompts || {}
+  const onPrompts = p => set({ prompts: p })
+  const [faces, setFaces] = useState([])
+  useEffect(() => { setFaces(listFaces()) }, [])
 
-  const pick = async e => {
-    const f = e.target.files?.[0]; e.target.value = ''
-    if (!f) return
-    try { onSelfPhoto(await downscale(f)) }
-    catch { onError('อ่านรูปไม่สำเร็จ') }
+  // อัปรูปใหม่ → ใช้เลย + เก็บเข้าคลัง "หน้าของฉัน" อัตโนมัติ (จะได้ไม่ต้องอัปซ้ำรอบหน้า)
+  const pickPhoto = (img, fname) => {
+    onSelfPhoto(img)
+    const r = addFace(img, fname?.replace(/\.[^.]+$/, '') || '')
+    if (r.ok) { setFaces(listFaces()); set({ faceId: r.id }); if (!r.dup) onNotify?.('เก็บรูปนี้ไว้ในคลังหน้าแล้ว') }
+    else onError?.(r.error)
+  }
+
+  const useFace = f => { onSelfPhoto(f.image); set({ faceId: f.id }) }
+
+  const removeFace = (f, e) => {
+    e.stopPropagation()
+    deleteFace(f.id); setFaces(listFaces())
+    if (o.faceId === f.id) set({ faceId: '' })
+    onNotify?.('ลบรูปแล้ว')
   }
 
   return (
@@ -28,7 +39,7 @@ export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap,
         <p className="t-cap mt-1">ตัวละครนี้จะเป็นคนถือสินค้าและพูดขายในคลิป</p>
       </div>
 
-      <Topic label="ตัวละคร" fieldKey="char" prompts={prompts} onPrompts={p => set({ prompts: p })}
+      <Topic label="ตัวละคร" fieldKey="char" prompts={prompts} onPrompts={onPrompts}
         hint="เลือกตัวละครสำเร็จรูป หรือใช้รูปตัวเอง">
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -43,20 +54,29 @@ export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap,
           )}
 
           {o.charId === 'self' && (
-            <div className="rounded-xl border border-line bg-surface p-4 flex items-center gap-4">
-              <div className="w-16 h-16 rounded-xl overflow-hidden bg-elevated border border-line grid place-items-center shrink-0">
-                {selfPhoto
-                  ? <img src={selfPhoto} alt="" className="w-full h-full object-cover" />
-                  : <Upload size={20} className="text-ink-mute" />}
-              </div>
-              <div className="flex-1">
-                <p className="t-section text-ink">รูปหน้าของคุณ</p>
-                <p className="t-cap mt-0.5">รูปชัด หน้าตรง แสงสว่าง — ใช้เป็นภาพอ้างอิงใบหน้าในคลิป</p>
-                <input ref={fileRef} type="file" accept="image/*" onChange={pick} className="hidden" />
-                <Button variant="outline" size="sm" className="mt-2" onClick={() => fileRef.current?.click()}>
-                  <Upload size={13} /> {selfPhoto ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}
-                </Button>
-              </div>
+            <div className="flex flex-col gap-3">
+              <ImageSlot
+                title="รูปหน้าของคุณ"
+                hint="รูปชัด หน้าตรง แสงสว่าง — ใช้เป็นภาพอ้างอิงใบหน้าในคลิป"
+                image={selfPhoto} imageName=""
+                max={512}
+                onPick={pickPhoto}
+                onClear={() => { onSelfPhoto(null); set({ faceId: '' }) }}
+                onError={onError} />
+
+              {faces.length > 0 && (
+                <div>
+                  <p className="t-section text-ink mb-2">หน้าของฉัน</p>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                    {faces.map(f => (
+                      <PickCard key={f.id} active={o.faceId === f.id} onClick={() => useFace(f)}
+                        title={f.name} img={f.image} ratio="aspect-square"
+                        onDelete={e => removeFace(f, e)} />
+                    ))}
+                  </div>
+                  <p className="t-cap mt-1.5">กดรูปเพื่อใช้ซ้ำ — รูปที่อัปใหม่จะถูกเก็บเข้าคลังให้เอง (เก็บล่าสุด 12 รูป)</p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -64,15 +84,15 @@ export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap,
 
       <div className="h-px bg-line" />
 
-      <section className="flex flex-col gap-2.5">
-        <h3 className="t-section text-ink">ขายให้ใคร</h3>
+      <Topic label="ขายให้ใคร" fieldKey="aud" prompts={prompts} onPrompts={onPrompts}
+        hint="เลือกกลุ่มสำเร็จรูป หรือเขียนกลุ่มเป้าหมายเอง">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {GEN_AUDS.map(a => (
             <PickCard key={a.id} active={o.aud === a.id} onClick={() => set({ aud: a.id })}
               title={a.name} sub={a.desc} />
           ))}
         </div>
-      </section>
+      </Topic>
     </div>
   )
 }

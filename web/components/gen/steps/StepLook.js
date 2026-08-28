@@ -1,29 +1,21 @@
 'use client'
-// ขั้น 4 — ลุคภาพ: ฉาก (รูปจริง + ฉากของฉัน + อัปรูปเอง) และอารมณ์ภาพ
-import { useState, useRef, useEffect } from 'react'
-import { Upload, Trash2, ImagePlus, Plus, Save } from 'lucide-react'
+// ขั้น 4 — ลุคภาพ: ฉาก (รูปจริง + ฉากของฉัน + อัปรูปเอง) และอารมณ์ภาพ (อัปรูปโทนสีเองได้)
+import { useState, useEffect } from 'react'
+import { Plus, Save } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { GEN_BGS, GEN_MOODS } from '@/lib/gen-options'
 import { listScenes, saveScene, deleteScene } from '@/lib/gen-scenes'
-import { downscale } from '@/lib/downscale'
 import { PickCard } from '@/components/gen/PickCard'
+import { ImageSlot } from '@/components/gen/ImageSlot'
 import { Topic, PromptBox } from '@/components/gen/CustomField'
 
 export function StepLook({ o, set, onNotify, onError }) {
   const prompts = o.prompts || {}
   const onPrompts = p => set({ prompts: p })
-  const fileRef = useRef(null)
   const [scenes, setScenes] = useState([])
   const [naming, setNaming] = useState(false)
   const [name, setName] = useState('')
   useEffect(() => { setScenes(listScenes()) }, [])
-
-  const pickFile = async e => {
-    const f = e.target.files?.[0]; e.target.value = ''
-    if (!f) return
-    try { set({ bgImage: await downscale(f, 768, 0.88), bgImageName: f.name }) }
-    catch { onError('อ่านรูปไม่สำเร็จ — ลองไฟล์ JPG/PNG อื่น') }
-  }
 
   const applyScene = s =>
     set({ prompts: { ...prompts, scene: s.prompt }, bgImage: s.image || null, bgImageName: s.imageName || '', sceneId: s.id })
@@ -42,6 +34,44 @@ export function StepLook({ o, set, onNotify, onError }) {
     onNotify('ลบฉากแล้ว')
   }
 
+  // กล่องอัปรูปฉาก + ปุ่มบันทึกฉาก — โผล่ทันทีที่กด "เขียนเอง"
+  const sceneSlot = (
+    <ImageSlot
+      title="รูปฉากหลังที่ต้องการ (ไม่บังคับ)"
+      hint="ระบบส่งรูปนี้เข้า Google Flow เป็นภาพอ้างอิงฉาก"
+      image={o.bgImage} imageName={o.bgImageName}
+      onPick={(img, fname) => set({ bgImage: img, bgImageName: fname })}
+      onClear={() => set({ bgImage: null, bgImageName: '' })}
+      onError={onError}>
+      {naming ? (
+        <div className="flex items-center gap-2">
+          <input autoFocus value={name} onChange={e => setName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && save()}
+            placeholder="ตั้งชื่อฉาก เช่น ร้านกาแฟไม้"
+            className="flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 t-body text-ink outline-none focus:border-accent" />
+          <Button size="sm" onClick={save} disabled={!name.trim()}><Save size={13} /> บันทึก</Button>
+          <button type="button" onClick={() => setNaming(false)} className="t-cap hover:text-ink">ยกเลิก</button>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" className="w-fit" onClick={() => setNaming(true)}
+          disabled={!(prompts.scene || '').trim() && !o.bgImage}>
+          <Plus size={13} /> บันทึกฉากนี้ไว้ใช้ซ้ำ
+        </Button>
+      )}
+    </ImageSlot>
+  )
+
+  // กล่องอัปรูปอ้างอิงโทนสี/อารมณ์
+  const moodSlot = (
+    <ImageSlot
+      title="รูปอ้างอิงโทนสี/อารมณ์ (ไม่บังคับ)"
+      hint="ใช้เป็นตัวอย่างโทนสีและแสงที่อยากได้ ระบบส่งเข้า Flow ด้วย"
+      image={o.moodImage} imageName={o.moodImageName}
+      onPick={(img, fname) => set({ moodImage: img, moodImageName: fname })}
+      onClear={() => set({ moodImage: null, moodImageName: '' })}
+      onError={onError} />
+  )
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -50,7 +80,8 @@ export function StepLook({ o, set, onNotify, onError }) {
       </div>
 
       <Topic label="ฉากหลัง" fieldKey="scene" prompts={prompts} onPrompts={onPrompts}
-        hint="เลือกฉากสำเร็จรูป หรือเขียนฉากเอง + แนบรูป"
+        hint="เลือกฉากสำเร็จรูป หรือกด เขียนเอง เพื่อพิมพ์ฉาก + แนบรูป"
+        custom={sceneSlot}
         onClear={() => set({ bgImage: null, bgImageName: '', sceneId: '' })}>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {GEN_BGS.map(b => (
@@ -59,52 +90,6 @@ export function StepLook({ o, set, onNotify, onError }) {
           ))}
         </div>
       </Topic>
-
-      {/* เขียนฉากเองอยู่ → โชว์ที่อัปรูป + ปุ่มบันทึกฉาก */}
-      {!!(prompts.scene || o.bgImage) && (
-        <div className="rounded-xl border border-line bg-surface p-4 flex flex-col gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-16 h-16 rounded-lg overflow-hidden border border-line bg-elevated grid place-items-center shrink-0">
-              {o.bgImage
-                ? <img src={o.bgImage} alt="" className="w-full h-full object-cover" />
-                : <ImagePlus size={18} className="text-ink-mute" />}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="t-section text-ink">รูปฉากหลังที่ต้องการ (ไม่บังคับ)</p>
-              <p className="t-cap mt-0.5 truncate">
-                {o.bgImage ? (o.bgImageName || 'รูปที่อัปไว้') : 'ระบบส่งรูปนี้เข้า Google Flow เป็นภาพอ้างอิงฉาก'}
-              </p>
-              <input ref={fileRef} type="file" accept="image/*" onChange={pickFile} className="hidden" />
-              <div className="flex items-center gap-2 mt-2">
-                <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-                  <Upload size={13} /> {o.bgImage ? 'เปลี่ยนรูป' : 'อัปโหลดรูปฉาก'}
-                </Button>
-                {o.bgImage && (
-                  <button type="button" onClick={() => set({ bgImage: null, bgImageName: '' })}
-                    className="t-cap text-danger hover:underline flex items-center gap-1">
-                    <Trash2 size={12} /> เอาออก
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {naming ? (
-            <div className="flex items-center gap-2">
-              <input autoFocus value={name} onChange={e => setName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && save()}
-                placeholder="ตั้งชื่อฉาก เช่น ร้านกาแฟไม้"
-                className="flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 t-body text-ink outline-none focus:border-accent" />
-              <Button size="sm" onClick={save} disabled={!name.trim()}><Save size={13} /> บันทึก</Button>
-              <button type="button" onClick={() => setNaming(false)} className="t-cap hover:text-ink">ยกเลิก</button>
-            </div>
-          ) : (
-            <Button variant="outline" size="sm" className="w-fit" onClick={() => setNaming(true)}>
-              <Plus size={13} /> บันทึกฉากนี้ไว้ใช้ซ้ำ
-            </Button>
-          )}
-        </div>
-      )}
 
       {scenes.length > 0 && (
         <section className="flex flex-col gap-2.5">
@@ -122,7 +107,9 @@ export function StepLook({ o, set, onNotify, onError }) {
       <div className="h-px bg-line" />
 
       <Topic label="อารมณ์ภาพ" fieldKey="mood" prompts={prompts} onPrompts={onPrompts}
-        hint="คุมโทนสีและแสงรวมของคลิป">
+        hint="คุมโทนสีและแสงรวมของคลิป — กด เขียนเอง เพื่อพิมพ์เอง + แนบรูปอ้างอิง"
+        custom={moodSlot}
+        onClear={() => set({ moodImage: null, moodImageName: '' })}>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {GEN_MOODS.map(m => (
             <PickCard key={m.id} active={o.mood === m.id && !prompts.mood} onClick={() => set({ mood: m.id })}
