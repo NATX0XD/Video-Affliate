@@ -69,9 +69,9 @@ const ctx = {
 }
 
 const code = [grab('composerButtons'), grab('visibleTexts'), grabConst('newTextsAfter'),
-              grab('findModeBtn'), grab('findModeOption')].join('\n')
+              grab('findModeBtn'), grab('findModeOption'), grab('hitCheck')].join('\n')
 const make = new Function(...Object.keys(ctx),
-  `${code}\nreturn { composerButtons, visibleTexts, newTextsAfter, findModeBtn, findModeOption }`)
+  `${code}\nreturn { composerButtons, visibleTexts, newTextsAfter, findModeBtn, findModeOption, hitCheck }`)
 const F = make(...Object.values(ctx))
 
 // ── ตรวจผล ────────────────────────────────────────────────────────────────
@@ -110,6 +110,16 @@ el('button', 'เฟรม', 600, 600, 80, 36, { role: 'tab' })
 
 check('เมนูเปิดแล้ว → เจอแท็บ วิดีโอ', F.findModeOption('วิดีโอ') === tabVid, true)
 check('newTextsAfter รายงานเฉพาะของใหม่', F.newTextsAfter(before), 'วิดีโอ | เฟรม')
+
+// ── hitCheck: จับกรณีพิกัดคลาดเพราะ zoom ────────────────────────────────
+window.document.elementFromPoint = (x, y) =>
+  all().find((e) => { const r = e.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom }) || null
+
+check('พิกัดกลางปุ่ม → ไม่เตือน', F.hitCheck(bMode, 956, 796), '')
+check('พิกัดเลยไปโดนปุ่มส่ง → เตือน',
+  /ไม่ใช่ปุ่มเป้าหมาย/.test(F.hitCheck(bMode, 1050, 796)), true)
+check('พิกัดนอกจอ → บอกว่าไม่โดนอะไรเลย',
+  /ไม่โดน element ใดเลย/.test(F.hitCheck(bMode, 5000, 5000)), true)
 
 console.log(fail ? `\n${fail} ข้อไม่ผ่าน` : '\nผ่านทั้งหมด')
 process.exit(fail ? 1 : 0)
