@@ -1,4 +1,4 @@
-# setup-prereqs.ps1 - ติดตั้งเครื่องมือทั้งหมดด้วยการโหลดตรง (ไม่ใช้ winget ไม่ต้องสิทธิ์แอดมิน)
+﻿# setup-prereqs.ps1 - ติดตั้งเครื่องมือทั้งหมดด้วยการโหลดตรง (ไม่ใช้ winget ไม่ต้องสิทธิ์แอดมิน)
 # ลง: Python 3.11, adb, scrcpy v4.0, ffmpeg (+ ใส่ PATH), pip deps, (Node เฉพาะตอนต้อง build เว็บ)
 # รัน:  powershell -ExecutionPolicy Bypass -File setup-prereqs.ps1
 #
@@ -8,10 +8,15 @@
 $ProgressPreference = "SilentlyContinue"   # เร็วขึ้นมากตอน Invoke-WebRequest
 $root  = $PSScriptRoot
 if (-not $root) { $root = (Get-Location).Path }
+# บางเครื่อง (โปรไฟล์พัง / รันข้ามผู้ใช้) ไม่มี LOCALAPPDATA — เดิมพังตรงนี้เลยไม่มี log ให้ดู
+if (-not $env:LOCALAPPDATA) { $env:LOCALAPPDATA = Join-Path $env:USERPROFILE "AppData\Local" }
 $tools = Join-Path $env:LOCALAPPDATA "vgap-tools"
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
 $LogFile = Join-Path $tools "setup-log.txt"
-"=== VDO Gen Auto Pilot setup · $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File $LogFile -Encoding utf8
+# Append ไม่ใช่ overwrite — ติดตั้ง.bat เขียนหัว log ไว้ก่อนแล้ว (ไว้ดูว่า PowerShell ได้เริ่มจริงไหม)
+"=== VDO Gen Auto Pilot setup · $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ===" | Out-File $LogFile -Append -Encoding utf8
+# ธงบอก .bat ว่าสคริปต์นี้ "เริ่มรันแล้วจริง" — ถ้าไม่มีธง แปลว่า PowerShell โหลดไฟล์ไม่ได้ (นโยบาย/AV) ไม่ใช่ติดตั้งล้ม
+New-Item -ItemType File -Force -Path (Join-Path $tools "started.flag") | Out-Null
 
 $script:Failures = @()
 

@@ -20,6 +20,17 @@ powershell -ExecutionPolicy Bypass -File setup-prereqs.ps1
 > โฟลเดอร์นี้มี `web\out` มาให้แล้ว จึง **ไม่ต้องลง Node** (จะลงให้เฉพาะตอนไม่มี `web\out`)
 > ล้มขั้นไหนจะบอกชัดแล้วไปต่อ — log เต็มอยู่ที่ `%LOCALAPPDATA%\vgap-tools\setup-log.txt`
 
+**ถ้าติดตั้งไม่สำเร็จแล้วหา log ไม่เจอ** แปลว่า PowerShell รันสคริปต์ไม่ได้เลย (นโยบายองค์กร / Antivirus บล็อก)
+เปิด **Command Prompt** แล้ววางคำสั่งนี้เพื่อดูข้อความ error ตัวจริง:
+```bat
+cd /d "โฟลเดอร์ที่แตกไฟล์ไว้"
+powershell -NoProfile -ExecutionPolicy Bypass -File setup-prereqs.ps1
+```
+ถ้าขึ้นว่า *running scripts is disabled* ให้รันแบบเลี่ยงนโยบายไฟล์:
+```bat
+powershell -NoProfile -Command "$s=Get-Content setup-prereqs.ps1 -Raw -Encoding UTF8; Invoke-Expression $s"
+```
+
 ### 3. ตั้งค่าใช้งานครั้งแรก
 - เปิดโปรแกรม (ดับเบิลคลิก `เปิดโปรแกรม.vbs`) → ไปหน้า **Settings** → ใส่ Google API key
 - เสียบมือถือ + เปิด **USB debugging** → กด Allow · ลงแอป **ADBKeyboard**
