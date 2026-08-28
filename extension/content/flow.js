@@ -170,6 +170,7 @@ if (window._flowAutomatorLoaded) {
   // dump เนื้อในป๊อปอัปโหมด "ตอนเปิด" — จับ div/span/button ใบเล็กในโซนกลาง/ขวา (ป๊อปอัปโหมดอยู่ที่นั่น)
   // ใช้ diagnose ว่าปุ่ม วิดีโอ/เฟรม จริงอยู่พิกัดไหน + ข้อความอะไร (allClickable จับ div ไม่ครบ)
   let _modePopupDump = "";
+  let _probeLog = "";      // ผลการไล่กดปุ่มในแถบเครื่องมือ — แนบไปกับ error เลย
   function dumpPopup() {
     try {
       const seen = new Set(); const out = [];
@@ -1874,14 +1875,16 @@ if (window._flowAutomatorLoaded) {
       const ed = findEditable();
       const top = ed ? ed.getBoundingClientRect().top - 80 : window.innerHeight * 0.6;
       const seen = new Set(); const out = [];
-      for (const el of deepAll('button,[role="button"],[tabindex],div,span')) {
+      const cands = deepAll('button,[role="button"],[tabindex],div,span');
+      cands.sort((a, b) => (a.tagName === "BUTTON" ? 0 : 1) - (b.tagName === "BUTTON" ? 0 : 1));   // ปุ่มก่อน กันโดนตัดทิ้ง
+      for (const el of cands) {
         if (!isVisible(el)) continue;
         const r = el.getBoundingClientRect();
         if (r.top < top || r.width < 8 || r.width > 900 || r.height > 120) continue;
         const t = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 26);
         if (!t || seen.has(t)) continue; seen.add(t);
         out.push(`[${Math.round(r.left)},${Math.round(r.top)} ${el.tagName.toLowerCase()} ${Math.round(r.width)}x${Math.round(r.height)}]${t}`);
-        if (out.length >= 22) break;
+        if (out.length >= 40) break;
       }
       return out.join(" · ");
     } catch { return ""; }
@@ -1919,6 +1922,7 @@ if (window._flowAutomatorLoaded) {
         // ★ ปุ่มที่เดาไว้ไม่ใช่ตัวเปิดเมนู → ไล่กดทุกปุ่มในแถบเครื่องมือ แล้วรายงานว่าอันไหนทำให้อะไรโผล่
         //   Flow ย้าย/เปลี่ยนชิปบ่อย การไล่กดจะเจอตัวจริงเองโดยไม่ต้องรอเราไปเดาใหม่ทุกครั้ง
         const btns = composerButtons();
+        _probeLog = "";
         L(`ไล่กดปุ่มในแถบเครื่องมือ ${btns.length} ตัว`);
         for (const b of btns) {
           const r = b.getBoundingClientRect();
@@ -1927,7 +1931,9 @@ if (window._flowAutomatorLoaded) {
           await trustedClickEl(b, log);
           await sleep(900);
           if (popupTabsShown()) { L(`★ เจอตัวเปิดเมนูโหมดแล้ว: "${label}"`); return true; }
-          L(`กด "${label}" → โผล่: ${newTextsAfter(before) || "(ไม่มีอะไรเปลี่ยน)"}`);
+          const appeared = newTextsAfter(before) || "(ไม่มีอะไรเปลี่ยน)";
+          _probeLog += `${_probeLog ? " · " : ""}"${label}" → ${appeared}`;
+          L(`กด "${label}" → โผล่: ${appeared}`);
           document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));   // ปิดสิ่งที่เผลอเปิด
           await sleep(400);
         }
@@ -1984,6 +1990,17 @@ if (window._flowAutomatorLoaded) {
       L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") รอบ ${attempt}/5`);
       await sleep(700);
     }
+    // ── สลับเองไม่ได้ → ขอให้ผู้ใช้กดมือ แล้วไปต่อ ────────────────────────
+    // Flow ขยับ layout ของแถบเครื่องมือบ่อย (ปุ่มโหมดย้ายตำแหน่ง/เปลี่ยนโครงสร้าง)
+    // ล้มทั้งงานเพราะกดปุ่มเดียวไม่ได้ = เสียคลิปที่สร้างไปแล้วทิ้ง ยอมรอคนกดดีกว่า
+    const WAIT_MS = 90000;
+    L(`⚠ สลับโหมดเองไม่ได้ — กรุณาตั้งโหมดเป็น "${typeLabel}${subLabel ? " / " + subLabel : ""}" ในหน้า Flow ด้วยมือ (รอ ${WAIT_MS / 1000} วิ แล้วจะไปต่อเอง)`);
+    for (let w = 0; w < WAIT_MS / 2000; w++) {
+      await sleep(2000);
+      if (onTarget()) { L(`ผู้ใช้ตั้งโหมดให้แล้ว → ไปต่อ ✓`); return true; }
+      if (w % 5 === 4) L(`ยังรออยู่… (${Math.round((WAIT_MS / 1000) - (w + 1) * 2)} วิ)`);
+    }
+    L("รอครบแล้วยังไม่ได้โหมดที่ต้องการ — ยกเลิกงานนี้");
     return false;
   }
 
@@ -2400,7 +2417,7 @@ if (window._flowAutomatorLoaded) {
     }
     log(`ตรวจโหมดก่อนทำวิดีโอ: ${modeSummary()}`);                      // เช็คก่อน (จับข้าม/เลือกผิด)
     const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);            // วิดีโอ + เฟรม + บังคับ 9:16
-    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มโหมด: ${modeBtnInfo()} | แถบ prompt: ${dumpComposer()} | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
+    if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มโหมด: ${modeBtnInfo()} | แถบ prompt: ${dumpComposer()} | ไล่กดปุ่ม: ${_probeLog || "(ไม่ได้ไล่)"} | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
     if (!is916()) log(`⚠ วิดีโอสัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()})`);
     log(`โหมดหลังตั้งค่า: ${modeSummary()} ${isVideoMode() ? "✓" : ""}`);   // เช็คหลัง
     await sleep(900);
