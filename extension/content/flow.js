@@ -1766,7 +1766,12 @@ if (window._flowAutomatorLoaded) {
         if (el === _modeBtnCache || (_modeBtnCache && el.contains(_modeBtnCache))) return false;
         if (/·|nano banana|omni flash|arrow_forward/i.test(t)) return false;   // ปุ่มโหมด/ปุ่มส่ง ที่เหลือ
         const stripped = t.replace(/^[a-z_]{3,}\s+/, "");   // ตัด icon-ligature นำหน้า เช่น "image รูปภาพ"→"รูปภาพ", "videocam วิดีโอ"→"วิดีโอ"
-        return wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w) || (t.includes(w) && t.length <= w.length + 16));
+        // ★ ต้องตรงทั้งคำเท่านั้น — ห้ามใช้ "มีคำนี้อยู่ในข้อความ"
+        //   ป้ายในแผงขวาเขียนว่า "รูปภาพที่อัปโหลด" / "ความยาววิดีโอ: 10s" ซึ่งมีคำว่า รูปภาพ/วิดีโอ อยู่ด้วย
+        //   เดิมยอมให้ยาวเกินคำที่หาได้ 16 ตัว → ป้ายพวกนี้ถูกนับเป็น "แท็บในป๊อปอัปโหมด"
+        //   ผลคือโปรแกรมคิดว่าป๊อปอัปเปิดแล้วทั้งที่ยังไม่ได้กดปุ่มโหมดเลย แล้ววนหาแท็บ "วิดีโอ" ไม่เจอครบ 5 รอบ
+        //   (แท็บจริงเขียนสั้น: "รูปภาพ" · "crop_free เฟรม" · "crop_9_16 9:16" — ตรงทั้งคำหรือเป็นคำหนึ่งในนั้น)
+        return wants.some((w) => t === w || stripped === w || stripped.split(/\s+/).includes(w));
       })
       // ตัด sidebar ซ้าย (x<110 เช่น "image ดูรูปภาพ") ออก — ป๊อปอัปโหมดอยู่กลาง/ขวาจอเสมอ
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 360 && r.height > 4 && r.height <= 130 && r.left > 110 && r.top > 8; });
@@ -1916,8 +1921,9 @@ if (window._flowAutomatorLoaded) {
       }
     } catch {}
   }
-  // ป๊อปอัปโหมดโผล่ไหม = เจอแท็บ รูปภาพ/วิดีโอ/เฟรม (findModeOption ตัด sidebar x<110 แล้ว)
-  const popupTabsShown = () => !!(findModeOption("รูปภาพ") || findModeOption("วิดีโอ") || findModeOption("เฟรม"));
+  // ป๊อปอัปโหมดโผล่ไหม = ต้องเจอ "ทั้ง" แท็บรูปภาพ "และ" วิดีโอ — สองอันนี้อยู่ด้วยกันเฉพาะในป๊อปอัป
+  // เดิมเป็น "อย่างใดอย่างหนึ่ง" → เจอป้ายเดี่ยว ๆ ในหน้าก็นับว่าเปิดแล้ว ทั้งที่ยังไม่ได้กดปุ่มโหมด
+  const popupTabsShown = () => popupOpen();
 
   // หา element ที่ "ข้อความใช่" แต่ findModeOption ปัดตก แล้วบอกว่าตกเพราะเงื่อนไขข้อไหน
   // ใช้ตอนป๊อปอัปเปิดอยู่จริง (เห็นปุ่ม x2/x3/x4 ของมันแล้ว) แต่หาแท็บ วิดีโอ ไม่เจอ
@@ -1930,7 +1936,7 @@ if (window._flowAutomatorLoaded) {
       for (const el of deepAll('button,[role="button"],[role="radio"],[role="tab"],[role="menuitem"],div,span')) {
         const t = norm(el.innerText || el.textContent);
         const stripped = t.replace(/^[a-z_]{3,}\s+/, "");
-        if (!wants.some((w) => t === w || stripped === w || t.split(/\s+/).includes(w))) continue;
+        if (!wants.some((w) => t === w || stripped === w || stripped.split(/\s+/).includes(w))) continue;   // เกณฑ์เดียวกับ findModeOption
         const r = el.getBoundingClientRect();
         const why = [];
         if (!isVisible(el)) why.push("มองไม่เห็น");
@@ -1998,9 +2004,11 @@ if (window._flowAutomatorLoaded) {
   }
   // เปิดป๊อปอัปโหมดให้ชัวร์ — รอ UI นิ่งก่อน + scrollIntoView + re-fetch ปุ่ม + retry เยอะ
   // (CDP click บางทีไม่ติดถ้าปุ่มยัง disabled ตอน Flow ยังเรนเดอร์ หรือปุ่มอยู่นอกจอ)
-  async function openModePopup(log) {
+  // force = อย่าเชื่อว่า "เปิดอยู่แล้ว" ให้ไปกดปุ่มโหมดจริง ๆ
+  // ใช้ตอนรอบก่อนบอกว่าเปิดแล้วแต่หาแท็บเป้าหมายไม่เจอ — ไม่งั้นวนอ่านหน้าเดิมจนครบ 5 รอบโดยไม่กดอะไรเลย
+  async function openModePopup(log, force) {
     const L = (m) => { try { log && log(m); } catch {} };
-    if (popupTabsShown()) return true;
+    if (!force && popupTabsShown()) return true;
     // เคลียร์ของค้างจากตอนสร้างรูป: โฟกัสที่ยังอยู่ในช่องพิมพ์ + เมนู/overlay ที่ยังไม่ปิด
     // overlay ที่คลุมอยู่จะกินคลิก → ป๊อปอัปโหมดไม่เปิดสักวิธี (อาการ "ไม่ไปโหมดวิดีโอ" หลังสร้างรูปเสร็จ)
     try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch {}
@@ -2089,15 +2097,18 @@ if (window._flowAutomatorLoaded) {
       return true;
     };
     const maxTry = _modeManualOnly ? 1 : 5;      // รู้แล้วว่าอัตโนมัติไม่ได้ → ลองรอบเดียวพอ
+    let forceOpen = false;                       // รอบก่อนอ่านว่า "เปิดแล้ว" แต่ไม่มีแท็บ → รอบนี้กดปุ่มโหมดจริง
     for (let attempt = 1; attempt <= maxTry; attempt++) {
       if (onTarget()) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (อยู่โหมดถูกแล้ว)`); return true; }
       // 1) เปิดป๊อปอัปโหมดให้ชัวร์ (หลายวิธีคลิก) แล้วหาแท็บเป้าหมาย
       _modePopupDump = "";
-      const opened = await openModePopup(log);
+      const opened = await openModePopup(log, forceOpen);
+      forceOpen = false;
       if (!_modePopupDump) _modePopupDump = dumpPopup();
       if (!opened) { L(`เปิดป๊อปอัปโหมดไม่สำเร็จ รอบ ${attempt}/5 (ปุ่มโหมด: ${modeBtnInfo()}) | ป๊อปอัป: ${_modePopupDump}`); await sleep(700); continue; }
       let typeTab = findModeOption(typeLabel);
-      if (!typeTab) { L(`เปิดป๊อปอัปได้แต่ไม่เจอแท็บ "${typeLabel}" รอบ ${attempt}/${maxTry} | ทำไมไม่เจอ: ${whyNoModeOption(typeLabel)} | ป๊อปอัป: ${_modePopupDump}`); await sleep(600); continue; }
+      // เปิดแล้วแต่ไม่มีแท็บ = ที่อ่านว่า "เปิด" นั้นอ่านผิด → รอบหน้าบังคับกดปุ่มโหมดจริง
+      if (!typeTab) { forceOpen = true; L(`เปิดป๊อปอัปได้แต่ไม่เจอแท็บ "${typeLabel}" รอบ ${attempt}/${maxTry} → รอบหน้าจะกดปุ่มโหมดซ้ำ | ทำไมไม่เจอ: ${whyNoModeOption(typeLabel)} | ป๊อปอัป: ${_modePopupDump}`); await sleep(600); continue; }
       // 2) อ่านสถานะ "ตอนนี้" แล้วกดเฉพาะที่ยังไม่ถูก (if/else — ไม่กดมั่ว)
       let st = readModeState();
       L(`สถานะป๊อปอัป: ชนิด=${st.type || "?"} · ย่อย=${st.sub || "?"}`);

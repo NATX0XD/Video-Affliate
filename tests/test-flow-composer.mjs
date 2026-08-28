@@ -48,6 +48,11 @@ el('button', 'image ดูรูปภาพ', 20, 133, 40, 40)
 el('div', '🍌 Nano Banana 2', 1148, 260, 400, 16)
 el('div', 'crop_free 768x1376', 1148, 278, 400, 16)
 el('div', 'crop_16_9 16:9', 1148, 966, 400, 16)
+// ป้ายใต้สื่อในแผงขวา — ตัวหลอกจากรันจริง v3.42.0
+// มีคำว่า "รูปภาพ"/"วิดีโอ" อยู่ในข้อความ ทำให้เคยถูกนับเป็นแท็บในป๊อปอัปโหมด
+// ผลคือโปรแกรมคิดว่าป๊อปอัปเปิดแล้ว เลยไม่กดปุ่มโหมด แล้วหาแท็บ "วิดีโอ" ไม่เจอครบ 5 รอบ
+el('div', 'รูปภาพที่อัปโหลด', 871, 568, 200, 16)
+el('div', 'ความยาววิดีโอ: 10s', 871, 592, 200, 16)
 // ช่องพิมพ์ prompt
 const edit = el('div', '', 488, 739, 582, 36, { contenteditable: 'true' })
 // แถบเครื่องมือใต้ช่องพิมพ์
@@ -69,9 +74,10 @@ const ctx = {
 }
 
 const code = [grab('composerButtons'), grab('visibleTexts'), grabConst('newTextsAfter'),
-              grab('findModeBtn'), grab('findModeOption'), grab('hitCheck')].join('\n')
+              grab('findModeBtn'), grab('findModeOption'), grab('hitCheck'),
+              grabConst('popupOpen'), grabConst('popupTabsShown')].join('\n')
 const make = new Function(...Object.keys(ctx),
-  `${code}\nreturn { composerButtons, visibleTexts, newTextsAfter, findModeBtn, findModeOption, hitCheck }`)
+  `${code}\nreturn { composerButtons, visibleTexts, newTextsAfter, findModeBtn, findModeOption, hitCheck, popupTabsShown }`)
 const F = make(...Object.values(ctx))
 
 // ── ตรวจผล ────────────────────────────────────────────────────────────────
@@ -102,6 +108,13 @@ check('ยังไม่เปิดเมนู → หาแท็บ วิ�
 
 check('sidebar "รูปภาพ" ที่ x=68 ไม่ถูกนับเป็นแท็บเมนู',
   !!F.findModeOption('รูปภาพ'), false)
+
+check('ป้าย "รูปภาพที่อัปโหลด" ในแผงขวา ไม่ถูกนับเป็นแท็บ "รูปภาพ"',
+  !!F.findModeOption('รูปภาพ'), false)
+check('ป้าย "ความยาววิดีโอ: 10s" ไม่ถูกนับเป็นแท็บ "วิดีโอ"',
+  !!F.findModeOption('วิดีโอ'), false)
+check('ยังไม่ได้กดปุ่มโหมด → ต้องยังไม่ถือว่าป๊อปอัปเปิด',
+  F.popupTabsShown(), false)
 
 // จำลองเมนูโหมดเปิดขึ้นมา
 const before = F.visibleTexts()
@@ -148,6 +161,8 @@ check('หาตัวเลือก "9:16" เจอ (ข้อความ "c
   F.findModeOption('9:16') === tab916, true)
 check('หาแท็บ "วิดีโอ" เจอ',    F.findModeOption('วิดีโอ') === tabVideo, true)
 check('หาแท็บ "รูปภาพ" เจอ',    F.findModeOption('รูปภาพ') === tabImg, true)
+check('เมนูเปิดจริง (มีทั้งรูปภาพและวิดีโอ) → ถือว่าป๊อปอัปเปิด',
+  F.popupTabsShown(), true)
 
 
 console.log(fail ? `\n${fail} ข้อไม่ผ่าน` : '\nผ่านทั้งหมด')
