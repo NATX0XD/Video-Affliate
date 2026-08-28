@@ -297,6 +297,19 @@ if (window._flowAutomatorLoaded) {
   }
   // ── trusted input ผ่าน background (chrome.debugger) ──
   // sendTrusted มาจาก SAUtil (content/util.js) — bridge ดิบไป background
+  // พิกัดที่จะยิงตกลงบน element ที่ตั้งใจจริงไหม
+  // CDP ยิงพิกัดดิบ ส่วนพิกัดที่คำนวณมาจาก getBoundingClientRect() — ถ้า browser zoom ไม่ใช่ 100%
+  // สองอย่างนี้ไม่ตรงกัน คลิกจะลงที่ว่างข้าง ๆ ปุ่ม แล้วเงียบสนิท (ไม่มี error ให้เห็น)
+  function hitCheck(el, x, y) {
+    try {
+      const hit = document.elementFromPoint(x, y);
+      if (!hit) return `พิกัด ${x},${y} ไม่โดน element ใดเลย`;
+      if (hit === el || el.contains(hit) || hit.contains(el)) return "";
+      const t = (hit.innerText || "").replace(/\s+/g, " ").trim().slice(0, 24);
+      const z = Math.round((window.outerWidth / window.innerWidth) * 100);
+      return `พิกัด ${x},${y} ตกลงบน <${hit.tagName.toLowerCase()}> "${t}" ไม่ใช่ปุ่มเป้าหมาย (zoom ~${z}% · dpr ${window.devicePixelRatio})`;
+    } catch { return ""; }
+  }
   async function trustedClickEl(el, log) {
     // ซ่อน panel ชั่วขณะ — กันคลิกจริงโดน panel ที่ลอยทับช่อง/ปุ่มของ Flow
     const panel = document.getElementById("__flow_panel");
@@ -305,6 +318,8 @@ if (window._flowAutomatorLoaded) {
     await sleep(40);
     const r = el.getBoundingClientRect();
     const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+    const miss = hitCheck(el, x, y);
+    if (miss && log) log(`⚠ คลิกอาจไม่โดน: ${miss}`);
     const res = await sendTrusted({ action: "flow_trusted_click", x, y });
     if (panel) panel.style.display = prev || "";
     if (log && !res.ok) log(`คลิกจริงล้มเหลว: ${res.error}`);
@@ -603,6 +618,11 @@ if (window._flowAutomatorLoaded) {
 
     if (signedOut()) problems.push("ยังไม่ได้ล็อกอิน Google ในแท็บนี้ — กดลงชื่อเข้าใช้ให้เรียบร้อยก่อน");
     else passed.push("ล็อกอินแล้ว");
+
+    // zoom ไม่ใช่ 100% ทำให้พิกัดที่ CDP ยิงไม่ตรงกับที่ getBoundingClientRect บอก → คลิกไม่โดนปุ่ม
+    const zoom = Math.round((window.outerWidth / window.innerWidth) * 100);
+    passed.push(`จอ ${window.innerWidth}x${window.innerHeight} · zoom ~${zoom}%`);
+    if (window.innerWidth < 900) problems.push(`หน้าต่างแคบไป (${window.innerWidth}px) — ปิด DevTools หรือขยายหน้าต่างให้กว้างอย่างน้อย 900px แล้วลองใหม่`);
 
     if (isFlowErrorPage()) problems.push("หน้า Flow กำลังขึ้น error — รีโหลดหน้าแล้วลองใหม่");
 
@@ -1760,7 +1780,10 @@ if (window._flowAutomatorLoaded) {
     if (panel) panel.style.display = "none";
     await sleep(40);
     const r = el.getBoundingClientRect();
-    const res = await sendTrusted({ action: "flow_trusted_click", x: Math.round(r.left + r.width * fx), y: Math.round(r.top + r.height / 2) });
+    const x = Math.round(r.left + r.width * fx), y = Math.round(r.top + r.height / 2);
+    const miss = hitCheck(el, x, y);
+    if (miss && log) log(`⚠ คลิก ${Math.round(fx * 100)}% อาจไม่โดน: ${miss}`);
+    const res = await sendTrusted({ action: "flow_trusted_click", x, y });
     if (panel) panel.style.display = prev || "";
     if (log && !res.ok) log(`คลิกจริง (${Math.round(fx * 100)}%) ล้มเหลว: ${res.error}`);
     return res;
