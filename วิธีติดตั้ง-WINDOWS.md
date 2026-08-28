@@ -8,15 +8,17 @@
 ## ตั้งครั้งเดียว (คุณทำ)
 
 ### 1. เอาโค้ดลงเครื่อง
-- มี Git: `git clone https://github.com/Mewwi15/shopee-automation` (หรือ copy โฟลเดอร์มาก็ได้)
+- มี Git: `git clone https://github.com/NATX0XD/Video-Affliate` (หรือโหลด zip จากปุ่ม Code → Download ZIP แล้วแตกไฟล์)
 
 ### 2. ติดตั้งเครื่องมือทั้งหมด (คำสั่งเดียว)
 เปิด PowerShell ในโฟลเดอร์โปรเจกต์ แล้วรัน:
 ```powershell
 powershell -ExecutionPolicy Bypass -File setup-prereqs.ps1
 ```
-สคริปต์จะลงให้: **Python 3.11 · Node.js · adb · scrcpy v4.0 · ffmpeg** (+ ใส่ PATH) แล้ว build หน้าเว็บ
-> ใช้ winget (มากับ Windows 10/11) · ใช้เวลา ~5-10 นาที · ตอนจบจะเช็คว่าเครื่องมือครบไหม
+สคริปต์จะลงให้: **Python 3.11 · adb · scrcpy v4.0 · ffmpeg** (+ ใส่ PATH)
+> โหลดไฟล์ตรงจากต้นทาง **ไม่ใช้ winget ไม่ต้องสิทธิ์แอดมิน** · ใช้เวลา ~5-10 นาที
+> โฟลเดอร์นี้มี `web\out` มาให้แล้ว จึง **ไม่ต้องลง Node** (จะลงให้เฉพาะตอนไม่มี `web\out`)
+> ล้มขั้นไหนจะบอกชัดแล้วไปต่อ — log เต็มอยู่ที่ `%LOCALAPPDATA%\vgap-tools\setup-log.txt`
 
 ### 3. ตั้งค่าใช้งานครั้งแรก
 - เปิดโปรแกรม (ดับเบิลคลิก `เปิดโปรแกรม.vbs`) → ไปหน้า **Settings** → ใส่ Google API key
