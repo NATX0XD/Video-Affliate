@@ -342,6 +342,7 @@ async function geminiFlowPrompt(product, cfg, gen, hasCharImage, charImg, i2v = 
     : '');
   const userBlock = mkUserBlock(userLines);
   const bgImageOn = !!(gen && gen.bgImageOn);   // ผู้ใช้อัปรูปฉากหลังไว้ → จะถูกแนบเป็นรูปอ้างอิงเพิ่ม
+  const moodImageOn = !!(gen && gen.moodImageOn);   // ผู้ใช้อัปรูปอ้างอิงโทนสี/อารมณ์ไว้
   // i2v: ภาพ/ฉาก/หน้าตา ล็อกด้วยเฟรมเริ่มแล้ว → เหลือเฉพาะหัวข้อที่ยังคุมการเคลื่อนไหว/เสียงได้
   const motionLines = (gen && Array.isArray(gen.motionLines) ? gen.motionLines : []).filter(Boolean);
   const userBlockI2V = mkUserBlock(motionLines);
@@ -370,7 +371,7 @@ async function geminiFlowPrompt(product, cfg, gen, hasCharImage, charImg, i2v = 
 ภารกิจ: ออกแบบคลิปขายของ ${dur} วินาที ที่หยุดนิ้วคนเลื่อนฟีดตั้งแต่วินาทีแรก แล้วส่งออกมาเป็น JSON prompt ที่ "ละเอียดที่สุด" เพื่อป้อนเข้า Veo โดยตรง — จงละเลงความคิดสร้างสรรค์เต็มที่ คิด hook และมุกขายที่เฉพาะสินค้าตัวนี้ ห้ามจืด ห้ามกลางๆ ห้ามใช้สูตรสำเร็จ
 
 ข้อมูล:
-- ${hasCharImage ? 'รูปแนบ 2 รูป: รูปแรก = สินค้าจริง / รูปที่สอง = ตัวละครผู้รีวิว (ห้ามสลับหรือผสมสองรูป) — สำคัญ: ดูเพศของตัวละครจากรูปที่สองให้ชัดก่อนเขียน ทุก field ที่พูดถึงตัวละคร (description/performance/voice) ต้องเป็นเพศเดียวกับรูปที่สอง ห้ามสลับเพศ' : 'รูปแนบ 1 รูป = สินค้าจริง'}${bgImageOn ? `\n- มีรูปแนบเพิ่มอีก 1 รูป (รูปสุดท้าย) = "ฉากหลังที่ผู้ใช้ต้องการ" — ให้ field scene/lighting อ้างอิงฉากจากรูปนั้น ใช้เฉพาะสถานที่/บรรยากาศ ห้ามเอาคนหรือสินค้าที่ติดมาในรูปฉากมาใช้` : ''}
+- ${hasCharImage ? 'รูปแนบ 2 รูป: รูปแรก = สินค้าจริง / รูปที่สอง = ตัวละครผู้รีวิว (ห้ามสลับหรือผสมสองรูป) — สำคัญ: ดูเพศของตัวละครจากรูปที่สองให้ชัดก่อนเขียน ทุก field ที่พูดถึงตัวละคร (description/performance/voice) ต้องเป็นเพศเดียวกับรูปที่สอง ห้ามสลับเพศ' : 'รูปแนบ 1 รูป = สินค้าจริง'}${bgImageOn ? `\n- มีรูปแนบเพิ่ม = "ฉากหลังที่ผู้ใช้ต้องการ" — ให้ field scene/lighting อ้างอิงฉากจากรูปนั้น ใช้เฉพาะสถานที่/บรรยากาศ ห้ามเอาคนหรือสินค้าที่ติดมาในรูปฉากมาใช้` : ''}${moodImageOn ? `\n- มีรูปแนบเพิ่ม = "ตัวอย่างโทนสี/อารมณ์ภาพ" — ให้ color_grade/lighting ไล่โทนตามรูปนั้น ใช้แค่โทนสีและแสง ห้ามลอกวัตถุหรือองค์ประกอบในรูปมาใส่` : ''}
 - สินค้า: ${name} | ราคา: ${price} บาท | ขายแล้ว: ${sold}
 - ตัวละครผู้รีวิว: ${whoLine}
 - แนวคลิป: ${styleHint}
@@ -1081,6 +1082,7 @@ async function handleFlowStart(msg) {
       promptLines: Array.isArray(msg.gen.promptLines) ? msg.gen.promptLines : [],
       motionLines: Array.isArray(msg.gen.motionLines) ? msg.gen.motionLines : [],
       bgImageOn: !!msg.gen.bgImage,   // มีรูปฉากหลังแนบไหม (รูปจริงเก็บแยกที่ flow_bg_img)
+      moodImageOn: !!msg.gen.moodImage,   // มีรูปอ้างอิงโทนสี/อารมณ์ไหม (เก็บที่ flow_mood_img)
     };
     // รูปอ้างอิง: ใช้ snapshot จากพรีวิว 3D (มุมที่ผู้ใช้หมุนไว้) ก่อนเสมอ
     let img = msg.gen.snapshot || null;
@@ -1107,6 +1109,7 @@ async function handleFlowStart(msg) {
       flow_gen: gen,
       flow_char_img: img,
       flow_bg_img: msg.gen.bgImage || null,
+      flow_mood_img: msg.gen.moodImage || null,
     });
   }
   _flowCfg = null;   // โหลด config สดสำหรับรอบนี้ (เผื่อผู้ใช้เพิ่งแก้ settings)
@@ -1141,3 +1144,39 @@ async function pollQueue() {
 }
 chrome.alarms && chrome.alarms.create('vgap_queue', { periodInMinutes: 0.25 });   // ~ทุก 15 วิ
 chrome.alarms && chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'vgap_queue') pollQueue(); });
+
+// ── ซิงก์บัญชี Flow จากโปรแกรมหลัก → chrome.storage ────────────────────────
+// ผู้ใช้จัดการรายชื่อบัญชีที่หน้าตั้งค่าของเว็บ (แหล่งความจริงเดียว = DB ของ desktop)
+// flow.js อ่าน flow_accounts จาก storage เพื่อเลือกบัญชีถัดไปตอนเครดิตหมด
+async function syncFlowAccounts() {
+  try {
+    const base = await apiBase();
+    const r = await fetch(`${base}/api/flow/accounts`, { signal: AbortSignal.timeout(5000) }).then((x) => x.json());
+    if (!r || !Array.isArray(r.accounts)) return;
+    const accts = r.accounts.map((a) => ({ email: a.email, label: a.label || '', paused: !!a.paused }));
+    await chrome.storage.local.set({ flow_accounts: accts });
+    if (Number.isFinite(r.per_clip)) await chrome.storage.local.set({ flow_credit_threshold: r.per_clip });
+  } catch {}
+}
+chrome.alarms && chrome.alarms.create('vgap_accounts', { periodInMinutes: 1 });
+chrome.alarms && chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'vgap_accounts') syncFlowAccounts(); });
+syncFlowAccounts();
+
+// เครดิตที่ flow.js อ่านได้ → ส่งขึ้นโปรแกรมหลัก ให้หน้าเว็บโชว์ได้ว่าบัญชีไหนเหลือเท่าไร
+let _lastCreditPush = {};
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== 'local' || !changes.flow_credits_by_email) return;
+  const map = changes.flow_credits_by_email.newValue || {};
+  try {
+    const base = await apiBase();
+    for (const [email, rec] of Object.entries(map)) {
+      const v = rec && rec.value;
+      if (_lastCreditPush[email] === v) continue;      // ค่าเดิม ไม่ต้องยิงซ้ำ
+      _lastCreditPush[email] = v;
+      await fetch(`${base}/api/flow/credits`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, value: v }), signal: AbortSignal.timeout(5000),
+      });
+    }
+  } catch {}
+});
