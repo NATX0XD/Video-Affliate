@@ -17,6 +17,11 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
+# ★ /data/local/tmp ไม่ใช่ /sdcard — Android รุ่นใหม่ (เจอบน Android 16) shell เขียน /sdcard ไม่ได้
+#   dump รายงานว่าสำเร็จ แต่ไฟล์ไม่เกิดจริง แล้ว pull ฟ้อง "No such file or directory"
+#   ผลคือโพสต์ขึ้นแล้วแต่ระบบรายงาน unverified ทุกครั้ง (ui_finder ย้ายไปพาธนี้ตั้งแต่แรกแล้ว)
+UI_REMOTE = "/data/local/tmp/vgap_ui_verify.xml"
+
 from services.adb.adb_path import adb_bin
 
 # ── Keyword banks ────────────────────────────────────────────────────────────
@@ -50,12 +55,17 @@ def verify_post(adb, serial: str, log=print, platform: str = "", **_) -> dict:
     """
     try:
         ok, msg = adb._adb(
-            "shell", "uiautomator", "dump", "/sdcard/ui_verify.xml",
+            "shell", "uiautomator", "dump", UI_REMOTE,
             serial=serial, timeout=15,
         )
-        if not ok:
-            log(f"[VERIFY] uiautomator dump ล้มเหลว ({msg}) — ยืนยันผลไม่ได้")
-            return {"verified": False, "status": "unverified", "reason": f"dump failed: {msg}"}
+        # uiautomator คืน exit code 0 แม้พิมพ์ "ERROR: could not get idle state." ออกมา
+        # เชื่อ exit code อย่างเดียวจะไหลไป pull ไฟล์ที่ไม่เคยถูกสร้าง แล้วรายงานสาเหตุผิด
+        # ("pull failed: No such file" ทั้งที่ตัวปัญหาคือ dump ไม่ผ่านตั้งแต่แรก)
+        if not ok or "ERROR" in (msg or "") or "dumped" not in (msg or ""):
+            reason = " ".join((msg or "").split())[:120] or "ไม่มีข้อความตอบกลับ"
+            log(f"[VERIFY] อ่านหน้าจอไม่ได้ ({reason}) — ยืนยันผลไม่ได้ "
+                f"(หน้าที่เล่นวิดีโออยู่ dump ไม่ผ่านเป็นปกติ)")
+            return {"verified": False, "status": "unverified", "reason": f"dump failed: {reason}"}
 
         # host temp path — ข้ามแพลตฟอร์ม (Windows ไม่มี /tmp) + แยกตาม serial กัน race หลายเครื่อง
         local_xml = os.path.join(tempfile.gettempdir(), f"vgap_ui_verify_{serial}.xml")
@@ -65,7 +75,7 @@ def verify_post(adb, serial: str, log=print, platform: str = "", **_) -> dict:
         err = ""
         for attempt in range(1, 4):
             r = subprocess.run(
-                [adb_bin(log), "-s", serial, "pull", "/sdcard/ui_verify.xml", local_xml],
+                [adb_bin(log), "-s", serial, "pull", UI_REMOTE, local_xml],
                 capture_output=True, timeout=12,
             )
             if r.returncode == 0:

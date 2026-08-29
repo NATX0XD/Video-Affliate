@@ -377,10 +377,16 @@ class BasePoster:
         return
 
     def _apply_coords_override(self, override: Optional[dict]):
-        """รวมพิกัด override ต่อเครื่อง (per-instance) ทับ default R ของ poster.
-        Additive: ไม่มี override → self.R = class R เดิมเป๊ะ. รับเฉพาะ key ที่มีใน
-        default R + ค่า [rx,ry] เป็น float 0..1 (ตัวอื่นข้าม)."""
-        base = getattr(type(self), "R", None)
+        """รวมพิกัด override ต่อเครื่อง (per-instance) ทับพิกัดที่ใช้อยู่ตอนนี้
+
+        ★ ต้องต่อยอดจาก self.R ไม่ใช่ class R — _apply_resolution_preset รันมาก่อนหน้า
+        และเขียน preset ของจอรุ่นนั้นลง self.R ไว้แล้ว ถ้าเริ่มใหม่จาก class R จะทิ้ง
+        preset ทิ้งทั้งชุดทันทีที่เครื่องมี override สักคีย์เดียว
+        (เจอจริงบน SM-A576B: log บอก "ใช้ preset 1080x2340" แต่ตอนแตะกลับใช้ค่า base
+        แล้วปุ่มโพสต์พลาดไป 94px — เพราะ override มี 7 คีย์ที่ไม่เกี่ยวกับปุ่มโพสต์เลย)
+
+        Additive: รับเฉพาะ key ที่มีใน default R + ค่า [rx,ry] เป็น float 0..1"""
+        base = getattr(self, "R", None) or getattr(type(self), "R", None)
         if not isinstance(base, dict) or not override:
             return
         merged = dict(base)

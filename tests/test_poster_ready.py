@@ -56,3 +56,43 @@ def test_unknown_key_is_treated_as_ready(poster, monkeypatch):
     _no_dump(monkeypatch)
     monkeypatch.setattr(poster, "_current_activity", lambda s: "x", raising=False)
     assert poster._ready("SER", "ไม่มีเงื่อนไข", timeout=0) is True
+
+
+# ── ลำดับทับกันของพิกัด: class R → preset ตามจอ → override ต่อเครื่อง ──────────
+
+def _mk(w=1080, h=2340):
+    p = AutoPoster.__new__(AutoPoster)
+    p.TAG = "POST"; p.said = []; p.log = p.said.append
+    p._w, p._h = w, h
+    return p
+
+
+def test_device_override_does_not_wipe_the_resolution_preset():
+    """เครื่องมี override แค่บางคีย์ ต้องไม่ทำให้ preset ของจอหายทั้งชุด
+
+    เจอจริงบน SM-A576B: preset ขึ้นใน log แต่ตอนแตะกลับใช้ค่า base
+    เพราะ _apply_coords_override เริ่มใหม่จาก class R ทับ preset ที่เพิ่งใส่
+    ผลคือปุ่มโพสต์พลาดไป 94px แล้วคลิปไม่ได้ถูกโพสต์จริง
+    """
+    p = _mk()
+    p._apply_resolution_preset()
+    from_preset = p.R["post_button"]
+    assert from_preset == AutoPoster.R_PRESETS[(1080, 2340)]["post_button"]
+
+    p._apply_coords_override({"live_video_tab": [0.5833, 0.9517]})   # คีย์อื่นล้วน
+    assert p.R["post_button"] == from_preset, "preset ของจอต้องอยู่ครบหลังใส่ override"
+    assert p.R["live_video_tab"] == (0.5833, 0.9517), "override ต้องชนะ"
+
+
+def test_override_still_wins_over_the_preset_for_the_same_key():
+    p = _mk()
+    p._apply_resolution_preset()
+    p._apply_coords_override({"post_button": [0.4, 0.8]})
+    assert p.R["post_button"] == (0.4, 0.8)
+
+
+def test_unknown_resolution_keeps_class_defaults():
+    p = _mk(999, 999)
+    p._apply_resolution_preset()
+    p._apply_coords_override(None)
+    assert p.R["post_button"] == AutoPoster.R["post_button"]
