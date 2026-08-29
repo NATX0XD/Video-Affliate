@@ -823,7 +823,10 @@ if (window._shopeeScraperLoaded) {
         .sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width)[0];
       if (!anchor) return [];
       const ar = anchor.getBoundingClientRect();
-      // เก็บป้ายที่อยู่ "บรรทัดเดียวกับ ทั้งหมด" ภายใต้ container ที่ให้มา
+      // ★ จอแคบ/ซูมต่างกัน แถวแท็บจะ "ตกบรรทัด" — ถ้ายึดบรรทัดเดียวกับ "ทั้งหมด" เป๊ะ
+      //   แท็บที่ตกไปบรรทัดสองจะหายไปจากลิสต์ทั้งหมด เลยเผื่อลงมา ~3 บรรทัด
+      //   แล้วเรียงตาม (บน→ล่าง, ซ้าย→ขวา) ให้ลำดับตรงกับที่ตาเห็นจริง
+      const lineH = Math.max(ar.height, 20);
       const rowLabels = (root) => {
         const out = [];
         for (const el of root.querySelectorAll('div,span,a,button,li')) {
@@ -831,10 +834,13 @@ if (window._shopeeScraperLoaded) {
           const t = (el.innerText || '').trim();
           if (!t || t.length > 30 || t.includes('\n')) continue;
           const r = el.getBoundingClientRect();
-          if (Math.abs(r.top - ar.top) > 20 || r.width < 20) continue;
-          if (!out.some(o => o.label === t)) out.push({ label: t, left: r.left });
+          if (r.top < ar.top - lineH * 0.5 || r.top > ar.top + lineH * 3) continue;
+          if (r.width < 20) continue;
+          if (!out.some(o => o.label === t)) out.push({ label: t, top: r.top, left: r.left });
         }
-        return out.sort((a, b) => a.left - b.left).map(o => o.label);
+        return out
+          .sort((a, b) => (Math.abs(a.top - b.top) > lineH * 0.5 ? a.top - b.top : a.left - b.left))
+          .map(o => o.label);
       };
       // ไต่ขึ้นจนเจอ container ที่ครอบแท็บได้ครบ — ไม่ fix จำนวนชั้น เพราะ Shopee เปลี่ยนโครง DOM บ่อย
       let best = [];
@@ -1137,9 +1143,15 @@ if (window._shopeeScraperLoaded) {
         .filter(e => vis(e) && (e.innerText || '').trim() === want)
         .sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width)[0];
       if (!el) { slog(`ไม่เจอแท็บ "${want}" บนหน้า — ดูดจากแท็บที่เปิดอยู่แทน`, 'er'); return false; }
-      el.scrollIntoView({ block: 'center' });
-      await sleep(350);
-      const r = el.getBoundingClientRect();
+      // inline:'center' ด้วย — จอแคบ แถวแท็บกลายเป็นแถบเลื่อนแนวนอน แท็บท้าย ๆ อยู่นอกจอ
+      // ถ้าไม่เลื่อนเข้ามาก่อน พิกัดที่คำนวณได้จะอยู่นอกจอ แล้วคลิกไปโดนของอื่น
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      await sleep(400);
+      const r = el.getBoundingClientRect();   // อ่านพิกัดใหม่หลังเลื่อนเสมอ
+      if (r.width < 1 || r.right < 0 || r.left > innerWidth || r.bottom < 0 || r.top > innerHeight) {
+        slog(`แท็บ "${want}" อยู่นอกจอ กดไม่ได้ — ขยายหน้าต่างให้กว้างขึ้นแล้วลองใหม่`, 'er');
+        return false;
+      }
       const res = await sendTrusted({ action: 'flow_trusted_click',
                                       x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) });
       if (!res.ok) {
@@ -1149,7 +1161,14 @@ if (window._shopeeScraperLoaded) {
         el.dispatchEvent(new MouseEvent('click', o));
       }
       slog(`เปิดแท็บ "${want}" แล้ว — รอรายการโหลด…`, 'ok');
-      await sleep(3000);
+      // ยืนยันว่าแท็บสลับจริง ไม่ใช่แค่ "กดไปแล้ว" — เทียบรายการสินค้าก่อน/หลัง
+      // (คลิกไม่ติดเงียบ ๆ = ดูดผิดแท็บโดยไม่มีใครรู้)
+      const gridSig = () => [...document.querySelectorAll('img')]
+        .map(i => i.currentSrc || i.src).filter(u => u && u.includes('susercontent')).slice(0, 8).join('|');
+      const before = gridSig();
+      for (let i = 0; i < 12 && gridSig() === before; i++) await sleep(500);
+      if (gridSig() === before) slog(`⚠ กดแท็บ "${want}" แล้วแต่รายการไม่เปลี่ยน — อาจอยู่แท็บนี้อยู่แล้ว`, 'dim');
+      await sleep(1200);
       return true;
     }
 

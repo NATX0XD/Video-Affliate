@@ -81,6 +81,58 @@ check('ไม่เอาเมนูซ้ายมาเป็นแท็บ'
 check('ไม่เอาการ์ดสินค้าคนละบรรทัดมาเป็นแท็บ', tabs.some(t => t.includes('EXTRACOMM')), false)
 check('ไม่เอาแผงของเราเองมาเป็นแท็บ', tabs.includes('ตัวกรอง'), false)
 
+// ── จอแคบ: แถวแท็บตกบรรทัด ต้องยังได้ครบและเรียงตามที่ตาเห็น ──────────────
+{
+  const dom2 = new JSDOM('<!doctype html><html><body></body></html>')
+  const d2 = dom2.window.document
+  const r2 = new WeakMap()
+  const mk = (tag, text, left, top, width, parent) => {
+    const e = d2.createElement(tag)
+    e.textContent = text
+    Object.defineProperty(e, 'innerText', { get: () => e.textContent })
+    Object.defineProperty(e, 'offsetParent', { get: () => d2.body })
+    r2.set(e, { left, top, width, height: 20, right: left + width, bottom: top + 20 })
+    e.getBoundingClientRect = () => r2.get(e)
+    ;(parent || d2.body).appendChild(e)
+    return e
+  }
+  const row = mk('div', '', 0, 238, 900)
+  row.textContent = ''
+  // บรรทัดแรก 4 แท็บ · บรรทัดสอง 4 แท็บ (จอแคบทำให้ wrap)
+  const L1 = ['ทั้งหมด', 'ค่าคอมพิเศษ', 'สินค้าขายดี', 'มือถือ และ แท็บเล็ต']
+  const L2 = ['คอมพิวเตอร์และแล็ปท็อป', 'กีฬาและกิจกรรมกลางแจ้ง', 'เสื้อผ้าแฟชั่นผู้ชาย', 'เครื่องใช้ในบ้าน']
+  let x1 = 40; L1.forEach(t => { mk('div', t, x1, 238, t.length * 10, row); x1 += t.length * 10 + 20 })
+  let x2 = 40; L2.forEach(t => { mk('div', t, x2, 276, t.length * 10, row); x2 += t.length * 10 + 20 })
+  const read2 = new Function('document', `${code}\nreturn readPageTabs`)(d2)
+  check('จอแคบ แท็บตกบรรทัด → ยังอ่านครบ เรียงบน→ล่าง ซ้าย→ขวา', read2(), [...L1, ...L2])
+}
+
+// ── การ์ดสินค้าที่อยู่ "ใต้แถวแท็บลงมามาก" ต้องไม่ถูกดูดเข้ามา ─────────────
+{
+  const dom3 = new JSDOM('<!doctype html><html><body></body></html>')
+  const d3 = dom3.window.document
+  const r3 = new WeakMap()
+  const mk = (tag, text, left, top, width, parent) => {
+    const e = d3.createElement(tag)
+    e.textContent = text
+    Object.defineProperty(e, 'innerText', { get: () => e.textContent })
+    Object.defineProperty(e, 'offsetParent', { get: () => d3.body })
+    r3.set(e, { left, top, width, height: 20, right: left + width, bottom: top + 20 })
+    e.getBoundingClientRect = () => r3.get(e)
+    ;(parent || d3.body).appendChild(e)
+    return e
+  }
+  const row = mk('div', '', 0, 238, 1200)
+  row.textContent = ''
+  mk('div', 'ทั้งหมด', 40, 238, 70, row)
+  mk('div', 'ค่าคอมพิเศษ', 130, 238, 100, row)
+  mk('div', 'สินค้าขายดี', 250, 238, 100, row)
+  mk('div', 'EXTRACOMM', 40, 400, 100, row)     // ห่างเกิน 3 บรรทัด — ต้องไม่ถูกนับ
+  const read3 = new Function('document', `${code}\nreturn readPageTabs`)(d3)
+  check('ของที่อยู่ไกลลงไปกว่า 3 บรรทัด ไม่ถูกนับเป็นแท็บ',
+    read3(), ['ทั้งหมด', 'ค่าคอมพิเศษ', 'สินค้าขายดี'])
+}
+
 // หน้าที่ไม่มีแท็บ (เช่นหน้าผลค้นหา) → ต้องคืนลิสต์ว่าง ไม่ใช่เดามั่ว
 ;[...doc.body.querySelectorAll('div')].forEach(d => { if (d.textContent === 'ทั้งหมด') d.remove() })
 check('ไม่มีแท็บ "ทั้งหมด" บนหน้า → คืนลิสต์ว่าง', readPageTabs(), [])
