@@ -859,6 +859,16 @@ class JobStore:
             rows = self._conn.execute(q, args).fetchall()
         return [dict(r) for r in rows]
 
+    def queue_clear_pending(self) -> int:
+        """ตัดงานในคิวที่ยังไม่ถูกคว้าออก (ใช้ตอนผู้ใช้กดยกเลิกการสร้างคลิป)
+
+        งานที่ถูกคว้าไปแล้วไม่แตะ — ส่วนขยายกำลังทำอยู่ ให้มันหยุดเองผ่านธงยกเลิก
+        """
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM queue WHERE status='pending'")
+            self._conn.commit()
+            return cur.rowcount or 0
+
     def clear_logs(self):
         with self._lock:
             self._conn.execute("DELETE FROM logs")

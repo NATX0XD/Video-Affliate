@@ -2,6 +2,7 @@
 import { useApp } from '@/app/(app)/layout'
 import { Sparkles, Film, Loader2, Download, CheckCircle2, AlertCircle, Check, X, ChevronDown } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
+import { api } from '@/lib/api'
 
 // ลำดับขั้นการสร้างคลิป — ตรงกับ stage มาตรฐานที่ extension/desktop ยิงมา
 const STEPS = [
@@ -19,12 +20,13 @@ export function GenProgress() {
   const [dismissed, setDismissed] = useState(null)
   const [showDetail, setShowDetail] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [cancelling, setCancelling] = useState(false)   // กดยกเลิกแล้ว รอส่วนขยายหยุดจริง
   const reachedRef = useRef(0)   // ดัชนีขั้นที่ไปถึงไกลสุด — กัน error ทำ checklist ถอยหลัง
 
   // อัปเดต "ขั้นที่ไปถึงไกลสุด" + รีเซ็ตเมื่อเริ่มงานใหม่ (stage กลับมา prompt)
   useEffect(() => {
     if (!gp) return
-    if (gp.stage === 'prompt') { reachedRef.current = 0; return }
+    if (gp.stage === 'prompt') { reachedRef.current = 0; setCancelling(false); return }
     if (gp.stage !== 'error') {
       const i = ORDER.indexOf(gp.stage)
       if (i > reachedRef.current) reachedRef.current = i
@@ -57,6 +59,14 @@ export function GenProgress() {
   const accent = isErr ? '#f43f5e' : isDone ? '#10b981' : '#7c3aed'
   const rawDetail = isErr ? (gp.error || gp.detail || '') : (gp.detail || '')
 
+  // ยกเลิก: โปรแกรมหลักบันทึกเวลาไว้ ส่วนขยายถามเป็นระยะแล้วหยุดเอง
+  // ไม่ใช่หยุดทันที — คลิปที่กำลังเรนเดอร์อยู่ต้องปล่อยให้จบขั้นก่อน (เครดิตจ่ายไปแล้ว)
+  const cancelGen = async () => {
+    if (cancelling) return
+    setCancelling(true)
+    try { await api.cancelGen() } catch {}
+  }
+
   return (
     <div className="rounded-2xl border overflow-hidden flex flex-col max-h-[70vh]"
          style={{ background: '#13131f', borderColor: isErr ? 'rgba(244,63,94,0.3)' : 'rgba(124,58,237,0.25)' }}>
@@ -65,6 +75,15 @@ export function GenProgress() {
         <span className="text-white text-sm font-semibold flex-1">
           {isErr ? 'สร้างคลิปไม่สำเร็จ' : isDone ? 'สร้างคลิปเสร็จแล้ว' : 'กำลังสร้างคลิป…'}
         </span>
+        {/* กำลังทำอยู่ → ให้ยกเลิกได้ · ยังไม่ปิดกล่อง เพราะต้องรอส่วนขยายหยุดจริงก่อน */}
+        {!isErr && !isDone && (
+          <button onClick={cancelGen} disabled={cancelling}
+                  title="หยุดสร้างคลิป — งานที่ยังไม่เริ่มจะถูกตัดออก คลิปที่ทำค้างอยู่จะจบขั้นปัจจุบันก่อน"
+                  className="px-2 py-1 rounded-lg text-[11px] font-semibold border border-white/15
+                             text-slate-300 hover:text-white hover:border-white/35 disabled:opacity-50 transition-colors">
+            {cancelling ? 'กำลังหยุด…' : 'ยกเลิก'}
+          </button>
+        )}
         {(isErr || isDone) && (
           <button onClick={() => setDismissed(gp.ts)} title="ปิด"
                   className="p-1 -m-1 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors">
