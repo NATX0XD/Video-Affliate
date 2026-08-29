@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react'
 import { motion } from 'motion/react'
-import { ScrollText, Trash2, Pause, Play, Loader2, AlertCircle, CheckCircle2, Info, AlertTriangle } from 'lucide-react'
+import { ScrollText, Trash2, Pause, Play, Loader2, AlertCircle, CheckCircle2, Info, AlertTriangle, ArrowUp } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { api } from '@/lib/api'
 
@@ -33,8 +33,13 @@ export default function LogsPage() {
   const [live, setLive] = useState(true)
   const [loading, setLoading] = useState(true)
   const [clearing, setClearing] = useState(false)
-  const bottomRef = useRef(null)
+  const boxRef = useRef(null)
   const liveRef = useRef(live); liveRef.current = live
+  // ตัวใหม่สุดอยู่ "บนสุด" (API เรียง id DESC) — จอดอยู่ที่บนสุด = ตามของใหม่อยู่
+  const [pinned, setPinned] = useState(true)
+  const [unread, setUnread] = useState(0)
+  const prevTopId = useRef(null)
+  const prevHeight = useRef(0)
 
   const load = useCallback(async () => {
     try {
@@ -54,8 +59,41 @@ export default function LogsPage() {
     () => (level === 'all' ? logs : logs.filter(l => (l.level || 'info') === level)),
     [logs, level])
 
-  // auto-scroll ลงล่างสุดเมื่อ live + มี log ใหม่
-  useEffect(() => { if (live) bottomRef.current?.scrollIntoView({ block: 'end' }) }, [shown.length, live])
+  // ★ ของใหม่มาแล้วห้ามลากจอผู้ใช้ไปเอง
+  // เดิมเลื่อนไป "ล่างสุด" ทุกครั้งที่มี log ใหม่ ซึ่งล่างสุด = อันเก่าสุด (เรียงใหม่→เก่า)
+  // ทุก 2.5 วิจอเลยกระเด้งไปกองเก่า ต้องเลื่อนกลับขึ้นมาเองตลอด
+  // ตอนนี้: จอดบนสุดอยู่ = เลื่อนตามให้ · เลื่อนไปอ่านที่อื่น = อยู่นิ่ง แล้วขึ้นป้ายบอกว่ามีใหม่กี่อัน
+  useLayoutEffect(() => {
+    const box = boxRef.current
+    if (!box || !shown.length) return
+    const topId = shown[0]?.id ?? null
+    const fresh = prevTopId.current !== null && topId !== prevTopId.current
+    if (pinned) {
+      box.scrollTop = 0
+      setUnread(0)
+    } else if (fresh) {
+      // แทรกของใหม่ไว้ข้างบน = เนื้อหาที่กำลังอ่านถูกดันลง — ชดเชยด้วยส่วนสูงที่เพิ่มมา
+      const grew = box.scrollHeight - prevHeight.current
+      if (grew > 0) box.scrollTop += grew
+      // นับจำนวนที่ใหม่กว่าตัวบนสุดเดิมจริง ๆ — poll รอบเดียวมีได้หลายบรรทัด
+      const arrived = shown.findIndex((l) => l.id === prevTopId.current)
+      setUnread((n) => n + (arrived > 0 ? arrived : 1))
+    }
+    prevTopId.current = topId
+    prevHeight.current = box.scrollHeight
+  }, [shown, pinned])
+
+  const onScroll = useCallback((e) => {
+    const atTop = e.currentTarget.scrollTop <= 40
+    setPinned(atTop)
+    if (atTop) setUnread(0)
+  }, [])
+
+  const jumpToNewest = () => {
+    const box = boxRef.current
+    if (box) box.scrollTo({ top: 0, behavior: 'smooth' })
+    setPinned(true); setUnread(0)
+  }
 
   const clear = async () => {
     setClearing(true)
@@ -103,7 +141,7 @@ export default function LogsPage() {
       </div>
 
       {/* log stream */}
-      <div className="flex-1 min-h-0 rounded-2xl border border-border bg-card shadow-card overflow-hidden flex flex-col">
+      <div className="relative flex-1 min-h-0 rounded-2xl border border-border bg-card shadow-card overflow-hidden flex flex-col">
         {loading ? (
           <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-accent" /></div>
         ) : shown.length === 0 ? (
@@ -114,7 +152,11 @@ export default function LogsPage() {
             <p className="text-muted-foreground text-sm">ยังไม่มีบันทึก — เริ่มดูดสินค้า/สร้างคลิปแล้วจะขึ้นที่นี่</p>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto font-mono text-[12px] leading-relaxed p-3">
+          <div ref={boxRef} onScroll={onScroll}
+            // ปิด scroll anchoring ของเบราว์เซอร์ — มันชดเชยการแทรกของใหม่ข้างบนให้เองอยู่แล้ว
+            // ถ้าไม่ปิด จะชดเชยซ้ำกับที่เราคำนวณเอง แล้วจอไหลลงเท่ากับจำนวนบรรทัดที่เพิ่งเข้ามา
+            style={{ overflowAnchor: 'none' }}
+            className="relative flex-1 overflow-y-auto font-mono text-[12px] leading-relaxed p-3">
             {shown.map((l, i) => {
               const lv = LV[l.level] || LV.info
               return (
@@ -126,8 +168,16 @@ export default function LogsPage() {
                 </div>
               )
             })}
-            <div ref={bottomRef} />
           </div>
+        )}
+
+        {/* จอดอ่านอยู่ที่อื่นแล้วมีของใหม่เข้ามา — บอกให้รู้ แต่ไม่ลากจอไปเอง */}
+        {!pinned && unread > 0 && (
+          <button onClick={jumpToNewest}
+            className="absolute left-1/2 -translate-x-1/2 bottom-4 z-10 inline-flex items-center gap-1.5
+                       px-3 py-1.5 rounded-full bg-accent text-white text-xs font-semibold shadow-lift hover:opacity-90">
+            <ArrowUp size={13} /> มีใหม่ <span className="nums">{unread}</span> รายการ
+          </button>
         )}
       </div>
     </div>
