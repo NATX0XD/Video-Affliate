@@ -5,9 +5,10 @@ import { useApp } from '../layout'
 import { api }    from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { LazyVideo } from '@/components/ui/LazyVideo'
+import { useToast } from '@/components/ui/Toast'
 import {
   Film, RefreshCw, Play, X, Clock, CheckCircle2, AlertCircle,
-  Download, Layers, Trash2, Unlink, AlertTriangle, Plus, Upload, Loader2, Pencil, Coins,
+  Download, Layers, Trash2, Unlink, AlertTriangle, Plus, Upload, Loader2, Pencil, Coins, FolderOpen,
   Image as ImageIcon,
 } from 'lucide-react'
 
@@ -46,6 +47,15 @@ export default function LibraryPage() {
   const [delClip, setDelClip] = useState(null)   // คลิปที่จะลบ (รายตัว)
   const [filter, setFilter]   = useState('all')
   const [confirmDel, setConfirmDel] = useState(false)
+  const toast = useToast()
+
+  // เปิดโฟลเดอร์ที่เก็บไฟล์ในเครื่อง — โปรแกรมหลักเป็นคนเปิดให้ (เบราว์เซอร์แตะไฟล์ไม่ได้)
+  const reveal = async (v) => {
+    try {
+      const r = await api.revealVideo(v.folder, v.name)
+      if (!r?.ok) toast.error(r?.error || 'เปิดที่อยู่ไฟล์ไม่ได้')
+    } catch { toast.error('ต่อโปรแกรมหลักไม่ได้') }
+  }
   const [deleting, setDeleting]     = useState(false)
 
   const removeClip = async () => {
@@ -196,6 +206,14 @@ export default function LibraryPage() {
                         <button onClick={() => setForm(v)}
                           className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary transition-all">
                           <Pencil size={12} /> แก้ไข
+                        </button>
+                        <a href={api.videoFileUrl(v.folder, v.name)} download={v.name} title="ดาวน์โหลดคลิป"
+                          className="flex items-center justify-center px-2.5 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-accent hover:bg-accent-wash hover:border-accent/30 transition-all">
+                          <Download size={13} />
+                        </a>
+                        <button onClick={() => reveal(v)} title="เปิดที่อยู่ไฟล์ในเครื่อง"
+                          className="flex items-center justify-center px-2.5 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-accent hover:bg-accent-wash hover:border-accent/30 transition-all">
+                          <FolderOpen size={13} />
                         </button>
                         <button onClick={() => setDelClip(v)} title="ลบคลิป"
                           className="flex items-center justify-center px-2.5 py-1.5 rounded-lg border border-border text-muted-foreground hover:text-danger hover:bg-danger/10 hover:border-danger/30 transition-all">

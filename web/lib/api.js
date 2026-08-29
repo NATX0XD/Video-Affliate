@@ -91,6 +91,8 @@ export const api = {
                                       .then(r => { if (!r.ok) throw new Error('cover upload failed'); return r.json() }),
   deleteNoLink:    ()         => req('POST', '/api/videos/delete_nolink'),
   videoFileUrl:    (folder, name) => `${BASE}/video/${folder}/${name}`,
+  // เปิดโฟลเดอร์ที่เก็บไฟล์แล้วไฮไลต์ไฟล์ (Finder/Explorer) — เบราว์เซอร์ทำเองไม่ได้
+  revealVideo:     (folder, name) => req('POST', '/api/videos/reveal', { folder, name }),
   postResults:     ()         => req('GET',  '/api/post-results'),
   streamUrl:       (serial)   => `${BASE}/stream/${serial}`,
   scrcpyAvailable: ()         => req('GET',  '/api/scrcpy/available'),   // มี scrcpy-server ในเครื่องไหม
