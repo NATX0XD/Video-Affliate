@@ -61,7 +61,8 @@ def verify_post(adb, serial: str, log=print, platform: str = "", **_) -> dict:
         # uiautomator คืน exit code 0 แม้พิมพ์ "ERROR: could not get idle state." ออกมา
         # เชื่อ exit code อย่างเดียวจะไหลไป pull ไฟล์ที่ไม่เคยถูกสร้าง แล้วรายงานสาเหตุผิด
         # ("pull failed: No such file" ทั้งที่ตัวปัญหาคือ dump ไม่ผ่านตั้งแต่แรก)
-        if not ok or "ERROR" in (msg or "") or "dumped" not in (msg or ""):
+        # เช็คแค่คำว่า ERROR — ไม่บังคับว่าต้องมี "dumped" เพราะบาง build ไม่พิมพ์อะไรเลยตอนสำเร็จ
+        if not ok or "ERROR" in (msg or ""):
             reason = " ".join((msg or "").split())[:120] or "ไม่มีข้อความตอบกลับ"
             log(f"[VERIFY] อ่านหน้าจอไม่ได้ ({reason}) — ยืนยันผลไม่ได้ "
                 f"(หน้าที่เล่นวิดีโออยู่ dump ไม่ผ่านเป็นปกติ)")
