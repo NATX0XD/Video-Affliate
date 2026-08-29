@@ -119,3 +119,22 @@ def test_failure_wins_over_success_keyword(monkeypatch):
 
 def verify(adb):
     return post_verifier.verify_post(adb, SERIAL, log=lambda *a, **k: None)
+
+
+def test_idle_state_error_is_reported_as_a_dump_failure():
+    """uiautomator คืน exit code 0 พร้อมข้อความ ERROR — ต้องไม่ไหลไป pull ต่อ
+
+    ไม่งั้นจะรายงานสาเหตุผิดเป็น "pull failed: No such file" ทั้งที่ dump ไม่ผ่านตั้งแต่แรก
+    (เจอจริงบน Android 16 หน้า publish ที่เล่นพรีวิววิดีโออยู่)
+    """
+    from services import post_verifier as pv
+
+    class _Adb:
+        def _adb(self, *a, **k):
+            return True, "ERROR: could not get idle state."
+
+    res = pv.verify_post(_Adb(), "SER", log=lambda *a: None)
+    assert res["verified"] is False
+    assert res["status"] == "unverified"
+    assert "dump failed" in res["reason"]
+    assert "idle state" in res["reason"]
