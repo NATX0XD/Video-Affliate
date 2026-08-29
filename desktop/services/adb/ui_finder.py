@@ -102,7 +102,7 @@ def _save_dump(xml: str, tag: str):
         pass
 
 
-def dump_nodes(serial: str, log: Callable = print, tries: int = 2,
+def dump_nodes(serial: str, log: Callable = print, tries: int = 3,
                tag: str = "") -> List[UiNode]:
     """คืน [] ถ้า dump ไม่ได้ (เช่น หน้าที่วิดีโอเล่นตลอด) — ให้ caller fallback เป็นพิกัด
 
@@ -142,7 +142,9 @@ def dump_nodes(serial: str, log: Callable = print, tries: int = 2,
             why = "uiautomator ค้างเกินเวลา"
         except Exception as e:
             why = str(e)[:120]
-        time.sleep(0.6)
+        # "could not get idle state" = หน้ามีอะไรขยับตลอด (ฟีดวิดีโอเล่นอยู่)
+        # มันวูบ ๆ ไม่ใช่พังถาวร — รอนานขึ้นทีละรอบแล้วลองใหม่ ได้บ่อยกว่ารอเท่าเดิม
+        time.sleep(0.6 + 0.6 * attempt)
     # เดิมล้มแล้วเงียบ ผู้ใช้เห็นแค่ "ใช้พิกัดสำรอง" โดยไม่รู้ว่าทำไมอ่านหน้าจอไม่ได้
     if why:
         log(f"[ui] อ่านหน้าจอไม่สำเร็จ{f' ({tag})' if tag else ''}: {why}")
@@ -159,7 +161,7 @@ def wait_for(serial: str, pred: Callable[[List[UiNode]], object], timeout: float
     end = time.time() + timeout
     nodes: List[UiNode] = []
     while True:
-        got = dump_nodes(serial, log, tries=1, tag=tag)
+        got = dump_nodes(serial, log, tries=2, tag=tag)   # หน้าฟีดวิดีโอ dump วูบบ่อย — ลอง 2 ครั้งต่อรอบ
         if got:
             nodes = got
             try:
