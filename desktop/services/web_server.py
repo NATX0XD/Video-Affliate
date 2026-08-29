@@ -1830,6 +1830,29 @@ class WebServer:
             qid = self.db.queue_push(payload or {}, int(body.get("priority", 0) or 0))
             return {"ok": True, "id": qid}
 
+        # ── ยกเลิกการสร้างคลิปที่กำลังรันอยู่ ──────────────────────────────
+        # ส่วนขยายรัน batch อยู่ในเบราว์เซอร์ สั่งหยุดตรง ๆ ไม่ได้ (ไม่มีทางคุยขาเข้า)
+        # จึงใช้ "ธงเวลา": เว็บกดยกเลิก → บันทึกเวลาไว้ · ส่วนขยายถามเป็นระยะ
+        # เจอเวลาที่ใหม่กว่าตอนที่ตัวเองเริ่ม = คำสั่งนี้สั่งถึงมัน → หยุดเอง
+        @app.post("/api/flow/cancel")
+        def flow_cancel():
+            import time as _t
+            self._flow_cancel_at = _t.time()
+            dropped = 0
+            if self.db:
+                try:
+                    dropped = self.db.queue_clear_pending()   # งานที่ยังไม่ถูกคว้า ไม่ต้องเริ่มแล้ว
+                except Exception:
+                    pass
+            self.emit_log(f"[FLOW] ผู้ใช้กดยกเลิกการสร้างคลิป (ตัดงานที่ยังไม่เริ่มออก {dropped} งาน)")
+            self.ws.broadcast_sync({"type": "gen_progress", "jobId": None, "stage": "error",
+                                    "detail": "ยกเลิกโดยผู้ใช้ — กำลังหยุดหลังคลิปที่ทำค้างอยู่"})
+            return {"ok": True, "at": self._flow_cancel_at, "dropped": dropped}
+
+        @app.get("/api/flow/cancel")
+        def flow_cancel_state():
+            return {"at": getattr(self, "_flow_cancel_at", 0)}
+
         @app.get("/api/queue/next")
         def queue_next():
             """ดูงานถัดไปในคิว (peek ไม่ claim)."""

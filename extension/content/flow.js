@@ -231,11 +231,17 @@ if (window._flowAutomatorLoaded) {
   function findFileInput() {
     return [...document.querySelectorAll(getSelector("fileInput", 'input[type="file"]'))][0] || null;
   }
+  // ธง "ผู้ใช้กดยกเลิก" — ประกาศไว้บนสุดเพราะ waitFor ข้างล่างใช้ (ดู startCancelWatch)
+  let _stopFlow = false;
   async function waitFor(fn, timeout = 20000, step = 500) {
     const end = Date.now() + timeout;
     while (Date.now() < end) {
       const r = fn();
       if (r) return r;
+      // ★ ผู้ใช้กดยกเลิก → เลิกรอทันที ไม่นั่งรอจนครบเวลา
+      //   จุดที่รอนานสุดอยู่ในนี้ทั้งหมด (รอรูป 2 นาที · รอวิดีโอ 10 นาที)
+      //   ถ้าไม่เช็คตรงนี้ กดยกเลิกแล้วจะเงียบไปเป็นสิบนาทีกว่าจะหยุดจริง
+      if (_stopFlow) return null;
       await sleep(step);
     }
     return null;
@@ -1264,6 +1270,30 @@ if (window._flowAutomatorLoaded) {
     return unknown ? unknown.email : null;
   }
 
+  // ── ยกเลิกกลางคัน ────────────────────────────────────────────────────
+  // batch รันอยู่ในแท็บนี้ เว็บสั่งหยุดตรง ๆ ไม่ได้ (คุยขาเข้าไม่ได้)
+  // → เว็บกดยกเลิกแล้วบันทึก "เวลา" ไว้ที่โปรแกรมหลัก · ที่นี่ถามเป็นระยะ
+  //   เจอเวลาที่ใหม่กว่าตอนเริ่ม = สั่งถึงรอบนี้ → ยกธง แล้วทุก loop ที่ยาว ๆ เช็คธงนี้
+  let _stopTimer = null;
+  function stopCancelWatch() { if (_stopTimer) { clearInterval(_stopTimer); _stopTimer = null; } }
+  function startCancelWatch(log) {
+    const startedAt = Date.now() / 1000;
+    _stopFlow = false;
+    stopCancelWatch();
+    _stopTimer = setInterval(async () => {
+      try {
+        const r = await desktop("GET", "/api/flow/cancel");
+        if (r && Number(r.at) > startedAt) {
+          _stopFlow = true;
+          stopCancelWatch();
+          try { log("⛔ ได้รับคำสั่งยกเลิก — จะหยุดหลังจบขั้นที่ทำค้างอยู่"); } catch {}
+        }
+      } catch {}
+    }, 4000);
+  }
+  const cancelled = () => _stopFlow;
+  window._flowCancel = () => { _stopFlow = true; stopCancelWatch(); };   // สั่งจาก Console ได้ด้วย
+
   async function runQueue(log, max = 100, dry = false) {
     if (_queueRunning) { log("คิวกำลังรันอยู่แล้ว — ข้าม"); return 0; }
     log(`ส่วนขยายเวอร์ชัน ${EXT_VER}`);   // ขึ้นทุกครั้งที่เริ่มคิว — เช็คได้ทันทีว่าเครื่องนี้ใช้ตัวล่าสุดไหม
@@ -1272,6 +1302,7 @@ if (window._flowAutomatorLoaded) {
     const total = jobs.length;
     if (!total) { log("ไม่มีงานในคิว — เลือกสินค้าใน Dashboard แล้วกดสร้างก่อน"); return 0; }
     _queueRunning = true;
+    startCancelWatch(log);
     log(`คิว ${total} ชิ้น (extension คุมคิวเอง)`);
     const engine = ((await chrome.storage.local.get("flow_gen")).flow_gen || {}).engine || "agent";
     if (engine === "i2v") log("เครื่องยนต์: image-to-video (nano banana → frames-to-video)");
@@ -1285,6 +1316,7 @@ if (window._flowAutomatorLoaded) {
       } catch {}
     };
     while (jobs.length && n < max) {
+      if (cancelled()) { log(`⛔ ยกเลิกแล้ว — หยุดที่ ${done}/${total} ชิ้น (งานที่เหลือยังอยู่ในคิว)`); break; }
       n++;
       const product = jobs[0];
       const curName = (product?.basic_info?.name || product?.product_id || "?").slice(0, 40);
@@ -1343,12 +1375,17 @@ if (window._flowAutomatorLoaded) {
       // ★ i2v + สำเร็จ → เปิดโปรเจ็คใหม่ "หลัง shift แล้ว" → ต่อให้ navigate ทำ context ตาย ก็ไม่สร้าง job เดิมซ้ำ
       if (engine === "i2v" && !dry && jobOk) { try { await newProject(log); } catch {} }
       // พักระหว่างคลิป "แบบสุ่มเหมือนคน" (กัน cadence สม่ำเสมอ = ลายเซ็นบอท) — dry ไม่ต้องพักนาน
-      if (jobs.length && !dry) { const w = rand(12000, 28000); log(`พักเหมือนคน ~${Math.round(w / 1000)} วิ ก่อนคลิปถัดไป`); await sleep(w); }
-      else await sleep(rand(1500, 3000));
+      // พักยาว 12-28 วิ — ถ้าผู้ใช้กดยกเลิกระหว่างพัก ต้องออกทันที ไม่ใช่นั่งรอจนครบ
+      if (jobs.length && !dry) {
+        const w = rand(12000, 28000); log(`พักเหมือนคน ~${Math.round(w / 1000)} วิ ก่อนคลิปถัดไป`);
+        for (let t = 0; t < w && !cancelled(); t += 500) await sleep(500);
+      } else await sleep(rand(1500, 3000));
     }
     qstate(false, null);
     _queueRunning = false;
-    log(`เสร็จ — ${dry ? "ทดสอบ" : "สร้าง"} ${done} ชิ้น`);
+    stopCancelWatch();
+    log(cancelled() ? `หยุดตามคำสั่งยกเลิก — ทำไป ${done} ชิ้น`
+                    : `เสร็จ — ${dry ? "ทดสอบ" : "สร้าง"} ${done} ชิ้น`);
     // broadcast ตรงถึง Dashboard/side panel — ไม่พึ่ง sendResponse ของ background
     // (ถ้า service worker โดน restart ระหว่างรอ คิวยาวๆ response เดิมจะหายไป)
     try { chrome.runtime.sendMessage({ action: "flow_queue_done", done, total, dry }); } catch {}

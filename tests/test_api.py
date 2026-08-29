@@ -194,6 +194,33 @@ def test_gen_store_roundtrip(web):
     assert client.get("/api/gen/store/draft").json()["value"] is None
 
 
+def test_flow_cancel_records_time_and_clears_pending_queue(web):
+    """กดยกเลิก → บันทึกเวลาไว้ให้ส่วนขยายมาถาม + ตัดงานที่ยังไม่เริ่มออก"""
+    client, ws, db = web
+    assert client.get("/api/flow/cancel").json()["at"] == 0        # ยังไม่เคยยกเลิก
+
+    db.queue_push({"type": "flow_start"}, 1)
+    db.queue_push({"type": "flow_start"}, 1)
+    claimed = db.queue_claim("ext")                                # งานที่ถูกคว้าไปแล้ว
+    assert claimed
+
+    r = client.post("/api/flow/cancel").json()
+    assert r["ok"] is True and r["at"] > 0
+    assert r["dropped"] == 1                                       # ตัดเฉพาะตัวที่ยังไม่ถูกคว้า
+    assert client.get("/api/flow/cancel").json()["at"] == r["at"]  # ส่วนขยายอ่านค่าเดียวกันได้
+
+
+def test_flow_cancel_leaves_claimed_work_alone(web):
+    """งานที่ส่วนขยายคว้าไปทำแล้ว ห้ามลบทิ้ง — ให้มันหยุดเองผ่านธง"""
+    client, ws, db = web
+    db.queue_push({"type": "flow_start"}, 1)
+    db.queue_claim("ext")
+    client.post("/api/flow/cancel")
+    assert db.queue_next() is None                                 # ไม่มี pending เหลือ
+    rows = db._conn.execute("SELECT status FROM queue").fetchall()
+    assert [r["status"] for r in rows] == ["claimed"]               # ตัวที่คว้าไปยังอยู่ครบ
+
+
 def test_bulk_post_route_reaches_autopilot(web):
     """/api/jobs/post ต้องไม่โดน /api/jobs/{jid}/post กลืน — 'post' เป็น jid ไม่ได้"""
     client, ws, db = web
