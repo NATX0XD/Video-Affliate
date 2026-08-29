@@ -797,6 +797,40 @@ class WebServer:
                 })
             return {"jobs": out, "review_mode": cfg.load().get("review_mode", "auto")}
 
+        # ── เปิดโฟลเดอร์ที่เก็บไฟล์คลิป แล้วไฮไลต์ไฟล์นั้น ─────────────────
+        # โปรแกรมรันบนเครื่องผู้ใช้อยู่แล้ว จึงเปิด Finder/Explorer ให้ได้ตรง ๆ
+        # (เบราว์เซอร์ทำเองไม่ได้ — sandbox ห้ามแตะระบบไฟล์)
+        @app.post("/api/videos/reveal")
+        def reveal_video(body: dict):
+            import config as cfg, subprocess, sys
+            from pathlib import Path
+            folder = ((body or {}).get("folder") or "").strip()
+            name   = ((body or {}).get("name") or "").strip()
+            dirs = {"pending": cfg.PENDING_DIR, "done": cfg.DONE_DIR, "error": cfg.ERROR_DIR}
+            d = dirs.get(folder)
+            # กัน path traversal เหมือนตอนเสิร์ฟไฟล์ — ค่ามาจากเบราว์เซอร์
+            if not d or not name or "/" in name or "\\" in name or ".." in name:
+                return {"ok": False, "error": "พาธไม่ถูกต้อง"}
+            path = d / name
+            if not path.exists():                       # ไฟล์ย้ายโฟลเดอร์ได้ (pending → done)
+                for alt in (cfg.PENDING_DIR, cfg.DONE_DIR, cfg.ERROR_DIR):
+                    if (alt / name).exists():
+                        path = alt / name
+                        break
+            if not path.exists():
+                return {"ok": False, "error": "ไม่พบไฟล์คลิป (อาจถูกลบหรือย้ายไปแล้ว)"}
+            try:
+                if sys.platform == "darwin":
+                    subprocess.Popen(["open", "-R", str(path)])
+                elif sys.platform.startswith("win"):
+                    # ต้องเป็นสตริงเดียว ไม่มีช่องว่างหลังคอมมา ไม่งั้น explorer เปิดโฟลเดอร์ Documents แทน
+                    subprocess.Popen(f'explorer /select,"{path}"', shell=True)
+                else:
+                    subprocess.Popen(["xdg-open", str(path.parent)])
+            except Exception as e:
+                return {"ok": False, "error": f"เปิดโฟลเดอร์ไม่ได้: {str(e)[:120]}"}
+            return {"ok": True, "path": str(path)}
+
         @app.post("/api/videos/delete_nolink")
         def delete_nolink():
             """ลบคลิปที่ไม่มีลิงก์ตะกร้า (affiliate link ว่าง) — DB row + ไฟล์ mp4/json."""

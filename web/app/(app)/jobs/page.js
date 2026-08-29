@@ -7,7 +7,7 @@ import { SkeletonJobItem } from '@/components/ui/Skeleton'
 import { PageHeader, JOB_STATUS } from '@/components/layout/PageHeader'
 import { useApp } from '@/app/(app)/layout'
 import { LazyVideo } from '@/components/ui/LazyVideo'
-import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check, Film, FlaskConical, Play, X, Coins, Search, ArrowUpDown, Smartphone, CheckSquare, Square } from 'lucide-react'
+import { Send, Trash2, ListChecks, Loader2, Link2, Copy, Check, Film, FlaskConical, Play, X, Coins, Search, ArrowUpDown, Smartphone, CheckSquare, Square, Download, FolderOpen } from 'lucide-react'
 
 // ชื่อเครื่องที่อ่านง่าย — label > model > serial
 const deviceName = (d) => d?.label || d?.model || d?.serial || ''
@@ -142,6 +142,14 @@ export default function JobsPage() {
   // เลือกทั้งหมดที่ "พร้อมโพสต์" ในรายการที่เห็นอยู่ — ไม่ต้องไล่ติ๊กทีละใบ
   const selectReady = (list) => setSel(new Set(list.filter(j => j.status === 'generated').map(j => j.id)))
 
+  // เปิดโฟลเดอร์ที่เก็บไฟล์ในเครื่อง — โปรแกรมหลักเป็นคนเปิดให้ (เบราว์เซอร์แตะไฟล์ไม่ได้)
+  const reveal = useCallback(async (j) => {
+    try {
+      const r = await api.revealVideo(j.folder, j.file)
+      if (!r?.ok) setBatchNote(r?.error || 'เปิดที่อยู่ไฟล์ไม่ได้')
+    } catch { setBatchNote('ต่อโปรแกรมหลักไม่ได้') }
+  }, [])
+
   const postNow = async (id) => { setBusy(id); try { await api.postJob(id) } catch {}; setTimeout(() => { setBusy(null); load() }, 1500) }
   const dryNow  = async (id) => { setDryBusy(id); try { await api.dryPostJob(id) } catch {}; setTimeout(() => setDryBusy(null), 3000) }
   const remove  = async (id) => { setBusy(id); try { await api.deleteJob(id) } catch {}; setBusy(null); load() }
@@ -262,7 +270,7 @@ export default function JobsPage() {
                     {notPosted.map(j => (
                       <JobCard key={j.id} job={j} busy={busy} dryBusy={dryBusy} copied={copied}
                         devices={onlineDevices} selected={sel.has(j.id)} fresh={justDone.get(j.id)} onToggleSel={toggleSel} onAssign={assignOne}
-                        onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onOpen={setPreview} />
+                        onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onReveal={reveal} onOpen={setPreview} />
                     ))}
                   </AnimatePresence>
                 </div>
@@ -276,7 +284,7 @@ export default function JobsPage() {
                     {posted.map(j => (
                       <JobCard key={j.id} job={j} busy={busy} dryBusy={dryBusy} copied={copied}
                         devices={onlineDevices} selected={sel.has(j.id)} fresh={justDone.get(j.id)} onToggleSel={toggleSel} onAssign={assignOne}
-                        onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onOpen={setPreview} />
+                        onCopy={copy} onDry={dryNow} onPost={postNow} onCancel={cancel} onRemove={remove} onReveal={reveal} onOpen={setPreview} />
                     ))}
                   </AnimatePresence>
                 </div>
@@ -369,7 +377,7 @@ const FRESH_NOTE = {
   error:      { text: 'เพิ่งโพสต์ไม่สำเร็จ',                       cls: 'bg-danger/12 text-danger border-danger/30' },
 }
 
-const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, devices = [], selected, fresh, onToggleSel, onAssign, onCopy, onDry, onPost, onCancel, onRemove, onOpen }) {
+const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, devices = [], selected, fresh, onToggleSel, onAssign, onCopy, onDry, onPost, onCancel, onRemove, onReveal, onOpen }) {
   const s = JOB_STATUS[j.status] ?? JOB_STATUS.pending
   const isErr = j.status === 'error'
   const assigned = j.assigned_serial || ''
@@ -499,6 +507,18 @@ const JobCard = memo(function JobCard({ job: j, busy, dryBusy, copied, devices =
               title="สั่งโพสต์ใหม่อีกครั้ง" className="shrink-0">
               <Send size={12} /> ลองใหม่
             </Button>
+          </>
+        )}
+        {j.file && (
+          <>
+            <a href={api.videoFileUrl(j.folder, j.file)} download={j.file} title="ดาวน์โหลดคลิป"
+              className="p-2 rounded-lg text-muted-foreground hover:text-accent hover:bg-accent-wash transition-all shrink-0">
+              <Download size={14} />
+            </a>
+            <button onClick={() => onReveal?.(j)} title="เปิดที่อยู่ไฟล์ในเครื่อง"
+              className="p-2 rounded-lg text-muted-foreground hover:text-accent hover:bg-accent-wash transition-all shrink-0">
+              <FolderOpen size={14} />
+            </button>
           </>
         )}
         <button onClick={() => onRemove(j.id)} disabled={busy === j.id}
