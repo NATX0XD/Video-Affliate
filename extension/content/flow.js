@@ -2423,15 +2423,28 @@ if (window._flowAutomatorLoaded) {
     if (!is916()) log(`⚠ สัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()}) — ลองตั้งใหม่`);
     log(`โหมดหลังตั้งค่า: ${modeSummary()} ${is916() && isImageMode() ? "✓" : ""}`);   // เช็คหลัง
     await sleep(1500);                                          // ให้ UI นิ่งก่อนแนบ (กันรูปแรกแนบไม่ติด)
+    // ป้ายกำกับรูปอ้างอิงตามลำดับที่แนบ — พรอมป์อ้างถึงเป็น "รูปที่ 1/2/3" ต้องตรงกัน
+    const REF_LABEL = ["ใบหน้า", "สินค้า", "ฉากหลัง", "โทนสี"];
     const uploads = [];
-    for (let i = 0; i < refs.length; i++) {
-      log(`แนบรูปอ้างอิงที่ ${i + 1}…`);
-      const u = await uploadImage(refs[i], log);   // ใช้วิธีแนบจริง (เมนู ⋮ "เพิ่มไปยังพรอมต์")
-
-      log(u.ok ? `รูป ${i + 1}: อัปแล้ว ${u.addedToPrompt ? "+ เข้าพรอมต์ ✓" : "แต่ยังไม่เข้าพรอมต์ ✗"}` : `รูป ${i + 1} อัปไม่สำเร็จ: ${u.error}`);
-      uploads.push(u);
-      await sleep(1200);                                        // เว้นจังหวะก่อนรูปถัดไป
-    }
+    const attachRefs = async (why) => {
+      uploads.length = 0;
+      if (why) log(`แนบรูปอ้างอิงใหม่ทั้งชุด (${why})`);
+      for (let i = 0; i < refs.length; i++) {
+        log(`แนบรูปอ้างอิงที่ ${i + 1} (${REF_LABEL[i] || "อื่น ๆ"})…`);
+        // รอบแนบซ้ำ: re-encode ให้ไบต์ต่างจากเดิม ไม่งั้น Flow เห็นว่าเป็นไฟล์เดิมที่มีใน
+        // library อยู่แล้วแล้วไม่สร้างไทล์ใหม่ → ตรวจไม่ได้ว่าแนบติดจริงไหม
+        const src = why ? (await reencode(refs[i]).catch(() => refs[i])) : refs[i];
+        const u = await uploadImage(src, log);   // ใช้วิธีแนบจริง (เมนู ⋮ "เพิ่มไปยังพรอมต์")
+        log(u.ok ? `รูป ${i + 1}: อัปแล้ว ${u.addedToPrompt ? "+ เข้าพรอมต์ ✓" : "แต่ยังไม่เข้าพรอมต์ ✗"}` : `รูป ${i + 1} อัปไม่สำเร็จ: ${u.error}`);
+        uploads.push(u);
+        await sleep(1200);                                      // เว้นจังหวะก่อนรูปถัดไป
+      }
+      // ไม่มีไทล์โผล่ = รูปนั้นไม่ได้เข้าเป็นภาพอ้างอิงจริง โมเดลจะ "แต่งขึ้นเอง" แทน
+      // สำคัญสุดคือรูปที่ 1 (ใบหน้า) — ขาดแล้วได้คนละคนทันที
+      const missing = uploads.map((u, i) => (u && u.refId ? null : (REF_LABEL[i] || `รูปที่ ${i + 1}`))).filter(Boolean);
+      if (missing.length) log(`⚠ รูปอ้างอิงที่ไม่ยืนยันว่าแนบติด: ${missing.join(", ")} — ผลลัพธ์อาจไม่ตรงรูปที่อัป`);
+    };
+    await attachRefs("");
     const box = await waitFor(findEditable, 15000);
     if (!box) return { ok: false, error: "ไม่พบช่องพิมพ์ prompt", uploads };
     const mac = /Mac/i.test(navigator.platform);
@@ -2451,7 +2464,11 @@ if (window._flowAutomatorLoaded) {
     // ── ส่ง + รอผล · ชนลิมิตรุ่น Pro → สลับ "Nano Banana 2" แล้วพิมพ์+ส่งใหม่ (ครั้งเดียว กัน loop) ──
     let switched = false;
     for (let pass = 0; pass < 2; pass++) {
-      if (pass > 0) {   // รอบสลับรุ่น: ช่องถูกเคลียร์ตอนส่งแล้ว → พิมพ์ prompt ใหม่
+      if (pass > 0) {
+        // ★ กดส่งไปแล้วรอบหนึ่ง = แถบพิมพ์ถูกล้างทั้งแถบ ทั้งข้อความ "และรูปอ้างอิง"
+        //   เดิมพิมพ์ prompt ใหม่อย่างเดียว → รอบสลับรุ่นสร้างภาพโดยไม่มีรูปหน้าเลย
+        //   ได้คนละคนกับรูปที่ผู้ใช้อัป และเกิดเฉพาะตอน Nano Banana Pro ชนลิมิต จึงดูเหมือนสุ่ม
+        await attachRefs("หลังสลับรุ่น — แถบพิมพ์ถูกล้างตอนกดส่งรอบก่อน");
         for (let a = 1; a <= 2 && !typedOk(); a++) { await trustedClickEl(box, log); await sleep(350); const had = boxText(box) && !placeholderVisible(); await sendTrusted({ action: "flow_trusted_type", text: prompt, clear: had, mac: mac2 }); await sleep(700); }
         if (!typedOk()) return { ok: false, error: "พิมพ์ prompt ใหม่ไม่สำเร็จหลังสลับรุ่น", uploads };
       }
@@ -2502,7 +2519,9 @@ if (window._flowAutomatorLoaded) {
         if (kept.length) imgs = kept;
         else log("⚠ เหลือแต่รูปอ้างอิง ไม่เจอรูปที่ Flow สร้าง — ใช้รูปที่มีไปก่อน");
       }
-      log(`สร้างรูปเสร็จสมบูรณ์ ✓ ${imgs.length} รูป (ใช้ ${(mediaUuid(imgs[imgs.length - 1]) || "?").slice(0, 8)})`);
+      // บอกรุ่นที่ใช้จริงด้วย — Nano Banana 2 (รุ่นสำรองตอน Pro ชนลิมิต) คุมใบหน้าได้แย่กว่า Pro ชัดเจน
+      // เวลาหน้าไม่ตรงรูปที่อัป จะได้แยกออกว่าเป็นเพราะรุ่น หรือเพราะรูปอ้างอิงไม่ติด
+      log(`สร้างรูปเสร็จสมบูรณ์ ✓ ${imgs.length} รูป (ใช้ ${(mediaUuid(imgs[imgs.length - 1]) || "?").slice(0, 8)} · รุ่น: ${modeBtnText().replace(/\s+/g, " ").slice(0, 40)})`);
       return { ok: true, images: imgs, uploads };
     }
   }
