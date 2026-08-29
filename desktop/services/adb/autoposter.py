@@ -286,16 +286,23 @@ class AutoPoster(BasePoster):
         return True
 
     def _ready(self, serial: str, key: str, timeout: float, quiet: bool = False) -> bool:
-        """จริงเมื่อหน้าหลังแตะ key พร้อมแล้ว (ไม่มีเงื่อนไข = ถือว่าผ่าน)"""
+        """จริงเมื่อหน้าหลังแตะ key พร้อมแล้ว (ไม่มีเงื่อนไข = ถือว่าผ่าน)
+
+        ตั้ง self._ready_blind = True เมื่อ "ตอบไม่ได้" (อ่านหน้าจอไม่ได้เลยสักรอบ
+        และเงื่อนไขข้อนี้ต้องใช้ node) — ต่างจาก "ตอบว่ายังไม่พร้อม" ซึ่งเชื่อถือได้
+        """
+        self._ready_blind = False
         pred = self.READY.get(key)
         if pred is None:
             return True
         from services.adb import ui_finder as UF
         end = time.time() + timeout
         act = ""
+        saw_nodes = False
         while True:
             nodes = UF.dump_nodes(serial, self.log, tries=1, tag=f"{key}_check")
             act = self._current_activity(serial)
+            saw_nodes = saw_nodes or bool(nodes)
             # ★ ตรวจแม้ dump ไม่ได้ — เงื่อนไขหลายข้อดูแค่ "ชื่อหน้า" ไม่ได้ใช้ node เลย
             #   หน้า publish เล่นพรีวิววิดีโอตลอด window ไม่เคย idle → uiautomator dump ล้มประจำ
             #   เดิมข้ามการตรวจทั้งก้อนเมื่อ dump ไม่ได้ เลยฟ้อง "next_2 ล้มเหลว" ทั้งที่อยู่หน้าถูกแล้ว
@@ -308,9 +315,13 @@ class AutoPoster(BasePoster):
             except Exception:
                 pass
             if time.time() >= end:
+                # อ่านหน้าจอไม่ได้เลยสักรอบ = "ไม่รู้" ไม่ใช่ "ไม่พร้อม"
+                # หน้าฟีดวิดีโอของ Shopee dump ไม่ผ่านแทบทุกครั้ง ถ้าถือว่าล้มจะตัดจบทั้งงาน
+                self._ready_blind = not saw_nodes
                 if not quiet:      # quiet = แค่ "ถามว่าข้ามได้ไหม" ไม่ใช่ความล้มเหลว
                     self.log(f"[{self.TAG}] ยังไม่ถึงหน้าหลัง {key} "
-                             f"(หน้าปัจจุบัน: {act.split('/')[-1] or '?'})")
+                             f"(หน้าปัจจุบัน: {act.split('/')[-1] or '?'})"
+                             + (" — อ่านหน้าจอไม่ได้เลย จึงยังสรุปไม่ได้" if self._ready_blind else ""))
                 return False
             time.sleep(0.8)
 
@@ -339,6 +350,14 @@ class AutoPoster(BasePoster):
                     return True
                 break
             self.log(f"[{self.TAG}] แตะ {key} ไม่ติด (รอบ {i}/{tries}) — ลองใหม่")
+        # ★ "อ่านหน้าจอไม่ได้เลย" ไม่เท่ากับ "แตะไม่ติด"
+        #   หน้าฟีดวิดีโอของ Shopee dump ไม่ผ่านแทบทุกครั้ง (window ไม่เคย idle)
+        #   เงื่อนไขที่ต้องใช้ node จึงไม่มีวันผ่าน แล้วตัดจบทั้งงานทั้งที่แตะติดจริง
+        #   ไปต่อดีกว่า — ขั้นถัดไปมีตัวตรวจของตัวเอง ถ้าหลงจริงมันจะฟ้องทันที
+        if getattr(self, "_ready_blind", False):
+            self.log(f"[{self.TAG}] ⚠ {key}: อ่านหน้าจอไม่ได้เลย สรุปไม่ได้ว่าแตะติดไหม — "
+                     f"ไปต่อ แล้วให้ขั้นถัดไปเป็นตัวตัดสิน")
+            return True
         self.log(f"[{self.TAG}] ⚠ {key} ล้มเหลวหลังลอง {tries} รอบ")
         return False
 
