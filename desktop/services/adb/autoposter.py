@@ -286,12 +286,17 @@ class AutoPoster(BasePoster):
         while True:
             nodes = UF.dump_nodes(serial, self.log, tries=1, tag=f"{key}_check")
             act = self._current_activity(serial)
-            if nodes:
-                try:
-                    if pred(nodes, act, UF):
-                        return True
-                except Exception:
-                    pass
+            # ★ ตรวจแม้ dump ไม่ได้ — เงื่อนไขหลายข้อดูแค่ "ชื่อหน้า" ไม่ได้ใช้ node เลย
+            #   หน้า publish เล่นพรีวิววิดีโอตลอด window ไม่เคย idle → uiautomator dump ล้มประจำ
+            #   เดิมข้ามการตรวจทั้งก้อนเมื่อ dump ไม่ได้ เลยฟ้อง "next_2 ล้มเหลว" ทั้งที่อยู่หน้าถูกแล้ว
+            #   ส่งลิสต์ว่างเข้าไปปลอดภัย: เงื่อนไขที่ต้องใช้ node จะได้ False เองอยู่แล้ว
+            try:
+                if pred(nodes or [], act, UF):
+                    if not nodes:
+                        self.log(f"[{self.TAG}] {key}: อ่านหน้าจอไม่ได้ แต่ชื่อหน้าตรงแล้ว → ผ่าน")
+                    return True
+            except Exception:
+                pass
             if time.time() >= end:
                 if not quiet:      # quiet = แค่ "ถามว่าข้ามได้ไหม" ไม่ใช่ความล้มเหลว
                     self.log(f"[{self.TAG}] ยังไม่ถึงหน้าหลัง {key} "
