@@ -770,7 +770,21 @@ class AutoPoster(BasePoster):
 
         # 11. โพสต์
         self.log("[POST] กดโพสต์...")
+        before_act = self._current_activity(serial)
         self._tap_r(serial, "post_button", settle=5)
+        # ★ หลักฐานว่าโพสต์ขึ้นจริงที่ไม่ต้องพึ่ง dump: Shopee ออกจากหน้า publish
+        #   กดไม่ติด = ค้างหน้าเดิม (พิสูจน์แล้วตอนปุ่มพลาด 94px — ค้าง 2 รอบติด)
+        #   หน้า publish และหน้าฟีดหลังโพสต์ dump ไม่ผ่านทั้งคู่ ตัวยืนยันเดิมจึงตอบ
+        #   "ยืนยันไม่ได้" ทุกครั้ง แล้วงานที่โพสต์สำเร็จไปโผล่เป็น error ในหน้างาน
+        self._left_publish = False
+        if "PublishVideoActivity" in before_act:
+            for _ in range(25):
+                if "PublishVideoActivity" not in self._current_activity(serial):
+                    self._left_publish = True
+                    break
+                time.sleep(1)
+            self.log("[POST] ออกจากหน้าโพสต์แล้ว — คลิปขึ้นแล้ว ✓" if self._left_publish
+                     else "[POST] ⚠ ยังค้างหน้าโพสต์หลังกดปุ่ม — อาจกดไม่ติด")
         return True
 
     def _maybe_verify(self, serial: str):
@@ -780,7 +794,18 @@ class AutoPoster(BasePoster):
         ถ้าไม่ลดชั้นตรงนี้ โพสต์แคปชั่นว่างจะถูก autopilot ย้ายเข้า DONE เงียบ ๆ
         """
         res = super()._maybe_verify(serial)
+        left = getattr(self, "_left_publish", False)
+        # ตัวยืนยันอ่านหน้าจอไม่ได้ (ฟีดหลังโพสต์เล่นวิดีโอตลอด) แต่เรามีหลักฐานอื่น:
+        # ออกจากหน้า publish แล้ว = โพสต์ขึ้นจริง — อย่ารายงานเป็น error ให้ผู้ใช้ไปนั่งเช็คเอง
+        if res == "unverified" and left:
+            self.log(f"[{self.TAG}] ✓ ยืนยันจากการออกจากหน้าโพสต์ (อ่านหน้าจอไม่ได้ แต่คลิปขึ้นแล้ว)")
+            res = True
         if res is True and getattr(self, "_caption_unverified", False):
+            # "อ่านแคปชั่นไม่ได้" ต่างจาก "อ่านแล้วว่าง" — ตัวหลังถูกดักไปตั้งแต่ก่อนกดโพสต์
+            # ถ้าโพสต์ขึ้นแล้วจริง การลดชั้นเพราะอ่านไม่ได้ทำให้ทุกโพสต์กลายเป็น error
+            if left:
+                self.log(f"[{self.TAG}] โพสต์ขึ้นแล้ว ✓ (ยืนยันเนื้อแคปชั่นไม่ได้เพราะอ่านหน้าจอไม่ได้)")
+                return True
             self.log(f"[{self.TAG}] ⚠ โพสต์ขึ้นแล้วแต่ยืนยันแคปชั่นไม่ได้ — รายงาน unverified")
             return "unverified"
         return res
