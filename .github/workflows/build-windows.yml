@@ -233,14 +233,24 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # ── ทางสำรอง: ZIP ของ payload ชุดเดียวกัน ──────────────────────────────
+      # บางเครื่อง (โน้ตบุ๊กมหาลัย/ที่ทำงาน) แอนตี้ไวรัสกักตัว .exe ที่ไม่ได้เซ็นระหว่างติดตั้ง
+      # แล้วขึ้น "Windows cannot access the specified device, path, or file"
+      # ZIP ไม่ได้รันอะไรเอง แตกไฟล์แล้วกด ติดตั้ง.bat — ผ่านด่านนั้นได้บ่อยกว่ามาก
+      - name: Pack portable zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "payload\*" -DestinationPath "VDO-Gen-Portable.zip" -Force
+          Get-ChildItem VDO-Gen-Portable.zip | Select-Object Name, Length
+
       # อัป .exe ขึ้น GitHub Release โดยตรง (GitHub→GitHub เร็ว · ไม่ต้องโหลด artifact มาอัปเอง)
       - name: Publish .exe to release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload v1.0.0 "VDO-Gen-Setup.exe" --clobber --repo "${{ github.repository }}"
-          Write-Host "อัป VDO-Gen-Setup.exe ขึ้น release v1.0.0 แล้ว"
+          gh release upload v1.0.0 "VDO-Gen-Setup.exe" "VDO-Gen-Portable.zip" --clobber --repo "${{ github.repository }}"
+          Write-Host "อัป VDO-Gen-Setup.exe + VDO-Gen-Portable.zip ขึ้น release v1.0.0 แล้ว"
 
       # ── ถ้า push เป็น tag v* → แนบ installer เข้า GitHub Release ด้วย ──
       - name: Attach to Release
