@@ -783,9 +783,9 @@ if (window._shopeeScraperLoaded) {
             </div>
           </div>
           <div class="__sc_card-box" style="padding:4px 13px 8px">
-            <div class="__sc_opt on" data-opt="extracomm"><div class="__sc_sw"></div><div><div class="__sc_ot">เฉพาะคอมพิเศษ (ExtraComm)</div><div class="__sc_od">กดตัวกรอง Comm Xtra บนหน้าให้ตอนค้นหา</div></div></div>
-            <div class="__sc_opt on" data-opt="highcomm"><div class="__sc_sw"></div><div><div class="__sc_ot">เรียงคอมสูงก่อน</div><div class="__sc_od">กดแท็บ Comm (%) บนหน้าให้ตอนค้นหา — คอมมาก → น้อย</div></div></div>
-            <div class="__sc_opt" data-opt="hot"><div class="__sc_sw"></div><div><div class="__sc_ot">เรียงขายดีก่อน</div><div class="__sc_od">กดแท็บ Top Sales แทน — ยอดขายมาก → น้อย</div></div></div>
+            <div class="__sc_opt on" data-opt="extracomm"><div class="__sc_sw"></div><div><div class="__sc_ot">เฉพาะคอมพิเศษ</div><div class="__sc_od">กดแท็บ "ค่าคอมพิเศษ" บนหน้าให้ก่อนดูด (กรองที่หน้า Shopee จริง)</div></div></div>
+            <div class="__sc_opt on" data-opt="highcomm"><div class="__sc_sw"></div><div><div class="__sc_ot">เรียงคอมสูงก่อน</div><div class="__sc_od">เรียงสิ่งที่ดูดได้ คอมมาก → น้อย (ถ้าหน้ามีปุ่มเรียงตามค่าคอม จะกดให้ด้วย)</div></div></div>
+            <div class="__sc_opt" data-opt="hot"><div class="__sc_sw"></div><div><div class="__sc_ot">เรียงขายดีก่อน</div><div class="__sc_od">เรียงสิ่งที่ดูดได้ ยอดขายมาก → น้อย (ถ้าหน้ามีแท็บ "สินค้าขายดี" จะกดให้ด้วย)</div></div></div>
             <div class="__sc_opt" data-opt="getlinks"><div class="__sc_sw"></div><div><div class="__sc_ot">เก็บลิงก์ตะกร้าเลย</div><div class="__sc_od">ดึงลิงก์ s.shopee.co.th ทุกชิ้นตอนดูด (ช้าลง · กันลิงก์ตกตอนสร้างคลิป)</div></div></div>
           </div>
         </div>
@@ -987,6 +987,11 @@ if (window._shopeeScraperLoaded) {
       // ── ใช้ Sort/Filter จริงของหน้า (แถว "Sort by" กับ "Affiliate") ──
       // หน้า Shopee เช็ค isTrusted — คลิกสังเคราะห์โดนเมิน ต้องคลิกจริงผ่าน
       // chrome.debugger (sendTrusted ตัวเดียวกับที่ใช้กับ Flow) แล้วค่อย fallback สังเคราะห์
+      // ป้ายทั้งหมดที่กดได้บนหน้า — ใช้ทั้งจับคู่และรายงานตอนหาไม่เจอ
+      const pageControls = () => [...document.querySelectorAll('button,div,span,a,label')]
+        .filter(e => e.offsetParent !== null && !e.closest('#__sc_card') && !e.closest('#__sc_root'))
+        .map(e => (e.innerText || '').trim())
+        .filter(t => t && t.length < 25);
       const clickPageControl = async (regex) => {
         const cands = [...document.querySelectorAll('button,div,span,a,label')].filter(e => {
           const t = (e.innerText || '').trim();
@@ -1014,19 +1019,29 @@ if (window._shopeeScraperLoaded) {
         }
         return true;
       };
+      // ★ หน้าไทยใช้ป้ายคนละคำกับหน้าอังกฤษ: "สินค้าขายดี" / "ค่าคอมพิเศษ"
+      //   ของเดิมผูกหัวข้อความไว้ (/^ขายดี/) เลยไม่เคยแมตช์ "สินค้าขายดี" → ไม่ได้กดแท็บให้จริงสักครั้ง
+      //   เปลี่ยนเป็นจับ "มีคำนี้อยู่" และรับทั้งไทย/อังกฤษ
+      const missed = (what, re) => {
+        const seen = [...new Set(pageControls())].slice(0, 25).join(' · ');
+        slog(`ไม่เจอปุ่ม${what}บนหน้า (ข้าม) — ป้ายที่เจอ: ${seen || '(ไม่มี)'}`, 'dim');
+      };
       if (opts.highcomm) {
         // เรียงค่าคอมมาก → น้อย
-        if (await clickPageControl(/^comm\s*\(%\)$/i)) { slog('กด Comm (%) — เรียงคอมมาก → น้อย', 'ok'); await sleep(2500); }
-        else slog('ไม่เจอปุ่ม Comm (%) บนหน้า (ข้าม)', 'dim');
+        const re = /comm\s*\(%\)|ค่าคอมมิชชั่น|ค่าคอม(?!พิเศษ)|commission/i;
+        if (await clickPageControl(re)) { slog('กดเรียงตามค่าคอม — คอมมาก → น้อย', 'ok'); await sleep(2500); }
+        else missed(' "ค่าคอม"', re);
       } else if (opts.hot) {
         // เรียงยอดขายมาก → น้อย
-        if (await clickPageControl(/^top\s*sales$|^ขายดี/i)) { slog('กด Top Sales — เรียงยอดขาย', 'ok'); await sleep(2500); }
-        else slog('ไม่เจอปุ่ม Top Sales บนหน้า (ข้าม)', 'dim');
+        const re = /top\s*sales|ขายดี|ยอดขาย/i;
+        if (await clickPageControl(re)) { slog('กดแท็บขายดี — เรียงยอดขาย', 'ok'); await sleep(2500); }
+        else missed(' "ขายดี"', re);
       }
       if (opts.extracomm) {
         // ตัวกรองคอมพิเศษของหน้า
-        if (await clickPageControl(/^comm\s*xtra$|^extra\s*comm$|คอมพิเศษ/i)) { slog('กด Comm Xtra — กรองคอมพิเศษ', 'ok'); await sleep(2500); }
-        else slog('ไม่เจอปุ่ม Comm Xtra บนหน้า (ข้าม)', 'dim');
+        const re = /comm\s*xtra|extra\s*comm|คอมพิเศษ/i;
+        if (await clickPageControl(re)) { slog('กดแท็บค่าคอมพิเศษ — กรองคอมพิเศษ', 'ok'); await sleep(2500); }
+        else missed(' "ค่าคอมพิเศษ"', re);
       }
       return true;
     }
