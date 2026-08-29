@@ -836,11 +836,15 @@ if (window._shopeeScraperLoaded) {
           const r = el.getBoundingClientRect();
           if (r.top < ar.top - lineH * 0.5 || r.top > ar.top + lineH * 3) continue;
           if (r.width < 20) continue;
-          if (!out.some(o => o.label === t)) out.push({ label: t, top: r.top, left: r.left });
+          if (out.some(o => o.label === t)) continue;
+          // เก็บลิงก์ด้วยถ้ามี — จอแคบมากจน Shopee ยุบแท็บเป็นเมนู จะกดตามพิกัดไม่ได้
+          // แต่ "เปิด URL ของหน้านั้นตรง ๆ" ยังทำได้เสมอ ไม่ขึ้นกับ layout
+          const a = el.closest('a[href]') || el.querySelector('a[href]');
+          const href = a ? a.href : '';
+          out.push({ label: t, top: r.top, left: r.left, href });
         }
         return out
-          .sort((a, b) => (Math.abs(a.top - b.top) > lineH * 0.5 ? a.top - b.top : a.left - b.left))
-          .map(o => o.label);
+          .sort((a, b) => (Math.abs(a.top - b.top) > lineH * 0.5 ? a.top - b.top : a.left - b.left));
       };
       // ไต่ขึ้นจนเจอ container ที่ครอบแท็บได้ครบ — ไม่ fix จำนวนชั้น เพราะ Shopee เปลี่ยนโครง DOM บ่อย
       let best = [];
@@ -849,21 +853,73 @@ if (window._shopeeScraperLoaded) {
         if (got.length > best.length) best = got;
         if (best.length >= 3) break;      // ได้แถวแท็บจริงแล้ว (ทั้งหมด + อีกอย่างน้อย 2)
       }
-      return best;
+      // จำ "ชื่อแท็บของหน้านี้" ไว้ + ลิงก์ของแท็บที่เป็น <a> — ใช้ตอนจอแคบจนอ่านแถวไม่ได้
+      if (best.length) {
+        knownTabs[location.pathname] = best.map(o => o.label);
+        best.forEach(o => rememberTabUrl(o.label, o.href));
+      }
+      return best.map(o => o.label);
+    };
+
+    // ── จำลิงก์ของแต่ละแท็บไว้ (label → url) ───────────────────────────────
+    // ใช้ตอนจอแคบจน Shopee ยุบแท็บเป็นเมนู: กดตามพิกัดไม่ได้ แต่เปิด URL ตรง ๆ ได้
+    // เก็บแยกตาม pathname เพราะคนละหน้าใช้ชื่อแท็บซ้ำกันได้
+    const TABURL_KEY = 'sc_tab_urls';
+    const TABLBL_KEY = 'sc_tab_labels';
+    let tabUrls = {};       // { "<pathname>": { "<label>": "<url>" } }
+    let knownTabs = {};     // { "<pathname>": ["ทั้งหมด", "ค่าคอมพิเศษ", ...] }
+    const tabUrlsHere = () => tabUrls[location.pathname] || {};
+    const knownTabsHere = () => knownTabs[location.pathname] || [];
+    const loadTabUrls = () => new Promise((res) => {
+      try {
+        chrome.storage.local.get([TABURL_KEY, TABLBL_KEY], (d) => {
+          tabUrls   = (d && d[TABURL_KEY]) || {};
+          knownTabs = (d && d[TABLBL_KEY]) || {};
+          res();
+        });
+      } catch { res(); }
+    });
+    const rememberTabUrl = (label, url) => {
+      if (!label || !url) return;
+      const m = tabUrls[location.pathname] || (tabUrls[location.pathname] = {});
+      if (m[label] === url) return;
+      m[label] = url;
+      try { chrome.storage.local.set({ [TABURL_KEY]: tabUrls, [TABLBL_KEY]: knownTabs }); } catch {}
+    };
+    // กวาดลิงก์จากเมนูที่ยุบไว้ — เก็บ "เฉพาะชื่อที่เคยรู้ว่าเป็นแท็บ" ของหน้านี้
+    // ถ้ากวาดทุก <a> เมนูซ้าย (ข้อเสนอ Shopee / แคมเปญ Affiliate) จะไหลเข้ามาปนในลิสต์แท็บ
+    const harvestTabUrls = () => {
+      const want = new Set(knownTabsHere());
+      if (!want.size) return;
+      for (const a of document.querySelectorAll('a[href]')) {
+        if (a.closest('#__sc_root') || a.closest('#__sc_card')) continue;
+        const t = (a.innerText || '').trim();
+        if (want.has(t)) rememberTabUrl(t, a.href);
+      }
     };
 
     const fillTabPicker = () => {
       const sel = $('#__sc_tabpick');
       if (!sel) return;
-      const tabs = readPageTabs();
+      harvestTabUrls();                      // เก็บลิงก์ที่เห็นตอนนี้ไว้ใช้รอบหน้าด้วย
+      const live = readPageTabs();
+      // รวมกับแท็บที่เคยจำลิงก์ไว้ — จอแคบจนแท็บถูกยุบเป็นเมนู อ่านแถวไม่ได้ แต่ยังเลือกได้
+      const known = knownTabsHere();
+      const tabs = [...live, ...known.filter(k => !live.includes(k))];
       const keep = sel.value;
       sel.innerHTML = '<option value="">(ใช้แท็บที่เปิดอยู่)</option>' +
-        tabs.map(t => `<option value="${t.replace(/"/g, '&quot;')}">${t}</option>`).join('');
+        tabs.map(t => {
+          const viaUrl = !live.includes(t) ? ' (เปิดด้วยลิงก์)' : '';
+          const v = t.replace(/"/g, '&quot;');
+          return `<option value="${v}">${t}${viaUrl}</option>`;
+        }).join('');
       if (keep && tabs.includes(keep)) sel.value = keep;
       const hint = $('#__sc_tabhint');
-      if (hint) hint.textContent = tabs.length
-        ? 'เลือกแล้วจะกดแท็บนั้นบนหน้าให้ก่อนเริ่มดูด'
-        : 'อ่านแท็บจากหน้านี้ไม่ได้ — เปิดหน้า "ข้อเสนอ ผลิตภัณฑ์" แล้วเปิดแผงนี้ใหม่';
+      if (!hint) return;
+      hint.textContent = tabs.length
+        ? (live.length ? 'เลือกแล้วจะเปิดแท็บนั้นให้ก่อนเริ่มดูด'
+                       : 'จอแคบจนแท็บถูกยุบ — จะเปิดหน้านั้นด้วยลิงก์ที่เคยจำไว้แทน')
+        : 'ยังไม่รู้จักแท็บของหน้านี้ — ขยายหน้าต่างให้เห็นแถวแท็บสัก 1 ครั้ง แล้วเปิดแผงนี้ใหม่ (จะจำลิงก์ไว้ให้)';
     };
     const $ = id => card.querySelector(id);
     const logbox = $('#__sc_logbox');
@@ -937,6 +993,24 @@ if (window._shopeeScraperLoaded) {
         }
       } catch (err) { slog('ผิดพลาด: ' + err.message, 'er'); }
     }
+    // ── กลับมาหลังเปิดหน้าด้วยลิงก์ → ดูดต่อเอง ────────────────────────────
+    // openTabUrl พาหน้าไปหน้าใหม่ สคริปต์เดิมตายไปพร้อมหน้า ถ้าไม่ทำต่อให้
+    // ผู้ใช้จะเจอ "จอเปลี่ยนหน้าไปเฉย ๆ แล้วไม่มีอะไรเกิดขึ้น"
+    (async () => {
+      await loadTabUrls();
+      harvestTabUrls();
+      let r = null;
+      try { r = await new Promise((res) => chrome.storage.local.get('sc_resume', (d) => res(d && d.sc_resume))); }
+      catch {}
+      if (!r || !r.at || Date.now() - r.at > 60000) return;      // ธงเก่าเกิน 1 นาที = ไม่ใช่รอบนี้
+      try { chrome.storage.local.remove('sc_resume'); } catch {} // ใช้ครั้งเดียว กันวนซ้ำ
+      card.classList.add('open');
+      fillTabPicker();
+      slog(`เปิดหน้า "${r.tab}" แล้ว — ดูดต่อให้อัตโนมัติ`, 'ok');
+      await sleep(2500);                                        // รอรายการสินค้าเรนเดอร์
+      runScrape();
+    })();
+
     window.addEventListener('click', panelClick, true);
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && e.composedPath && e.composedPath().includes($('#__sc_kw'))) doSearch();
@@ -1142,13 +1216,21 @@ if (window._shopeeScraperLoaded) {
       const el = [...document.querySelectorAll('div,span,a,button,li')]
         .filter(e => vis(e) && (e.innerText || '').trim() === want)
         .sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width)[0];
-      if (!el) { slog(`ไม่เจอแท็บ "${want}" บนหน้า — ดูดจากแท็บที่เปิดอยู่แทน`, 'er'); return false; }
+      // ★ กดไม่ได้ (จอแคบจนแท็บถูกยุบเป็นเมนู / อยู่นอกจอ) → เปิด "หน้านั้น" ด้วยลิงก์แทน
+      //   ลิงก์ไม่ขึ้นกับ layout เลย ใช้ได้ทุกขนาดจอ
+      const url = tabUrlsHere()[want];
+      if (!el && url) return await openTabUrl(want, url);
+      if (!el) {
+        slog(`ไม่เจอแท็บ "${want}" บนหน้า และยังไม่เคยจำลิงก์ไว้ — ดูดจากแท็บที่เปิดอยู่แทน`, 'er');
+        return false;
+      }
       // inline:'center' ด้วย — จอแคบ แถวแท็บกลายเป็นแถบเลื่อนแนวนอน แท็บท้าย ๆ อยู่นอกจอ
       // ถ้าไม่เลื่อนเข้ามาก่อน พิกัดที่คำนวณได้จะอยู่นอกจอ แล้วคลิกไปโดนของอื่น
       el.scrollIntoView({ block: 'center', inline: 'center' });
       await sleep(400);
       const r = el.getBoundingClientRect();   // อ่านพิกัดใหม่หลังเลื่อนเสมอ
       if (r.width < 1 || r.right < 0 || r.left > innerWidth || r.bottom < 0 || r.top > innerHeight) {
+        if (url) return await openTabUrl(want, url);
         slog(`แท็บ "${want}" อยู่นอกจอ กดไม่ได้ — ขยายหน้าต่างให้กว้างขึ้นแล้วลองใหม่`, 'er');
         return false;
       }
@@ -1168,7 +1250,19 @@ if (window._shopeeScraperLoaded) {
       const before = gridSig();
       for (let i = 0; i < 12 && gridSig() === before; i++) await sleep(500);
       if (gridSig() === before) slog(`⚠ กดแท็บ "${want}" แล้วแต่รายการไม่เปลี่ยน — อาจอยู่แท็บนี้อยู่แล้ว`, 'dim');
+      rememberTabUrl(want, location.href);   // จำไว้ รอบหน้าจอแคบก็ยังเปิดหน้านี้ได้
       await sleep(1200);
+      return true;
+    }
+
+    // เปิดหน้าของแท็บด้วยลิงก์ — หน้าจะโหลดใหม่ สคริปต์นี้ตายไปด้วย
+    // จึงฝากธงไว้ให้ตัวที่โหลดใหม่ "ดูดต่อเอง" (ไม่งั้นผู้ใช้ต้องมากดซ้ำ)
+    async function openTabUrl(want, url) {
+      slog(`จอแคบ/กดแท็บไม่ได้ → เปิดหน้า "${want}" ด้วยลิงก์แทน`, 'ok');
+      try { await new Promise((r) => chrome.storage.local.set({ sc_resume: { at: Date.now(), tab: want } }, r)); }
+      catch {}
+      location.href = url;
+      await sleep(30000);       // หน้ากำลังโหลด — ปล่อยให้ตัวใหม่ทำต่อ
       return true;
     }
 
