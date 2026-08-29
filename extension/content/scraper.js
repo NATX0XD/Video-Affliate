@@ -782,6 +782,13 @@ if (window._shopeeScraperLoaded) {
               <input class="__sc_in" id="__sc_minComm" type="number" min="0" placeholder="คอม ≥ %" style="max-width:120px">
             </div>
           </div>
+          <div class="__sc_card-box">
+            <div class="__sc_chd"><span class="ic">${SVG.down}</span> แท็บบนหน้า Shopee (ดูดจากแท็บนี้)</div>
+            <div class="__sc_row" style="padding:6px 13px 12px;flex-direction:column;align-items:stretch;gap:6px">
+              <select class="__sc_in" id="__sc_tabpick"><option value="">(ใช้แท็บที่เปิดอยู่)</option></select>
+              <div style="font-size:11px;color:#8b8ba3;line-height:1.5" id="__sc_tabhint">เลือกแล้วจะกดแท็บนั้นบนหน้าให้ก่อนเริ่มดูด</div>
+            </div>
+          </div>
           <div class="__sc_card-box" style="padding:4px 13px 8px">
             <div class="__sc_opt on" data-opt="extracomm"><div class="__sc_sw"></div><div><div class="__sc_ot">เฉพาะคอมพิเศษ</div><div class="__sc_od">กดแท็บ "ค่าคอมพิเศษ" บนหน้าให้ก่อนดูด (กรองที่หน้า Shopee จริง)</div></div></div>
             <div class="__sc_opt on" data-opt="highcomm"><div class="__sc_sw"></div><div><div class="__sc_ot">เรียงคอมสูงก่อน</div><div class="__sc_od">เรียงสิ่งที่ดูดได้ คอมมาก → น้อย (ถ้าหน้ามีปุ่มเรียงตามค่าคอม จะกดให้ด้วย)</div></div></div>
@@ -804,6 +811,54 @@ if (window._shopeeScraperLoaded) {
     document.body.appendChild(root);
 
     const opts = { extracomm: true, hot: false, highcomm: true, getlinks: false, pick: false };
+
+    // ── แท็บจริงบนหน้า Shopee ──────────────────────────────────────────────
+    // ผู้ใช้อยากให้ "ไปเลือกแท็บนั้นให้" ไม่ใช่แค่ดูดจากแท็บที่เปิดค้างไว้
+    // อ่านรายชื่อแท็บจากหน้าเลย (แทนที่จะ hardcode) — หมวดของแต่ละบัญชีไม่เหมือนกัน
+    // ยึด "ทั้งหมด" เป็นหมุด: เป็นแท็บแรกของแถวนี้เสมอ แล้วเอาพี่น้องในแถวเดียวกันมาทั้งหมด
+    const readPageTabs = () => {
+      const vis = (e) => e.offsetParent !== null && !e.closest('#__sc_root') && !e.closest('#__sc_card');
+      const anchor = [...document.querySelectorAll('div,span,a,button,li')]
+        .filter(e => vis(e) && (e.innerText || '').trim() === 'ทั้งหมด')
+        .sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width)[0];
+      if (!anchor) return [];
+      const ar = anchor.getBoundingClientRect();
+      // เก็บป้ายที่อยู่ "บรรทัดเดียวกับ ทั้งหมด" ภายใต้ container ที่ให้มา
+      const rowLabels = (root) => {
+        const out = [];
+        for (const el of root.querySelectorAll('div,span,a,button,li')) {
+          if (!vis(el)) continue;
+          const t = (el.innerText || '').trim();
+          if (!t || t.length > 30 || t.includes('\n')) continue;
+          const r = el.getBoundingClientRect();
+          if (Math.abs(r.top - ar.top) > 20 || r.width < 20) continue;
+          if (!out.some(o => o.label === t)) out.push({ label: t, left: r.left });
+        }
+        return out.sort((a, b) => a.left - b.left).map(o => o.label);
+      };
+      // ไต่ขึ้นจนเจอ container ที่ครอบแท็บได้ครบ — ไม่ fix จำนวนชั้น เพราะ Shopee เปลี่ยนโครง DOM บ่อย
+      let best = [];
+      for (let n = anchor.parentElement, i = 0; n && i < 5; n = n.parentElement, i++) {
+        const got = rowLabels(n);
+        if (got.length > best.length) best = got;
+        if (best.length >= 3) break;      // ได้แถวแท็บจริงแล้ว (ทั้งหมด + อีกอย่างน้อย 2)
+      }
+      return best;
+    };
+
+    const fillTabPicker = () => {
+      const sel = $('#__sc_tabpick');
+      if (!sel) return;
+      const tabs = readPageTabs();
+      const keep = sel.value;
+      sel.innerHTML = '<option value="">(ใช้แท็บที่เปิดอยู่)</option>' +
+        tabs.map(t => `<option value="${t.replace(/"/g, '&quot;')}">${t}</option>`).join('');
+      if (keep && tabs.includes(keep)) sel.value = keep;
+      const hint = $('#__sc_tabhint');
+      if (hint) hint.textContent = tabs.length
+        ? 'เลือกแล้วจะกดแท็บนั้นบนหน้าให้ก่อนเริ่มดูด'
+        : 'อ่านแท็บจากหน้านี้ไม่ได้ — เปิดหน้า "ข้อเสนอ ผลิตภัณฑ์" แล้วเปิดแผงนี้ใหม่';
+    };
     const $ = id => card.querySelector(id);
     const logbox = $('#__sc_logbox');
     const slog = (m, cls = '') => { const d = document.createElement('div'); d.className = cls; d.textContent = m; logbox.appendChild(d); logbox.scrollTop = logbox.scrollHeight; };
@@ -856,6 +911,7 @@ if (window._shopeeScraperLoaded) {
         if (tab) {
           card.querySelectorAll('.__sc_tab').forEach(t => t.classList.toggle('on', t === tab));
           card.querySelectorAll('.__sc_view').forEach(v => v.classList.toggle('on', v.dataset.view === tab.dataset.tab));
+          if (tab.dataset.tab === 'filter') fillTabPicker();   // อ่านแท็บสด ๆ ทุกครั้งที่เปิดดู
           return;
         }
         const opt = hit('.__sc_opt');
@@ -1037,8 +1093,8 @@ if (window._shopeeScraperLoaded) {
         if (await clickPageControl(re)) { slog('กดแท็บขายดี — เรียงยอดขาย', 'ok'); await sleep(2500); }
         else missed(' "ขายดี"', re);
       }
-      if (opts.extracomm) {
-        // ตัวกรองคอมพิเศษของหน้า
+      if (opts.extracomm && !($('#__sc_tabpick') && $('#__sc_tabpick').value)) {
+        // ตัวกรองคอมพิเศษของหน้า — ข้ามถ้าผู้ใช้เลือกแท็บเองแล้ว (ไม่งั้นกดทับกัน)
         const re = /comm\s*xtra|extra\s*comm|คอมพิเศษ/i;
         if (await clickPageControl(re)) { slog('กดแท็บค่าคอมพิเศษ — กรองคอมพิเศษ', 'ok'); await sleep(2500); }
         else missed(' "ค่าคอมพิเศษ"', re);
@@ -1071,6 +1127,32 @@ if (window._shopeeScraperLoaded) {
       return closed;
     }
 
+    // กดแท็บที่ผู้ใช้เลือกไว้ก่อนเริ่มดูด — คืน true ถ้ากดแล้ว (จะได้รอหน้าโหลด)
+    // หน้า Shopee เช็ค isTrusted → ต้องคลิกจริงผ่าน chrome.debugger เหมือนที่ใช้กับตัวเรียง
+    async function gotoPickedTab() {
+      const want = ($('#__sc_tabpick') && $('#__sc_tabpick').value || '').trim();
+      if (!want) return false;
+      const vis = (e) => e.offsetParent !== null && !e.closest('#__sc_root') && !e.closest('#__sc_card');
+      const el = [...document.querySelectorAll('div,span,a,button,li')]
+        .filter(e => vis(e) && (e.innerText || '').trim() === want)
+        .sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width)[0];
+      if (!el) { slog(`ไม่เจอแท็บ "${want}" บนหน้า — ดูดจากแท็บที่เปิดอยู่แทน`, 'er'); return false; }
+      el.scrollIntoView({ block: 'center' });
+      await sleep(350);
+      const r = el.getBoundingClientRect();
+      const res = await sendTrusted({ action: 'flow_trusted_click',
+                                      x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) });
+      if (!res.ok) {
+        const o = { bubbles: true, cancelable: true, view: window };
+        el.dispatchEvent(new PointerEvent('pointerdown', o)); el.dispatchEvent(new MouseEvent('mousedown', o));
+        el.dispatchEvent(new PointerEvent('pointerup', o));   el.dispatchEvent(new MouseEvent('mouseup', o));
+        el.dispatchEvent(new MouseEvent('click', o));
+      }
+      slog(`เปิดแท็บ "${want}" แล้ว — รอรายการโหลด…`, 'ok');
+      await sleep(3000);
+      return true;
+    }
+
     async function runScrape() {
       if (running) return;
       running = true; window._scrapeStop = false;
@@ -1078,6 +1160,8 @@ if (window._shopeeScraperLoaded) {
       $('#__sc_found').textContent = '0'; $('#__sc_sent').textContent = '0';
       const _ads = closeAds(); if (_ads) slog(`ปิดโฆษณา/ป๊อปอัป ${_ads} อัน`);
       await sleep(400);
+      const _switched = await gotoPickedTab();   // เลือกแท็บไว้ = ไปเปิดแท็บนั้นให้ก่อน
+      if (_switched) { closeAds(); await sleep(400); }
       slog('เริ่มเลื่อนหน้าเก็บสินค้า…');
       window._onScrapeProgress = (n) => { $('#__sc_found').textContent = n; };
       try {
