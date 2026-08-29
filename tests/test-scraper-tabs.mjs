@@ -12,7 +12,11 @@ const SRC = readFileSync(new URL('../extension/content/scraper.js', import.meta.
 const start = SRC.indexOf('    const readPageTabs = () => {')
 if (start < 0) throw new Error('ไม่เจอ readPageTabs')
 const end = SRC.indexOf('\n    };\n', start)
-const code = SRC.slice(start, end + 7).replace(/^\s*const readPageTabs = /, 'const readPageTabs = ')
+const body = SRC.slice(start, end + 7).replace(/^\s*const readPageTabs = /, 'const readPageTabs = ')
+// readPageTabs จำชื่อแท็บ + ลิงก์ลง storage ด้วย — ใส่ตัวรับปลอมไว้ (เทสนี้สนใจแค่ "อ่านแท็บถูกไหม")
+const code = 'const knownTabs = {}; const remembered = [];\n'
+  + 'const rememberTabUrl = (l, u) => { if (l) remembered.push([l, u || \'\']) };\n'
+  + body
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>')
 const { window } = dom
@@ -64,8 +68,9 @@ ours.getBoundingClientRect = () => rects.get(ours)
 doc.body.appendChild(ours)
 el('div', 'ตัวกรอง', 1520, 238, 80, 20, ours)
 
-const make = new Function('document', `${code}\nreturn readPageTabs`)
-const readPageTabs = make(doc)
+const make = new Function('location', 'document', `${code}\nreturn { readPageTabs, knownTabs, remembered }`)
+const F = make({ pathname: '/offer/product' }, doc)
+const readPageTabs = F.readPageTabs
 
 let fail = 0
 const check = (name, got, want) => {
@@ -103,7 +108,7 @@ check('ไม่เอาแผงของเราเองมาเป็น�
   const L2 = ['คอมพิวเตอร์และแล็ปท็อป', 'กีฬาและกิจกรรมกลางแจ้ง', 'เสื้อผ้าแฟชั่นผู้ชาย', 'เครื่องใช้ในบ้าน']
   let x1 = 40; L1.forEach(t => { mk('div', t, x1, 238, t.length * 10, row); x1 += t.length * 10 + 20 })
   let x2 = 40; L2.forEach(t => { mk('div', t, x2, 276, t.length * 10, row); x2 += t.length * 10 + 20 })
-  const read2 = new Function('document', `${code}\nreturn readPageTabs`)(d2)
+  const read2 = new Function('location', 'document', `${code}\nreturn readPageTabs`)({ pathname: '/p2' }, d2)
   check('จอแคบ แท็บตกบรรทัด → ยังอ่านครบ เรียงบน→ล่าง ซ้าย→ขวา', read2(), [...L1, ...L2])
 }
 
@@ -128,9 +133,43 @@ check('ไม่เอาแผงของเราเองมาเป็น�
   mk('div', 'ค่าคอมพิเศษ', 130, 238, 100, row)
   mk('div', 'สินค้าขายดี', 250, 238, 100, row)
   mk('div', 'EXTRACOMM', 40, 400, 100, row)     // ห่างเกิน 3 บรรทัด — ต้องไม่ถูกนับ
-  const read3 = new Function('document', `${code}\nreturn readPageTabs`)(d3)
+  const read3 = new Function('location', 'document', `${code}\nreturn readPageTabs`)({ pathname: '/p3' }, d3)
   check('ของที่อยู่ไกลลงไปกว่า 3 บรรทัด ไม่ถูกนับเป็นแท็บ',
     read3(), ['ทั้งหมด', 'ค่าคอมพิเศษ', 'สินค้าขายดี'])
+}
+
+// ── จำชื่อแท็บ + ลิงก์ไว้ใช้ตอนจอแคบจนแท็บถูกยุบเป็นเมนู ──────────────────
+check('จำชื่อแท็บของหน้านี้ไว้ครบ', F.knownTabs['/offer/product'], TABS)
+check('แท็บที่เป็น <a> ถูกจำลิงก์ไว้ด้วย',
+  F.remembered.filter(([, u]) => u).map(([l]) => l), [])   // ในกรณีนี้แท็บเป็น div ล้วน จึงยังไม่มีลิงก์
+
+// แท็บที่เป็นลิงก์จริง → ต้องเก็บ href ไว้ให้เปิดหน้านั้นได้ตอนกดไม่ได้
+{
+  const dom4 = new JSDOM('<!doctype html><html><body></body></html>')
+  const d4 = dom4.window.document
+  const r4 = new WeakMap()
+  const mk = (tag, text, left, top, width, parent, href) => {
+    const e = d4.createElement(tag)
+    e.textContent = text
+    if (href) e.setAttribute('href', href)
+    Object.defineProperty(e, 'innerText', { get: () => e.textContent })
+    Object.defineProperty(e, 'offsetParent', { get: () => d4.body })
+    Object.defineProperty(e, 'href', { get: () => e.getAttribute('href') || '' })
+    r4.set(e, { left, top, width, height: 20, right: left + width, bottom: top + 20 })
+    e.getBoundingClientRect = () => r4.get(e)
+    ;(parent || d4.body).appendChild(e)
+    return e
+  }
+  const row = mk('div', '', 0, 238, 900); row.textContent = ''
+  mk('a', 'ทั้งหมด', 40, 238, 70, row, 'https://x/offer?tab=all')
+  mk('a', 'ค่าคอมพิเศษ', 130, 238, 100, row, 'https://x/offer?tab=extra')
+  mk('a', 'สินค้าขายดี', 250, 238, 100, row, 'https://x/offer?tab=hot')
+  const F4 = new Function('location', 'document', `${code}\nreturn { readPageTabs, knownTabs, remembered }`)({ pathname: '/p4' }, d4)
+  F4.readPageTabs()
+  check('เก็บลิงก์ของแท็บที่เป็น <a> ไว้ครบ',
+    F4.remembered, [['ทั้งหมด', 'https://x/offer?tab=all'],
+                    ['ค่าคอมพิเศษ', 'https://x/offer?tab=extra'],
+                    ['สินค้าขายดี', 'https://x/offer?tab=hot']])
 }
 
 // หน้าที่ไม่มีแท็บ (เช่นหน้าผลค้นหา) → ต้องคืนลิสต์ว่าง ไม่ใช่เดามั่ว
