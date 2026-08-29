@@ -1930,6 +1930,21 @@ if (window._flowAutomatorLoaded) {
     "เริ่ม":   ["เริ่ม", "start", "แรก", "first", "เฟรมแรก", "เฟรมเริ่มต้น", "start frame", "first frame"],
     "สิ้นสุด": ["สิ้นสุด", "end", "สุดท้าย", "last", "เฟรมสุดท้าย", "end frame", "last frame"],
   };
+  // ป้ายช่องเฟรมที่เห็นอยู่บนแถบพิมพ์ตอนนี้ — ไว้บอกตอนหาช่องไม่เจอว่าหน้าจอมีอะไรให้เลือกบ้าง
+  // (Flow เปลี่ยนชื่อช่องบ่อย: เริ่ม / เฟรมแรก / เฟรมเริ่มต้น / Start frame)
+  function frameSlotsInfo() {
+    try {
+      const ed = findEditable();
+      const er = ed ? ed.getBoundingClientRect() : null;
+      const out = deepAll('div,span,button,[role="button"]')
+        .filter(isVisible)
+        .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 260 && r.height > 8 && r.height <= 260; })
+        .filter((el) => !er || (el.getBoundingClientRect().top >= er.top - 40 && el.getBoundingClientRect().top <= er.bottom + 200))
+        .map((el) => norm(el.innerText || el.textContent))
+        .filter((t) => t && t.length <= 24);
+      return [...new Set(out)].slice(0, 12).join(" · ") || "(ไม่เจอช่องไหนเลย)";
+    } catch { return "(อ่านไม่ได้)"; }
+  }
   function findFrameSlot(label) {
     const want = norm(label);
     const wants = FRAME_ALT[want] || [want];
@@ -2661,8 +2676,12 @@ if (window._flowAutomatorLoaded) {
     `พูดครั้งเดียวจบ ห้ามพูดประโยคเดิมซ้ำหรือวนลูป · ห้ามพูดราคาหรือตัวเลขเงิน`;
 
   // กดปุ่ม เริ่ม/สิ้นสุด → เปิด picker → คลิก option ที่ตรง uuid ของรูปเรา
+  let _pickTrace = "";     // เหตุผลที่เลือกเฟรมไม่ผ่าน — แนบไปกับ error (ไม่งั้นเห็นแต่ "ไม่สำเร็จ")
   async function pickFrame(btnLabel, imageUrl, log) {
+    _pickTrace = "";
+    const P = (m) => { _pickTrace += `${_pickTrace ? " · " : ""}${m}`; try { log(m); } catch {} };
     const uuid = mediaUuid(imageUrl);
+    if (!uuid) P(`อ่าน uuid จากรูปเฟรมเริ่มไม่ได้ (url: ${String(imageUrl).slice(0, 60)})`);
     const pickerOpen = () => document.querySelectorAll('[role="option"]').length > 0;
     const isSet = () => !pickerOpen() || !findFrameSlot(btnLabel);   // สำเร็จ = picker ปิดหลังคลิก (เหมือนกรณีที่ติด) หรือช่องไม่เหลือ label
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -2673,11 +2692,12 @@ if (window._flowAutomatorLoaded) {
       if (tab) { await trustedClickEl(tab, log); await sleep(800); }   // แท็บ "รูปภาพ" (รูปที่ Flow สร้าง)
       await waitFor(() => (document.querySelectorAll('[role="option"]').length ? true : null), 8000, 400);
       const list = [...document.querySelectorAll('[role="option"]')];
-      log(`picker "${btnLabel}" รอบ${attempt}: ${list.length} ตัวเลือก หา uuid ${uuid ? uuid.slice(0, 8) : "?"}`);
+      P(`picker "${btnLabel}" รอบ${attempt}: ${list.length} ตัวเลือก หา uuid ${uuid ? uuid.slice(0, 8) : "?"}`);
+      if (!list.length) P(`picker ไม่มีรายการเลย (แท็บ "รูปภาพ" ${tab ? "กดแล้ว" : "หาไม่เจอ"})`);
       const target = uuid ? list.find((o) => { const im = o.querySelector("img"); return (((im && (im.currentSrc || im.src)) || "")).includes(uuid); }) : null;
       if (!target) {
         const srcs = list.slice(0, 5).map((o) => { const im = o.querySelector("img"); return ((im && (im.currentSrc || im.src)) || "(no img)").slice(-34); });
-        log(`ไม่เจอ uuid ตรง — img srcs ตัวอย่าง: ${JSON.stringify(srcs)}`);
+        P(`ไม่เจอ uuid ตรงในรายการ — 5 ตัวแรกลงท้ายด้วย: ${JSON.stringify(srcs)}`);
         document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(400);
         return false;
       }
@@ -2696,7 +2716,7 @@ if (window._flowAutomatorLoaded) {
         if (conf) { await trustedClickEl(conf, log); await sleep(1500); if (isSet()) { picked = true; break; } }
       }
       if (picked) { log(`เลือกเฟรม "${btnLabel}" ✓`); return true; }
-      log(`ช่อง "${btnLabel}" ยังว่างหลังเลือก (picker เปิด=${pickerOpen()} · slot=${!!findFrameSlot(btnLabel)}) — ลองรอบ ${attempt}/3`);
+      P(`คลิกรูปแล้วช่อง "${btnLabel}" ยังว่าง (picker เปิด=${pickerOpen()} · ช่องยังอยู่=${!!findFrameSlot(btnLabel)}) รอบ ${attempt}/3`);
       document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await sleep(500);
     }
     return false;
@@ -2726,7 +2746,13 @@ if (window._flowAutomatorLoaded) {
     await sleep(900);
     log("เลือกเฟรมเริ่ม… (โมเดลรับเฉพาะเฟรมเริ่ม ไม่ใส่เฟรมจบ)");
     const okS = await pickFrame("เริ่ม", startUrl, log);
-    if (!okS) { const _d = dumpBtns(log, "pick-frame"); return { ok: false, error: "เลือกเฟรมเริ่มไม่สำเร็จ | ปุ่มบนจอ: " + _d, steps }; }
+    if (!okS) {
+      // เดิมโยนรายชื่อปุ่มทั้งจอมาให้อ่านเอง ซึ่งยาวจนกลบสาเหตุจริง
+      // ตอนนี้บอกก่อนว่าติดตรงไหน (หา uuid ไม่เจอ / picker ว่าง / คลิกแล้วช่องยังว่าง)
+      const _d = dumpBtns(log, "pick-frame");
+      return { ok: false, error: `[v${EXT_VER}] เลือกเฟรมเริ่มไม่สำเร็จ — ${_pickTrace || "(ไม่มีรายละเอียด)"} | ` +
+                                 `ช่องเฟรมที่เห็น: ${frameSlotsInfo()} | ปุ่มบนจอ: ${_d}`, steps };
+    }
     let motion = opts.prompt || defaultMotionPrompt(name);
     // เปิด footage ไว้ → สั่งให้ตัวคลิปเองมีจังหวะตัดไปภาพสินค้าด้วย (คนละชั้นกับที่ ffmpeg ทับให้ทีหลัง)
     // ทำสองชั้นเพราะเก่งคนละอย่าง: Veo ตัดให้ "ตรงกับสิ่งที่กำลังพูด" ได้เพราะมันรู้บทพูด
