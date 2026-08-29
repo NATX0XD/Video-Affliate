@@ -96,3 +96,43 @@ def test_unknown_resolution_keeps_class_defaults():
     p._apply_resolution_preset()
     p._apply_coords_override(None)
     assert p.R["post_button"] == AutoPoster.R["post_button"]
+
+
+# ── "อ่านหน้าจอไม่ได้" ต้องไม่ถูกนับเป็น "แตะไม่ติด" ──────────────────────────
+
+def _blind(poster, monkeypatch, act="com.shopee.app.ui.home.HomeActivity_"):
+    """จำลองเครื่องที่ dump ไม่ผ่านเลย (ฟีดวิดีโอเล่นตลอด)"""
+    _no_dump(monkeypatch)
+    monkeypatch.setattr(poster, "_current_activity", lambda s: act, raising=False)
+    monkeypatch.setattr(poster, "_tap_r", lambda *a, **k: None, raising=False)
+
+
+def test_ready_marks_itself_blind_when_no_dump_ever_arrives(poster, monkeypatch):
+    _blind(poster, monkeypatch)
+    assert poster._ready("SER", "live_video_tab", timeout=0) is False
+    assert poster._ready_blind is True          # ตอบไม่ได้ ไม่ใช่ตอบว่าไม่พร้อม
+
+
+def test_ready_is_not_blind_when_the_page_was_readable(poster, monkeypatch):
+    """อ่านหน้าจอได้แต่เงื่อนไขไม่ผ่าน = คำตอบเชื่อถือได้ ต้องไม่ถือว่า 'ไม่รู้'"""
+    monkeypatch.setattr(UF, "dump_nodes", lambda *a, **k: ["node"])
+    monkeypatch.setattr(poster, "_current_activity",
+                        lambda s: "com.shopee.app.ui.home.HomeActivity_", raising=False)
+    assert poster._ready("SER", "next_2", timeout=0) is False
+    assert poster._ready_blind is False
+
+
+def test_step_continues_when_readiness_cannot_be_judged(poster, monkeypatch):
+    """เจอจริงบนแท็บเล็ต: live_video_tab ล้ม 3 รอบเพราะ dump ไม่ผ่าน แล้วตัดจบทั้งงาน"""
+    _blind(poster, monkeypatch)
+    assert poster._step("SER", "live_video_tab", tries=2, settle=0, timeout=0) is True
+    assert any("ให้ขั้นถัดไปเป็นตัวตัดสิน" in m for m in poster.said)
+
+
+def test_step_still_fails_when_the_screen_says_not_ready(poster, monkeypatch):
+    """อ่านหน้าจอได้และบอกว่ายังไม่ถึง = ล้มจริง ต้องไม่ปล่อยผ่าน"""
+    monkeypatch.setattr(UF, "dump_nodes", lambda *a, **k: ["node"])
+    monkeypatch.setattr(poster, "_current_activity",
+                        lambda s: "com.shopee.app.ui.home.HomeActivity_", raising=False)
+    monkeypatch.setattr(poster, "_tap_r", lambda *a, **k: None, raising=False)
+    assert poster._step("SER", "next_2", tries=2, settle=0, timeout=0) is False
