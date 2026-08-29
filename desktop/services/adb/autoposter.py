@@ -389,6 +389,48 @@ class AutoPoster(BasePoster):
         self.adb._adb("shell", "input", "keyevent", dels, serial=serial, timeout=60)
         time.sleep(0.5)
 
+    # ปุ่ม "แตะเพื่อเพิ่มสินค้า" เป็นเม็ดยาสีส้มแบรนด์ Shopee — หาได้จากภาพหน้าจอตรง ๆ
+    # โซนที่มันอยู่: ครึ่งบนของหน้า publish (ใต้แถบชื่อ เหนือแถว toggle)
+    ADDPROD_BAND = (0.22, 0.48)      # ช่วง y (สัดส่วนจอ) ที่ยอมให้เจอเม็ดยา
+    ADDPROD_MIN_W = 0.15             # กว้างอย่างน้อย 15% ของจอ ถึงจะนับว่าเป็นปุ่ม ไม่ใช่ไอคอน
+
+    def _screen_has_add_product(self, serial: str) -> bool:
+        """หาแถบสีส้มของปุ่ม "แตะเพื่อเพิ่มสินค้า" จากภาพหน้าจอ
+
+        ★ ต้องมีเพราะหน้า publish dump ไม่ได้ (พรีวิววิดีโอเล่นตลอด window ไม่ idle)
+        ถ้าเชื่อ dump อย่างเดียวจะสรุปว่า "ไม่มีแผงเพิ่มสินค้า" ทุกครั้ง แล้วข้ามการใส่ลิงก์
+        → คลิปขึ้นโดยไม่มีการ์ดสินค้า คนดูกดซื้อไม่ได้ และไม่ได้ค่านายหน้า
+        ภาพหน้าจอไม่สนใจ idle state จึงใช้ได้บนหน้านี้
+        """
+        import subprocess
+        from services.adb.adb_path import adb_bin
+        # เช็คเฉพาะตอนอยู่หน้า publish จริง — หน้าฟีดมีปุ่ม "ซื้อเลย" สีส้มเหมือนกัน
+        act = self._current_activity(serial)
+        if "PublishVideoActivity" not in act:
+            return False
+        try:
+            r = subprocess.run([adb_bin(self.log), "-s", serial, "exec-out", "screencap", "-p"],
+                               capture_output=True, timeout=25)
+            if not r.stdout:
+                return False
+            from io import BytesIO
+            from PIL import Image
+            im = Image.open(BytesIO(r.stdout)).convert("RGB")
+            W, H = im.size
+            px = im.load()
+            y0, y1 = int(H * self.ADDPROD_BAND[0]), int(H * self.ADDPROD_BAND[1])
+            need = int(W * self.ADDPROD_MIN_W)
+            for y in range(y0, y1, 4):                     # สุ่มทีละ 4 แถวพอ — เม็ดยาสูงหลายสิบ px
+                # วัด "ระยะจากส้มซ้ายสุดถึงส้มขวาสุด" ไม่ใช่ช่วงส้มติดกัน
+                # ตัวปุ่มมีตัวอักษรขาวคั่นกลาง ถ้านับแบบติดกันจะไม่มีวันถึงเกณฑ์
+                xs = [x for x in range(0, W, 4)
+                      if px[x, y][0] > 200 and 60 < px[x, y][1] < 130 and px[x, y][2] < 90]
+                if xs and (xs[-1] - xs[0]) >= need:
+                    return True
+        except Exception as e:
+            self.log(f"[{self.TAG}] ดูภาพหน้าจอหาแผงเพิ่มสินค้าไม่ได้: {str(e)[:80]}")
+        return False
+
     def _wait_add_product_panel(self, serial: str, timeout: float = 20.0) -> bool:
         """แผง "เพิ่มสินค้า" ของหน้า publish โหลดแยกทีหลัง (ดึงสิทธิ์ affiliate จากเซิร์ฟเวอร์)
         ถ้าไม่รอ แล้วแตะพิกัดตอนแผงยังไม่ขึ้น เลย์เอาต์จะเลื่อนทั้งหน้า (ต่างกัน 226px)"""
@@ -402,8 +444,12 @@ class AutoPoster(BasePoster):
         if node:
             self.log(f"[{self.TAG}] แผงเพิ่มสินค้าพร้อมแล้ว")
             return True
+        # อ่าน node ไม่ได้ ≠ ไม่มีแผง — ดูจากภาพหน้าจอก่อนตัดสิน (นี่คือทางที่ได้ค่านายหน้า)
+        if self._screen_has_add_product(serial):
+            self.log(f"[{self.TAG}] แผงเพิ่มสินค้าพร้อมแล้ว (เห็นจากภาพหน้าจอ — อ่าน node ไม่ได้)")
+            return True
         self.log(f"[{self.TAG}] ⚠ แผง 'เพิ่มสินค้า' ไม่ขึ้นใน {timeout:.0f} วิ "
-                 f"(Shopee ยังไม่ปล่อยสิทธิ์ให้คลิปนี้)")
+                 f"(ทั้งอ่าน node และดูภาพหน้าจอแล้วไม่เจอปุ่มส้ม — Shopee ยังไม่ปล่อยสิทธิ์ให้คลิปนี้)")
         return False
 
     def _caption_landed(self, serial: str, expect: str = ""):
@@ -572,7 +618,10 @@ class AutoPoster(BasePoster):
         # "นำเข้า" → resolve สินค้าเข้า "รายการสินค้า"
         self._tap_r(serial, "import_btn", settle=4.0)
         if not self._wait_product_list(serial, timeout=20):
-            self.log("[POST] ⚠ นำเข้าลิงก์แล้วแต่ 'รายการสินค้า' ยังว่าง")
+            # Shopee ล้างช่องทิ้งเมื่อลิงก์ใช้ไม่ได้ — บอกสาเหตุที่เป็นไปได้ ไม่ใช่แค่ "ว่าง"
+            self.log("[POST] ⚠ นำเข้าลิงก์แล้วแต่ 'รายการสินค้า' ยังว่าง — "
+                     "Shopee ไม่รับลิงก์นี้ (ต้องเป็นลิงก์สินค้า Shopee ที่ยังขายอยู่ "
+                     "และเป็นลิงก์ affiliate ของบัญชีที่ล็อกอินอยู่)")
             return False
 
         # เลือกทั้งหมด → เพิ่ม
