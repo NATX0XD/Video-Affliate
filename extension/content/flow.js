@@ -2688,9 +2688,9 @@ if (window._flowAutomatorLoaded) {
       // ไม่มีไทล์/เพิ่มเข้าพรอมต์ไม่สำเร็จ = หยุดก่อนกดส่งทันที โมเดลจะ "แต่งขึ้นเอง"
       // ถ้าปล่อยผ่านจะเสียเครดิตและได้คน/สินค้าคนละตัว — ห้ามเสี่ยง
       const missing = uploads.map((u, i) => {
-        if (u && u.ok && u.refId && u.addedToPrompt) return null;
+        if (u && u.ok && u.addedToPrompt && (u.refId || u.refSrc)) return null;
         const label = REF_LABEL[i] || `รูปที่ ${i + 1}`;
-        const why = !u?.ok ? (u?.error || "อัปโหลดไม่สำเร็จ") : !u.refId ? "ไม่พบไทล์รูปใหม่" : "ยังไม่ยืนยันว่าเข้าพรอมต์";
+        const why = !u?.ok ? (u?.error || "อัปโหลดไม่สำเร็จ") : (!u.refId && !u.refSrc) ? "ไม่พบไทล์รูปใหม่" : "ยังไม่ยืนยันว่าเข้าพรอมต์";
         return `${label} (${why})`;
       }).filter(Boolean);
       if (missing.length) {
