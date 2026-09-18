@@ -1,11 +1,11 @@
 'use client'
-// ขั้น 1 — เริ่มจากสูตรที่บันทึกไว้ หรือเริ่มใหม่
+// ขั้น 1 — เลือกแนวทางคลิปที่บันทึกไว้ หรือเริ่มใหม่
 import { useState, useEffect } from 'react'
 import { Sparkles, Trash2, Check } from 'lucide-react'
 import { listTemplates, deleteTemplate } from '@/lib/gen-templates'
 import { GEN_CHARS, GEN_STYLES, GEN_BGS, cleanPrompts } from '@/lib/gen-options'
 
-// สรุปสั้น ๆ ว่าสูตรนี้ตั้งอะไรไว้บ้าง
+// สรุปสั้น ๆ ว่าแนวทางนี้ตั้งอะไรไว้บ้าง
 function summary(o) {
   const bits = [
     GEN_CHARS.find(c => c.id === o.charId)?.name,
@@ -25,14 +25,14 @@ export function StepTemplate({ o, onUse, onFresh, picked, onPick, onNotify }) {
     e.stopPropagation()
     deleteTemplate(id).then(() => listTemplates()).then(setList).catch(() => {})
     if (picked === id) onPick('')
-    onNotify?.('ลบสูตรแล้ว')
+    onNotify?.('ลบแนวทางแล้ว')
   }
 
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h2 className="t-title text-ink">เริ่มจากสูตรไหน?</h2>
-        <p className="t-cap mt-1">เลือกสูตรที่เคยบันทึกไว้ แล้วปรับต่อได้ หรือเริ่มจากศูนย์</p>
+        <h2 className="t-title text-ink">เริ่มจากแนวทางคลิปไหน?</h2>
+        <p className="t-cap mt-1">เลือกแนวทางที่เคยบันทึกไว้ แล้วปรับต่อได้ หรือเริ่มจากศูนย์</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -70,7 +70,7 @@ export function StepTemplate({ o, onUse, onFresh, picked, onPick, onNotify }) {
                   <p className="t-cap mt-0.5 truncate">{summary(t.opts || {})}</p>
                 </div>
               </button>
-              <button type="button" onClick={e => remove(t.id, e)} title="ลบสูตรนี้"
+              <button type="button" onClick={e => remove(t.id, e)} title="ลบแนวทางนี้"
                 className="absolute top-2 left-2 w-6 h-6 rounded-full bg-surface/90 border border-line text-ink-dim
                            hover:text-danger grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <Trash2 size={12} />
@@ -83,12 +83,12 @@ export function StepTemplate({ o, onUse, onFresh, picked, onPick, onNotify }) {
       {picked && (
         <button type="button" onClick={onUse}
           className="self-start rounded-lg bg-accent text-white t-body font-semibold px-4 py-2 hover:bg-accent-soft transition-colors">
-          ใช้สูตรนี้เลย → ข้ามไปหน้าสรุป
+          ใช้แนวทางนี้เลย → ข้ามไปหน้าสรุป
         </button>
       )}
 
       {!list.length && (
-        <p className="t-cap">ยังไม่มีสูตรที่บันทึกไว้ — ตั้งค่าครบแล้วกด "บันทึกเป็นสูตร" ที่หน้าสรุป จะเก็บไว้ใช้รอบหน้า</p>
+        <p className="t-cap">ยังไม่มีแนวทางที่บันทึกไว้ — ตั้งค่าครบแล้วกด "บันทึกแนวทาง" ที่หน้าสรุป จะเก็บไว้ใช้รอบหน้า</p>
       )}
     </div>
   )

@@ -2585,6 +2585,10 @@ class WebServer:
                     prof = self._chrome_last_profile()
                     if prof:
                         args.append(f"--profile-directory={prof}")
+                # Windows อาจมี Chrome แบบ app เปิดอยู่หลายหน้าต่าง — บังคับเปิดเป็นแท็บ
+                # ใน profile เดิม ไม่ปล่อยให้ผู้ใช้เห็นหน้าต่าง Chrome เปล่าแทนหน้า Extensions
+                if os.name == "nt":
+                    args.append("--new-tab")
                 args.append("chrome://extensions/")
                 subprocess.Popen(args); opened = True
             except Exception:

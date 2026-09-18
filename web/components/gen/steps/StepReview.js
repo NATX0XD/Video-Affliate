@@ -42,7 +42,7 @@ export function StepReview({ o, set, products, onNotify, onError }) {
     const r = await saveTemplate(name, o)
     if (!r.ok) { onError(r.error); return }
     setNaming(false)
-    onNotify(r.replaced ? `ทับสูตร "${name.trim()}" แล้ว` : `บันทึกสูตร "${name.trim()}" แล้ว`)
+    onNotify(r.replaced ? `ทับแนวทาง "${name.trim()}" แล้ว` : `บันทึกแนวทาง "${name.trim()}" แล้ว`)
   }
 
   return (
@@ -81,20 +81,20 @@ export function StepReview({ o, set, products, onNotify, onError }) {
 
       <PromptBox fieldKey="avoid" prompts={prompts} onPrompts={p => set({ prompts: p })} rows={2} />
 
-      {/* บันทึกเป็นสูตร */}
+      {/* บันทึกเป็นแนวทาง */}
       <div>
         {naming ? (
           <div className="flex flex-wrap items-center gap-2">
             <input autoFocus value={name} onChange={e => setName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && save()}
-              placeholder="ชื่อสูตร เช่น สายบิวตี้ห้องนอน"
+              placeholder="ชื่อแนวทาง เช่น สายบิวตี้ห้องนอน"
               className="rounded-lg border border-line bg-surface px-3 py-1.5 t-body text-ink outline-none focus:border-accent w-64" />
             <Button size="sm" onClick={save} disabled={!name.trim()}><Save size={13} /> บันทึก</Button>
             <button type="button" onClick={() => setNaming(false)} className="t-cap hover:text-ink">ยกเลิก</button>
           </div>
         ) : (
           <Button variant="outline" size="sm" onClick={() => setNaming(true)}>
-            <BookmarkPlus size={13} /> บันทึกเป็นสูตร
+              <BookmarkPlus size={13} /> บันทึกแนวทาง
           </Button>
         )}
       </div>

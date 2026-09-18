@@ -4,7 +4,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, ArrowRight, ChevronLeft, Loader2, Sparkles, FlaskConical } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ChevronLeft, Loader2, Sparkles, FlaskConical, AlertTriangle, Package } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useToast } from '@/components/ui/Toast'
 import { api } from '@/lib/api'
@@ -19,9 +19,10 @@ import { StepAudio } from '@/components/gen/steps/StepAudio'
 import { StepReview } from '@/components/gen/steps/StepReview'
 import { getTemplate } from '@/lib/gen-templates'
 import { getFace } from '@/lib/gen-faces'
+import { Dialog } from '@/components/ui/Dialog'
 
 const STEPS = [
-  { label: 'สูตร' }, { label: 'ผู้รีวิว' }, { label: 'สไตล์' },
+  { label: 'แนวทางคลิป' }, { label: 'ผู้รีวิว' }, { label: 'สไตล์' },
   { label: 'ลุคภาพ' }, { label: 'เสียง & บท' }, { label: 'สรุป' },
 ]
 
@@ -37,6 +38,7 @@ function CreateInner() {
   const [selfPhoto, setSelfPhoto] = useState(null)
   const [presetSnap, setPresetSnap] = useState(null)
   const [tplPick, setTplPick] = useState('')
+  const [exitOpen, setExitOpen] = useState(false)
   const modelRef = useRef(null)
 
   const { o, set, replace, step, go, maxStep, clearDraft } = useGenDraft(ids)
@@ -80,7 +82,7 @@ function CreateInner() {
     if (!t) return
     replace(t.opts)
     go(STEPS.length - 1)
-    toast.success(`ใช้สูตร "${t.name}" แล้ว`)
+    toast.success(`ใช้แนวทาง "${t.name}" แล้ว`)
   }
 
   const pickTemplate = async id => {
@@ -139,9 +141,9 @@ function CreateInner() {
     <div className="max-w-4xl mx-auto pb-28">
       {/* หัวหน้า */}
       <div className="flex flex-wrap items-center gap-3 mb-5">
-        <Link href="/products" className="flex items-center gap-1.5 t-body text-ink-dim hover:text-ink">
+        <button type="button" onClick={() => setExitOpen(true)} className="flex items-center gap-1.5 t-body text-ink-dim hover:text-ink">
           <ChevronLeft size={16} /> กลับ
-        </Link>
+        </button>
         <p className="t-cap">
           {products.length} สินค้า · {products.slice(0, 2).map(productName).join(', ')}
           {products.length > 2 ? ` +${products.length - 2}` : ''}
@@ -151,6 +153,21 @@ function CreateInner() {
       <div className="mb-6">
         <StepRail steps={STEPS} step={step} maxStep={maxStep} onGo={go} />
       </div>
+
+      <div className="grid lg:grid-cols-[210px_minmax(0,1fr)] gap-5 items-start">
+        <aside className="rounded-2xl border border-line bg-surface/60 p-3 lg:sticky lg:top-5">
+          <p className="t-cap font-semibold text-ink-dim mb-2">สินค้าที่จะสร้าง</p>
+          <div className="flex lg:flex-col gap-2 overflow-x-auto">
+            {products.map(p => (
+              <div key={productUid(p)} className="flex items-center gap-2 min-w-[190px] lg:min-w-0 rounded-xl bg-elevated/60 p-2">
+                {p.image_url || p.images?.[0]
+                  ? <img src={p.image_url || p.images?.[0]} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                  : <div className="w-12 h-12 rounded-lg bg-elevated grid place-items-center shrink-0"><Package size={16} /></div>}
+                <span className="text-xs text-ink line-clamp-2">{productName(p) || 'ไม่มีชื่อสินค้า'}</span>
+              </div>
+            ))}
+          </div>
+        </aside>
 
       <div className="rounded-2xl border border-line bg-surface/60 p-5 sm:p-6">
         {step === 0 && (
@@ -169,6 +186,7 @@ function CreateInner() {
           <StepReview o={o} set={set} products={products}
             onNotify={m => toast.success(m)} onError={m => toast.error(m)} />
         )}
+      </div>
       </div>
 
       {/* แถบล่างติดหน้าจอ */}
@@ -197,6 +215,13 @@ function CreateInner() {
           </div>
         </div>
       </div>
+      <Dialog open={exitOpen} onClose={() => setExitOpen(false)} icon={AlertTriangle}
+        title="ออกจากการสร้างคลิป?"
+        description="ค่าที่กำลังตั้งอาจยังไม่ถูกบันทึก คุณต้องการกลับไปคลังสินค้าหรือไม่?"
+        footer={<>
+          <Button variant="outline" size="sm" onClick={() => setExitOpen(false)}>อยู่หน้านี้ต่อ</Button>
+          <Button variant="destructive" size="sm" onClick={() => router.push('/products')}>กลับคลังสินค้า</Button>
+        </>} />
     </div>
   )
 }

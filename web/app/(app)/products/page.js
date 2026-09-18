@@ -75,7 +75,7 @@ function ProductCard({ p, selected, onToggle, onDelete }) {
         <button type="button" title="ลบสินค้านี้" aria-label="ลบสินค้านี้"
           onClick={e => { e.stopPropagation(); onDelete() }}
           className="absolute bottom-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center
-            bg-black/60 text-white/80 opacity-0 group-hover:opacity-100 focus:opacity-100
+            bg-black/60 text-white/80 opacity-100
             hover:bg-destructive hover:text-white transition-all cursor-pointer">
           <Trash2 size={13} />
         </button>
@@ -147,7 +147,8 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState('all')
+  // ค่าเริ่มต้นพาคนไปดูของที่ยังไม่ได้ทำก่อน
+  const [filter, setFilter] = useState('new')
   const [cat, setCat] = useState('all')
   const [selected, setSelected] = useState(() => new Set())
   const [view, setView] = useState('grid')
@@ -187,6 +188,7 @@ export default function ProductsPage() {
       if (filter === 'cart'   && !hasCart(p)) return false
       if (filter === 'nocart' && hasCart(p))  return false
       if (filter === 'done'   && statusOf(p) !== 'done') return false
+      if (filter === 'new'    && statusOf(p) === 'done') return false
       return true
     })
   }, [products, query, cat, filter])
@@ -340,7 +342,9 @@ export default function ProductsPage() {
             <input value={query} onChange={e => setQuery(e.target.value)} placeholder="ค้นหาชื่อสินค้า…"
               className="w-full pl-9 pr-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground outline-none focus:border-accent/50 placeholder:text-muted-foreground" />
           </div>
-          {STATUS_FILTERS.map(f => (
+          {[{ id: 'new', label: `ยังไม่ได้สร้าง (${products.filter(p => statusOf(p) !== 'done').length})` },
+            { id: 'done', label: `สร้างคลิปแล้ว (${products.filter(p => statusOf(p) === 'done').length})` },
+            ...STATUS_FILTERS.filter(f => f.id !== 'done')].map(f => (
             <button key={f.id} onClick={() => setFilter(f.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer
                 ${filter === f.id ? 'bg-accent-wash text-accent' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}`}>

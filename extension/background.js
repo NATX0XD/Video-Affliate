@@ -1211,7 +1211,13 @@ async function handleFlowStart(msg) {
   _flowCfg = null;   // โหลด config สดสำหรับรอบนี้ (เผื่อผู้ใช้เพิ่งแก้ settings)
   geminiBlocked = null;   // เริ่มรอบใหม่ → ลองเรียก Gemini อีกครั้ง (เผื่อเพิ่งเติมเครดิต)
   try { await chrome.storage.local.remove('gemini_blocked'); } catch {}
-  return await openFlowAndRun(!!msg.dry);
+  const result = await openFlowAndRun(!!msg.dry);
+  // openFlowAndRun รายงานความล้มเหลวเป็น {ok:false} ได้โดยไม่ throw
+  // ต้องแปลงเป็น error เพื่อให้ poller แจ้งเว็บหลักและคืนงานเข้าคิว ไม่เงียบ
+  if (!result || result.ok === false) {
+    throw new Error((result && result.error) || 'เปิดคิวบนหน้า Flow ไม่สำเร็จ');
+  }
+  return result;
 }
 
 // ── Queue poller ────────────────────────────────────────────────────────────────

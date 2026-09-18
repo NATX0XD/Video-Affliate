@@ -256,7 +256,7 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
     setOpeningExt(true)
     try {
       const r = await api.openExtPage()
-      if (r.opened_chrome) toast.success('เปิดหน้า chrome://extensions + โฟลเดอร์ให้แล้ว')
+      if (r.opened_chrome) toast.success('เปิดแท็บ chrome://extensions และโฟลเดอร์ส่วนขยายให้แล้ว')
       else toast.error(r.hint || 'เปิด Chrome ไม่ได้ — เปิด chrome://extensions เอง')
     } catch {}
     setOpeningExt(false)
@@ -726,7 +726,7 @@ function StepExt({ extConnected, extPath, onOpen, opening, onCopy, onRefresh }) 
             <ExtSub n={1} title="เปิดหน้าส่วนขยายของ Chrome">
               <Button size="sm" onClick={onOpen} disabled={opening}>
                 {opening ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
-                เปิด chrome://extensions + โฟลเดอร์
+              เปิดแท็บ Extensions + โฟลเดอร์
               </Button>
               <p className="text-muted-foreground text-[11px] mt-1">ระบบจะเปิดหน้า Chrome ให้ + เผยโฟลเดอร์ extension ใน Finder ให้ลากวาง</p>
             </ExtSub>
