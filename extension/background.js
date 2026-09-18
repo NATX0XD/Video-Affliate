@@ -69,8 +69,16 @@ function waitTabComplete(tabId, settle = 2500, cap = 15000) {
 // เปลี่ยน ?authuser ในแท็บเดิมไม่สลับบัญชี (Google ผูกบัญชีไว้กับแท็บแล้ว) → ถ้าไม่มีแท็บของบัญชีนี้
 // ต้องปิดแท็บ Flow บัญชีอื่นทิ้งแล้วเปิดใหม่ (โมเดลแท็บเดียว). preferProject = เลือกหน้า /project/ ก่อน
 async function acquireFlowTab(url, au, preferProject) {
-  const tabs = (await chrome.tabs.query({ url: 'https://labs.google/*' }))
-    .filter((t) => { try { return new URL(t.url || '').pathname.startsWith('/fx'); } catch { return false; } });
+  const isFlowTab = (t) => {
+    try {
+      const u = new URL(t.url || '');
+      return (u.hostname === 'labs.google' && u.pathname.startsWith('/fx'))
+        || u.hostname === 'flow.google.com';
+    } catch { return false; }
+  };
+  // Flow ปัจจุบัน redirect จาก labs.google ไป flow.google.com — query เฉพาะ labs
+  // จะมองไม่เห็นแท็บเดิมและสร้างแท็บใหม่ทุก alarm
+  const tabs = (await chrome.tabs.query({})).filter(isFlowTab);
   const sameAu = (t) => au == null || tabAuthuser(t.url) === au;
   let tab = (preferProject ? tabs.find((t) => sameAu(t) && /\/project\//.test(t.url || '')) : null) || tabs.find(sameAu);
   if (tab) {
@@ -995,7 +1003,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const BASE_FLOW = 'https://labs.google/fx/th/tools/flow';
       try {
         // ใช้แท็บ Flow ที่เปิดอยู่ (ไม่ต้องปิด/สลับ authuser แล้ว) ไม่มีก็เปิดใหม่
-        const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
+        const tabs = (await chrome.tabs.query({})).filter((t) => {
+          try { const u = new URL(t.url || ''); return u.hostname === 'labs.google' || u.hostname === 'flow.google.com'; }
+          catch { return false; }
+        });
         let tab = tabs[0];
         if (!tab) {
           tab = await chrome.tabs.create({ url: BASE_FLOW, active: true });
@@ -1258,7 +1269,8 @@ async function pollQueue() {
       await fetch(`${base}/api/flow/blocker`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason, action }), signal: AbortSignal.timeout(5000),
-      });
+      }).catch((reportErr) => console.warn('[VGAP] blocker report failed', reportErr));
+      // ต้องคืนงานเสมอ แม้รายงาน blocker จะสะดุด ไม่ปล่อย claimed ค้างใน DB
       await fetch(`${base}/api/queue/requeue`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: item.id, error: reason }), signal: AbortSignal.timeout(5000),

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Shopee VDO Gen",
-  "version": "3.54.2",
+  "version": "3.54.6",
   "description": "ตัวช่วยดูดสินค้าจาก Shopee เข้าคลังในแอป VDO Gen (localhost:3001) + ขับ Flow สร้างคลิปอัตโนมัติ — ศูนย์ควบคุมอยู่บนเว็บแอป",
   "permissions": [
     "activeTab",
@@ -17,6 +17,7 @@
     "https://shopee.co.th/*",
     "https://affiliate.shopee.co.th/*",
     "https://labs.google/*",
+    "https://flow.google.com/*",
     "https://accounts.google.com/*",
     "https://generativelanguage.googleapis.com/*",
     "http://localhost/*"
@@ -44,7 +45,8 @@
     },
     {
       "matches": [
-        "https://labs.google/*"
+        "https://labs.google/*",
+        "https://flow.google.com/*"
       ],
       "js": [
         "content/util.js",

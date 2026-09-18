@@ -140,34 +140,28 @@ function CreateInner() {
   return (
     <div className="max-w-4xl mx-auto pb-28">
       {/* หัวหน้า */}
-      <div className="flex flex-wrap items-center gap-3 mb-5">
-        <button type="button" onClick={() => setExitOpen(true)} className="flex items-center gap-1.5 t-body text-ink-dim hover:text-ink">
-          <ChevronLeft size={16} /> กลับ
+      <div className="flex items-center gap-3 mb-4">
+        <button type="button" onClick={() => step > 0 ? go(step - 1) : setExitOpen(true)} className="flex items-center gap-1.5 t-body text-ink-dim hover:text-ink">
+          <ChevronLeft size={16} /> {step > 0 ? 'ย้อนกลับ' : 'ออกจากการสร้าง'}
         </button>
-        <p className="t-cap">
-          {products.length} สินค้า · {products.slice(0, 2).map(productName).join(', ')}
-          {products.length > 2 ? ` +${products.length - 2}` : ''}
-        </p>
+      </div>
+
+      <div className="mb-5 flex items-center gap-3 rounded-2xl border border-line bg-surface/60 px-3 py-2.5 overflow-x-auto">
+        <div className="shrink-0"><p className="t-badge text-ink">สินค้าที่จะสร้าง</p><p className="t-cap">{products.length} รายการ</p></div>
+        <div className="h-8 w-px bg-line shrink-0" />
+        {products.map(p => (
+          <div key={productUid(p)} className="flex items-center gap-2 shrink-0 max-w-[220px] rounded-xl bg-elevated/60 px-2 py-1.5">
+            {p.image_url || p.images?.[0]
+              ? <img src={p.image_url || p.images?.[0]} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+              : <div className="w-9 h-9 rounded-lg bg-elevated grid place-items-center shrink-0"><Package size={14} /></div>}
+            <span className="text-xs text-ink truncate">{productName(p) || 'ไม่มีชื่อสินค้า'}</span>
+          </div>
+        ))}
       </div>
 
       <div className="mb-6">
         <StepRail steps={STEPS} step={step} maxStep={maxStep} onGo={go} />
       </div>
-
-      <div className="grid lg:grid-cols-[210px_minmax(0,1fr)] gap-5 items-start">
-        <aside className="rounded-2xl border border-line bg-surface/60 p-3 lg:sticky lg:top-5">
-          <p className="t-cap font-semibold text-ink-dim mb-2">สินค้าที่จะสร้าง</p>
-          <div className="flex lg:flex-col gap-2 overflow-x-auto">
-            {products.map(p => (
-              <div key={productUid(p)} className="flex items-center gap-2 min-w-[190px] lg:min-w-0 rounded-xl bg-elevated/60 p-2">
-                {p.image_url || p.images?.[0]
-                  ? <img src={p.image_url || p.images?.[0]} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
-                  : <div className="w-12 h-12 rounded-lg bg-elevated grid place-items-center shrink-0"><Package size={16} /></div>}
-                <span className="text-xs text-ink line-clamp-2">{productName(p) || 'ไม่มีชื่อสินค้า'}</span>
-              </div>
-            ))}
-          </div>
-        </aside>
 
       <div className="rounded-2xl border border-line bg-surface/60 p-5 sm:p-6">
         {step === 0 && (
@@ -187,16 +181,10 @@ function CreateInner() {
             onNotify={m => toast.success(m)} onError={m => toast.error(m)} />
         )}
       </div>
-      </div>
 
       {/* แถบล่างติดหน้าจอ */}
       <div className="fixed bottom-0 left-0 right-0 lg:left-64 bg-base/95 backdrop-blur border-t border-line">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-2">
-          {step > 0 && (
-            <Button variant="outline" size="sm" onClick={() => go(step - 1)} disabled={busy}>
-              <ArrowLeft size={13} /> ย้อนกลับ
-            </Button>
-          )}
           <span className="t-cap ml-1">ขั้นที่ {step + 1}/{STEPS.length}</span>
           <div className="ml-auto flex items-center gap-2">
             {last ? (

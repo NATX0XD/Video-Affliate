@@ -25,7 +25,10 @@ function syncTheme() {
     if (!tab) return
     chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => document.documentElement.dataset.theme || 'light' }, r => {
       const theme = r && r[0] && r[0].result
-      if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme
+      if (theme === 'dark' || theme === 'light') {
+        document.documentElement.dataset.theme = theme
+        chrome.storage.local.set({ vgap_theme: theme }).catch(() => {})
+      }
     })
   })
 }

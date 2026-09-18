@@ -667,38 +667,40 @@ if (window._shopeeScraperLoaded) {
     if (!window.__SC_TEST && !/affiliate\.shopee\.co\.th/.test(location.href)) return;
 
     const css = `
-    #__sc_root,#__sc_root *,#__sc_card,#__sc_card *{box-sizing:border-box;font-family:'SF Pro Text',system-ui,-apple-system,sans-serif}
+    #__sc_root,#__sc_root *,#__sc_card,#__sc_card *{box-sizing:border-box;font-family:'IBM Plex Sans Thai','SF Pro Text',system-ui,-apple-system,sans-serif}
+    #__sc_root{--sc-bg:#131316;--sc-card:#1c1c21;--sc-elevated:#26262d;--sc-fg:#f5f5f7;--sc-dim:#a2a2ad;--sc-muted:#6a6a76;--sc-line:rgba(255,255,255,.09);--sc-accent:#a855f7;--sc-accent-ink:#c084fc}
+    #__sc_root[data-sc-theme="light"]{--sc-bg:#f5f5f8;--sc-card:#fff;--sc-elevated:#f1f1f5;--sc-fg:#17171f;--sc-dim:#5a5a6b;--sc-muted:#8e8e9e;--sc-line:#e4e4ec;--sc-accent:#a855f7;--sc-accent-ink:#7c3aed}
     #__sc_root{position:fixed;z-index:2147483600;bottom:24px;left:24px}
     #__sc_fab{width:56px;height:56px;border-radius:18px;border:0;cursor:pointer;color:#fff;
       background:linear-gradient(135deg,#8b5cf6,#6d28d9);box-shadow:0 10px 28px rgba(124,58,237,.5);
       display:grid;place-items:center;transition:transform .16s,box-shadow .16s}
     #__sc_fab:hover{transform:translateY(-3px) scale(1.03);box-shadow:0 14px 34px rgba(124,58,237,.6)}
     #__sc_card{position:fixed;z-index:2147483601;left:92px;top:64px;width:460px;
-      background:#0b0b14;border:1px solid rgba(255,255,255,.08);border-radius:20px;
-      box-shadow:0 32px 80px rgba(0,0,0,.66);overflow:hidden;display:none;color:#eef0f6;font-size:13px}
+      background:var(--sc-bg);border:1px solid var(--sc-line);border-radius:20px;
+      box-shadow:0 32px 80px rgba(0,0,0,.35);overflow:hidden;display:none;color:var(--sc-fg);font-size:13px}
     .__sc_tabs{display:flex;gap:4px;padding:10px 16px 0;border-bottom:1px solid rgba(255,255,255,.07)}
-    .__sc_tab{padding:10px 16px;font-size:12.5px;font-weight:700;color:#8b8ba3;cursor:pointer;
+    .__sc_tab{padding:10px 16px;font-size:12.5px;font-weight:700;color:var(--sc-dim);cursor:pointer;
       border-bottom:2px solid transparent;transition:color .15s}
-    .__sc_tab:hover{color:#eef0f6}
-    .__sc_tab.on{color:#d8b4fe;border-bottom-color:#8b5cf6}
+    .__sc_tab:hover{color:var(--sc-fg)}
+    .__sc_tab.on{color:var(--sc-accent-ink);border-bottom-color:var(--sc-accent)}
     .__sc_view{display:none;flex-direction:column;gap:12px}
     .__sc_view.on{display:flex}
     #__sc_card.open{display:block;animation:__sc_in .18s ease}
     @keyframes __sc_in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
     .__sc_hd{display:flex;align-items:center;gap:11px;padding:15px 16px;cursor:move;user-select:none;
-      background:linear-gradient(160deg,rgba(139,92,246,.2),transparent 72%);border-bottom:1px solid rgba(255,255,255,.07)}
+      background:linear-gradient(160deg,color-mix(in srgb,var(--sc-accent) 16%,transparent),transparent 72%);border-bottom:1px solid var(--sc-line)}
     .__sc_hd .lg{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;color:#fff;flex-shrink:0;
       background:linear-gradient(135deg,#8b5cf6,#6d28d9);box-shadow:0 5px 14px rgba(124,58,237,.4)}
-    .__sc_hd h3{font-size:14.5px;font-weight:750;letter-spacing:-.2px}.__sc_hd p{font-size:10.5px;color:#8b8ba3;margin-top:2px}
-    .__sc_hd .cl{background:none;border:0;color:#8b8ba3;cursor:pointer;padding:5px;border-radius:8px;transition:background .15s,color .15s}
-    .__sc_hd .cl:hover{background:rgba(255,255,255,.07);color:#eef0f6}
+    .__sc_hd h3{font-size:14.5px;font-weight:750;letter-spacing:-.2px}.__sc_hd p{font-size:10.5px;color:var(--sc-dim);margin-top:2px}
+    .__sc_hd .cl{background:none;border:0;color:var(--sc-dim);cursor:pointer;padding:5px;border-radius:8px;transition:background .15s,color .15s}
+    .__sc_hd .cl:hover{background:var(--sc-elevated);color:var(--sc-fg)}
     .__sc_bd{padding:14px 16px;display:flex;flex-direction:column;gap:12px;max-height:74vh;overflow-y:auto}
     .__sc_bd::-webkit-scrollbar{width:7px}.__sc_bd::-webkit-scrollbar-thumb{background:#2a2a3a;border-radius:4px}
     .__sc_row{display:flex;gap:8px}
-    .__sc_in{flex:1;background:#16161f;border:1px solid rgba(255,255,255,.1);color:#eef0f6;padding:11px 13px;
+    .__sc_in{flex:1;background:var(--sc-elevated);border:1px solid var(--sc-line);color:var(--sc-fg);padding:11px 13px;
       border-radius:11px;font-size:12.5px;outline:none;transition:border-color .15s}
-    .__sc_in::placeholder{color:#5b5b72}
-    .__sc_in:focus{border-color:rgba(139,92,246,.6)}
+    .__sc_in::placeholder{color:var(--sc-muted)}
+    .__sc_in:focus{border-color:var(--sc-accent)}
     .__sc_b{border:0;cursor:pointer;border-radius:11px;font-weight:650;color:#fff;display:inline-flex;
       align-items:center;justify-content:center;gap:7px;transition:filter .15s,opacity .15s}
     .__sc_b:not(:disabled):hover{filter:brightness(1.09)}
@@ -712,24 +714,24 @@ if (window._shopeeScraperLoaded) {
     .__sc_opt:first-child{border-top:0}
     .__sc_sw{width:36px;height:21px;border-radius:11px;background:#2e2e3c;position:relative;flex-shrink:0;margin-top:1px;transition:background .18s}
     .__sc_sw::after{content:"";position:absolute;width:15px;height:15px;border-radius:50%;background:#fff;top:3px;left:3px;transition:transform .18s}
-    .__sc_opt.on .__sc_sw{background:linear-gradient(135deg,#8b5cf6,#6d28d9)}
+    .__sc_opt.on .__sc_sw{background:var(--sc-accent)}
     .__sc_opt.on .__sc_sw::after{transform:translateX(15px)}
-    .__sc_ot{font-size:12px;font-weight:650}.__sc_od{font-size:10px;color:#8b8ba3;margin-top:2px;line-height:1.45}
+    .__sc_ot{font-size:12px;font-weight:650}.__sc_od{font-size:10px;color:var(--sc-dim);margin-top:2px;line-height:1.45}
     .__sc_stats{display:flex;gap:9px}
-    .__sc_stat{flex:1;background:#13131c;border:1px solid rgba(255,255,255,.07);border-radius:13px;padding:11px 13px}
-    .__sc_sv{font-size:21px;font-weight:780;letter-spacing:-.5px}.__sc_sl{font-size:10px;color:#8b8ba3;margin-top:2px}
-    .__sc_card-box{background:#13131c;border:1px solid rgba(255,255,255,.07);border-radius:14px}
+    .__sc_stat{flex:1;background:var(--sc-card);border:1px solid var(--sc-line);border-radius:13px;padding:11px 13px}
+    .__sc_sv{font-size:21px;font-weight:780;letter-spacing:-.5px}.__sc_sl{font-size:10px;color:var(--sc-dim);margin-top:2px}
+    .__sc_card-box{background:var(--sc-card);border:1px solid var(--sc-line);border-radius:14px}
     .__sc_chd{display:flex;align-items:center;gap:8px;padding:12px 14px 5px;font-size:12.5px;font-weight:680}
     .__sc_chd .ic{color:#a78bfa}
-    .__sc_cd{font-size:10.5px;color:#8b8ba3;padding:0 14px 12px;line-height:1.55}
+    .__sc_cd{font-size:10.5px;color:var(--sc-dim);padding:0 14px 12px;line-height:1.55}
     .__sc_log{background:#06060d;border:1px solid rgba(255,255,255,.06);border-radius:12px;
       padding:11px 13px;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.8;color:#7dd3fc;
       min-height:120px;max-height:280px;overflow-y:auto}
     .__sc_log .ok{color:#4ade80}.__sc_log .er{color:#fb7185}.__sc_log .dim{color:#6b6b80}
     .__sc_chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 13px 12px}
-    .__sc_chip{font-size:11px;font-weight:650;color:#a7a7bd;background:#16161f;border:1px solid rgba(255,255,255,.1);
+    .__sc_chip{font-size:11px;font-weight:650;color:var(--sc-dim);background:var(--sc-elevated);border:1px solid var(--sc-line);
       padding:6px 11px;border-radius:99px;cursor:pointer;transition:all .15s}
-    .__sc_chip:hover{color:#d8b4fe;border-color:rgba(139,92,246,.5)}
+    .__sc_chip:hover{color:var(--sc-accent-ink);border-color:var(--sc-accent)}
     .__sc_pick{position:absolute;top:8px;right:8px;width:32px;height:32px;border-radius:50%;border:0;
       cursor:pointer;z-index:99;display:grid;place-items:center;color:#fff;
       background:linear-gradient(135deg,#8b5cf6,#6d28d9);box-shadow:0 4px 14px rgba(0,0,0,.45);
@@ -809,6 +811,14 @@ if (window._shopeeScraperLoaded) {
 
     root.append(fab, card);
     document.body.appendChild(root);
+
+    const applyTheme = (theme) => {
+      root.dataset.scTheme = theme === 'light' ? 'light' : 'dark';
+    };
+    try {
+      chrome.storage.local.get('vgap_theme', d => applyTheme(d?.vgap_theme));
+      chrome.storage.onChanged.addListener(ch => { if (ch.vgap_theme) applyTheme(ch.vgap_theme.newValue); });
+    } catch { applyTheme('dark'); }
 
     const opts = { extracomm: true, hot: false, highcomm: true, getlinks: false, pick: false };
 
