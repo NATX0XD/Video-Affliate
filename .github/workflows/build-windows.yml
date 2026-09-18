@@ -144,6 +144,7 @@ jobs:
   #   - web/out commit แล้ว → ไม่ต้อง build node; backend รันจากซอร์ส → ไม่ต้อง PyInstaller
   # ═══════════════════════════════════════════════════════════════════════════
   build-source-installer:
+    needs: build
     runs-on: windows-latest
     permissions:
       contents: write          # ให้ gh release upload อัป .exe ขึ้น release ได้
