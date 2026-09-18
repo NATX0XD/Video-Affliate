@@ -228,7 +228,8 @@ if (window._flowAutomatorLoaded) {
     return sorted[0] || null;
   }
   function findFileInput() {
-    return [...document.querySelectorAll(getSelector("fileInput", 'input[type="file"]'))][0] || null;
+    return deepAll(getSelector("fileInput", 'input[type="file"]')).find(isVisible) ||
+      deepAll(getSelector("fileInput", 'input[type="file"]'))[0] || null;
   }
   function findAddMediaButton() {
     const cands = allClickable().filter((el) => {
@@ -501,8 +502,10 @@ if (window._flowAutomatorLoaded) {
     if (!input) {
       const addBtn = findAddMediaButton();
       if (addBtn) {
+        try { log && log(`เปิดเมนูแนบรูป: ${addBtn.getAttribute("aria-label") || txt(addBtn)}`); } catch {}
         await trustedClickEl(addBtn, log);
         await human();
+        try { log && log(`[DUMP upload-menu] ${dumpBtns(null, "upload-menu")} · ${dumpPopup()}`); } catch {}
         // Flow รุ่นใหม่เปิดเมนูจากปุ่มไอคอน add ก่อน แล้วค่อยแสดงตัวเลือกอัปโหลด
         input = (await waitFor(findFileInput, 1500, 250)) || findFileInput();
         if (!input) {
