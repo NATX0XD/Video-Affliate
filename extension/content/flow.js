@@ -2578,6 +2578,7 @@ if (window._flowAutomatorLoaded) {
     // ป้ายกำกับรูปอ้างอิงตามลำดับที่แนบ — พรอมป์อ้างถึงเป็น "รูปที่ 1/2/3" ต้องตรงกัน
     const REF_LABEL = ["ใบหน้า", "สินค้า", "ฉากหลัง", "โทนสี"];
     const uploads = [];
+    let _refMissing = "";   // รูปไหนไม่ติดและเพราะอะไร — ส่งต่อไปอยู่ในข้อความ error ที่ผู้ใช้เห็น
     const attachRefs = async (why) => {
       uploads.length = 0;
       if (why) log(`แนบรูปอ้างอิงใหม่ทั้งชุด (${why})`);
@@ -2600,13 +2601,17 @@ if (window._flowAutomatorLoaded) {
         return `${label} (${why})`;
       }).filter(Boolean);
       if (missing.length) {
-        log(`หยุดก่อนกดส่ง — รูปอ้างอิงไม่ครบ ${missing.join(", ")}`);
+        // เก็บเหตุผลไว้ให้ error ที่เด้งบนหน้าเว็บด้วย — ผู้ใช้เห็นแค่ "ไม่ครบ" แล้วไล่ต่อไม่ได้ว่าไม่ครบเพราะอะไร
+        _refMissing = missing.join(", ");
+        log(`หยุดก่อนกดส่ง — รูปอ้างอิงไม่ครบ ${_refMissing}`);
         return false;
       }
       log(`ยืนยันรูปอ้างอิงครบ ${uploads.length} รูป: ${uploads.map((u, i) => `${REF_LABEL[i] || `รูปที่ ${i + 1}`}#${u.refId.slice(0, 8)}`).join(", ")} ✓`);
       return true;
     };
-    if (!await attachRefs("")) return { ok: false, error: "รูปอ้างอิงเข้า Google Flow ไม่ครบ — หยุดก่อนกดส่งเพื่อไม่ให้ได้คนหรือสินค้าผิดตัว", uploads };
+    if (!await attachRefs(""))
+      return { ok: false, uploads,
+        error: `รูปอ้างอิงเข้า Google Flow ไม่ครบ (${_refMissing || "ไม่ทราบสาเหตุ"}) — หยุดก่อนกดส่งเพื่อไม่ให้ได้คนหรือสินค้าผิดตัว | ช่องเลือกไฟล์: ${findFileInput() ? "เจอ" : "ไม่เจอ"} · ไทล์รูปบนหน้า: ${(() => { try { return tileImgs().length; } catch { return "?"; } })()} · ${dumpBtns(null, "attach")}`.slice(0, 700) };
     const box = await waitFor(findEditable, 15000);
     if (!box) return { ok: false, error: "ไม่พบช่องพิมพ์ prompt", uploads };
     const mac = /Mac/i.test(navigator.platform);
