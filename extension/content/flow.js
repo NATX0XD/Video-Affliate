@@ -820,6 +820,11 @@ if (window._flowAutomatorLoaded) {
     // ยังไม่เจอช่องแชต → เปิดหน้าโปรเจ็กต์ที่จำไว้ของบัญชีนี้ (ถ้าเคยเปิด) แล้วให้ resume คิวต่อ
     if (!hasChatBox()) {
       const sp = await savedProjectForEmail();
+      // ลิงก์ที่จำไว้สมัยอยู่ labs.google ใช้ไม่ได้แล้ว — เปิดไปก็วนกลับมาที่เดิม
+      if (sp.url && !/(^|\.)flow\.google\.com$/i.test((() => { try { return new URL(sp.url).hostname; } catch { return ""; } })())) {
+        log("ลิงก์โปรเจ็กต์ที่จำไว้เป็นของโดเมนเก่า (labs.google) — ข้ามไป");
+        sp.url = null;
+      }
       if (sp.url && sp.url !== location.href && Date.now() - _projNavAt > 20000) {
         _projNavAt = Date.now();
         log(`ไม่เจอปุ่มเริ่ม → เปิดโปรเจ็กต์ที่จำไว้ของ ${sp.email}…`);

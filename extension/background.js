@@ -107,14 +107,19 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
   if (au == null) { const acc = await pickFlowAccount(); au = acc ? acc.authuser : null; }
   // เปิดหน้า project ที่เคยมีช่องแชต (flow.js จำไว้) — ★ ต้องเป็นโปรเจกต์ของบัญชีนั้นเองเท่านั้น
   // ห้ามใช้ flow_project_url รวมข้ามบัญชี ไม่งั้นเปิดโปรเจกต์ที่บัญชีนี้ไม่มีสิทธิ์ → "เกิดข้อผิดพลาด"
-  const BASE_FLOW = 'https://labs.google/fx/th/tools/flow';
+  const BASE_FLOW = 'https://flow.google.com/';
   const saved = await chrome.storage.local.get(['flow_project_url', 'flow_project_urls']);
+  // ลิงก์โปรเจกต์ที่จำไว้สมัยอยู่ labs.google ใช้ไม่ได้แล้วหลัง Google ย้ายบ้าน (ก.ย. 2026)
+  // เปิดไปก็เจอ redirect/หน้าเปล่า แล้วหาช่องพิมพ์ไม่เจอ → ทิ้งไปเปิดหน้าแรกแทน
+  const usableProject = (u) => {
+    try { return /(^|\.)flow\.google\.com$/i.test(new URL(u).hostname); } catch { return false; }
+  };
   let FLOW_URL;
   if (au != null) {
     const perAu = saved.flow_project_urls ? saved.flow_project_urls[au] : null;
-    FLOW_URL = withAuthuser(perAu || BASE_FLOW, au);   // ไม่รู้โปรเจกต์ของบัญชีนี้ → หน้า tools เปล่า
+    FLOW_URL = withAuthuser(usableProject(perAu) ? perAu : BASE_FLOW, au);   // ไม่รู้โปรเจกต์ของบัญชีนี้ → หน้าแรก
   } else {
-    FLOW_URL = saved.flow_project_url || BASE_FLOW;     // โหมดบัญชีเดียว (เดิม) ใช้ค่ารวมได้
+    FLOW_URL = usableProject(saved.flow_project_url) ? saved.flow_project_url : BASE_FLOW;
   }
   // บอก flow.js ว่าตอนนี้ทำงานบนบัญชีไหน → ผูกเครดิต/โปรเจกต์ให้ถูกบัญชี
   try { await chrome.storage.local.set({ flow_active_authuser: au }); } catch {}
@@ -988,7 +993,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === 'open_flow_account') {
     (async () => {
       const au = Number.isFinite(msg.authuser) ? msg.authuser : null;
-      const BASE_FLOW = 'https://labs.google/fx/th/tools/flow';
+      const BASE_FLOW = 'https://flow.google.com/';
       // ★ ปุ่มเปิดมือ = หน้า tools เปล่าของบัญชีนั้นเสมอ (ไม่แตะลิงก์โปรเจกต์ที่จำไว้)
       //   Flow จะพาเข้า workspace ของบัญชีเอง — กันทั้งโปรเจกต์ข้ามบัญชี + ลิงก์เก่าที่จำผิด
       const url = au != null ? withAuthuser(BASE_FLOW, au) : BASE_FLOW;
@@ -1010,7 +1015,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const email = msg.email;
       if (!email) { sendResponse({ ok: false, error: 'ไม่มีอีเมล' }); return; }
       try { await chrome.storage.local.set({ flow_switch: { email, at: Date.now() } }); } catch {}
-      const BASE_FLOW = 'https://labs.google/fx/th/tools/flow';
+      const BASE_FLOW = 'https://flow.google.com/';
       try {
         // ใช้แท็บ Flow ที่เปิดอยู่ (ไม่ต้องปิด/สลับ authuser แล้ว) ไม่มีก็เปิดใหม่
         const tabs = (await chrome.tabs.query({})).filter((t) => {
