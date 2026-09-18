@@ -2699,7 +2699,7 @@ if (window._flowAutomatorLoaded) {
         log(`หยุดก่อนกดส่ง — รูปอ้างอิงไม่ครบ ${_refMissing}`);
         return false;
       }
-      log(`ยืนยันรูปอ้างอิงครบ ${uploads.length} รูป: ${uploads.map((u, i) => `${REF_LABEL[i] || `รูปที่ ${i + 1}`}#${u.refId.slice(0, 8)}`).join(", ")} ✓`);
+      log(`ยืนยันรูปอ้างอิงครบ ${uploads.length} รูป: ${uploads.map((u, i) => `${REF_LABEL[i] || `รูปที่ ${i + 1}`}#${(u.refId || u.refSrc || "?").slice(-12)}`).join(", ")} ✓`);
       return true;
     };
     if (!await attachRefs(""))
