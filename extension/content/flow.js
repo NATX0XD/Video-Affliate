@@ -546,6 +546,41 @@ if (window._flowAutomatorLoaded) {
       : { ok: false, addedToPrompt: false, refSrc, refId, error: "อัปโหลดแล้วแต่ยืนยันไม่ได้ว่าเข้าพรอมต์" };
   }
 
+  async function uploadImages(dataUrls, log) {
+    let input = findFileInput();
+    if (!input) {
+      const addBtn = findAddMediaButton();
+      if (addBtn) { await trustedClickEl(addBtn, log); await human(); }
+      input = (await waitFor(findFileInput, 5000)) || findFileInput();
+    }
+    if (!input) return { ok: false, error: 'ไม่พบ file input สำหรับอัปโหลดหลายรูป' };
+    const files = [];
+    for (let i = 0; i < dataUrls.length; i++) {
+      const res = await fetch(dataUrls[i]);
+      const blob = await res.blob();
+      files.push(new File([blob], `reference-${i + 1}.jpg`, { type: blob.type || "image/jpeg" }));
+    }
+    const before = new Set(tileImgs());
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    try { input.multiple = true; } catch {}
+    input.files = dt.files;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    const fresh = await waitFor(() => {
+      const f = tileImgs().filter((im) => !before.has(im));
+      return f.length >= dataUrls.length ? f : null;
+    }, 20000, 600);
+    if (!fresh) return { ok: false, error: `อัปโหลดหลายรูปแล้วพบ tile ใหม่ ${tileImgs().filter((im) => !before.has(im)).length}/${dataUrls.length}` };
+    const tiles = fresh.slice(-dataUrls.length);
+    return {
+      ok: true,
+      uploads: tiles.map((im) => {
+        const refSrc = im.currentSrc || im.src || "";
+        return { ok: true, addedToPrompt: "auto", refSrc, refId: mediaUuid(refSrc) };
+      }),
+    };
+  }
+
   // ── probe (rich snapshot) ────────────────────────────────────────────
   function probe() {
     const vis = (el) => {
@@ -2621,7 +2656,18 @@ if (window._flowAutomatorLoaded) {
     const attachRefs = async (why) => {
       uploads.length = 0;
       if (why) log(`แนบรูปอ้างอิงใหม่ทั้งชุด (${why})`);
-      for (let i = 0; i < refs.length; i++) {
+      if (refs.length > 1) {
+        log(`แนบรูปอ้างอิงพร้อมกัน ${refs.length} รูปผ่าน input เดียว…`);
+        const batch = await uploadImages(refs.map((src) => why ? reencode(src).catch(() => src) : src), log);
+        if (batch.ok) {
+          uploads.push(...batch.uploads);
+          batch.uploads.forEach((u, i) => log(`รูป ${i + 1}: อัปแล้ว + เข้าพรอมต์ ✓`));
+        } else {
+          _refMissing = batch.error || "อัปโหลดหลายรูปไม่สำเร็จ";
+          log(`อัปโหลดหลายรูปไม่สำเร็จ: ${_refMissing}`);
+          return false;
+        }
+      } else for (let i = 0; i < refs.length; i++) {
         log(`แนบรูปอ้างอิงที่ ${i + 1} (${REF_LABEL[i] || "อื่น ๆ"})…`);
         // รอบแนบซ้ำ: re-encode ให้ไบต์ต่างจากเดิม ไม่งั้น Flow เห็นว่าเป็นไฟล์เดิมที่มีใน
         // library อยู่แล้วแล้วไม่สร้างไทล์ใหม่ → ตรวจไม่ได้ว่าแนบติดจริงไหม
