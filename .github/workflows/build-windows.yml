@@ -12,6 +12,9 @@ concurrency:
   group: build-windows-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -249,8 +252,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload v1.0.0 "VDO-Gen-Setup.exe" "VDO-Gen-Portable.zip" --clobber --repo "${{ github.repository }}"
-          Write-Host "อัป VDO-Gen-Setup.exe + VDO-Gen-Portable.zip ขึ้น release v1.0.0 แล้ว"
+          gh release upload "${{ github.ref_name }}" "VDO-Gen-Setup.exe" "VDO-Gen-Portable.zip" --clobber --repo "${{ github.repository }}"
+          Write-Host "อัป VDO-Gen-Setup.exe + VDO-Gen-Portable.zip ขึ้น release ${{ github.ref_name }} แล้ว"
 
       # ── ถ้า push เป็น tag v* → แนบ installer เข้า GitHub Release ด้วย ──
       - name: Attach to Release
