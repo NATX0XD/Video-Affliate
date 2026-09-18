@@ -105,8 +105,9 @@ async function acquireFlowTab(url, au, preferProject) {
 }
 
 // flow.js ยังมีชีวิตในแท็บนี้ไหม — ใช้ซ้ำหลายจุด (ก่อน reload, หลัง reload, หลังฉีดเอง)
-const pingFlow = (tabId) => new Promise((r) =>
-  chrome.tabs.sendMessage(tabId, { action: 'flow_ping' }, (res) => r(!chrome.runtime.lastError && !!res)));
+const pingFlowInfo = (tabId) => new Promise((r) =>
+  chrome.tabs.sendMessage(tabId, { action: 'flow_ping' }, (res) => r(chrome.runtime.lastError ? null : (res || null))));
+const pingFlow = async (tabId) => !!(await pingFlowInfo(tabId));
 
 // เปิด/โฟกัสแท็บ Flow ให้อัตโนมัติ แล้วรันคิว Flow บนแท็บนั้น
 // authuserOverride: ระบุบัญชีตรงๆ (จากปุ่ม "เปิด Flow" ในหน้าเมล) — ไม่ระบุ = ให้ระบบเลือกเอง
@@ -146,8 +147,10 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
     await new Promise((r) => setTimeout(r, 500));
   } catch {}
   // ★ เช็คว่า flow.js ยังตอบไหม (ping) — ถ้าไม่ (เช่นหลัง reload extension) ให้ reload แท็บ
-  if (!(await pingFlow(tab.id))) {
-    traceFlow('ping failed; reload/inject').catch(() => {});
+  const live = await pingFlowInfo(tab.id);
+  const expectedExt = chrome.runtime.getManifest().version;
+  if (!live || live.version !== expectedExt) {
+    traceFlow(`content stale/missing live=${live && live.version || "none"} expected=${expectedExt}; reload/inject`).catch(() => {});
     await chrome.tabs.reload(tab.id);
     await new Promise((resolve) => {
       const onUpd = (id, info) => {

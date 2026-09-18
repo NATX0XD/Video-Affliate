@@ -3131,7 +3131,7 @@ if (window._flowAutomatorLoaded) {
         .then((n) => sendResponse({ ok: true, done: n, dry: !!msg.dry }));
       return true;
     }
-    if (msg.action === "flow_ping") { sendResponse({ ok: true, url: location.href }); return true; }
+    if (msg.action === "flow_ping") { sendResponse({ ok: true, version: EXT_VER, url: location.href }); return true; }
     if (msg.action === "read_flow_credits") {
       pollFlowCredits().then((r) => sendResponse({ ok: !!(r && r.value != null), credits: r }));
       return true;
