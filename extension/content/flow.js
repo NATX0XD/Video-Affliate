@@ -230,6 +230,20 @@ if (window._flowAutomatorLoaded) {
   function findFileInput() {
     return [...document.querySelectorAll(getSelector("fileInput", 'input[type="file"]'))][0] || null;
   }
+  function findAddMediaButton() {
+    const cands = allClickable().filter((el) => {
+      const al = norm(el.getAttribute("aria-label") || "");
+      const t = norm(el.innerText || el.textContent || "");
+      return /เพิ่มองค์ประกอบลงใน|add.*(media|element)|เพิ่มสื่อ|เพิ่มรูป|upload/.test(al) ||
+        /^(add|เพิ่มสื่อ|เพิ่มรูป|upload)$/.test(t);
+    });
+    const ed = findEditable();
+    if (!ed) return cands[0] || null;
+    const er = ed.getBoundingClientRect();
+    return cands
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.top >= er.top - 50 && r.top <= er.bottom + 100; })
+      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0] || cands[0] || null;
+  }
   // ธง "ผู้ใช้กดยกเลิก" — ประกาศไว้บนสุดเพราะ waitFor ข้างล่างใช้ (ดู startCancelWatch)
   let _stopFlow = false;
   async function waitFor(fn, timeout = 20000, step = 500) {
@@ -485,8 +499,20 @@ if (window._flowAutomatorLoaded) {
   async function uploadImage(dataUrl, log, opts = {}) {
     let input = findFileInput();
     if (!input) {
-      const addBtn = findByText(["เพิ่มสื่อ", "add media", "เพิ่มรูป", "upload"]);
-      if (addBtn) { addBtn.click(); await human(); }
+      const addBtn = findAddMediaButton();
+      if (addBtn) {
+        await trustedClickEl(addBtn, log);
+        await human();
+        // Flow รุ่นใหม่เปิดเมนูจากปุ่มไอคอน add ก่อน แล้วค่อยแสดงตัวเลือกอัปโหลด
+        input = (await waitFor(findFileInput, 1500, 250)) || findFileInput();
+        if (!input) {
+          const uploadItem = findByText(["อัปโหลด", "upload", "จากอุปกรณ์", "จากคอมพิวเตอร์"]);
+          if (uploadItem) {
+            await trustedClickEl(uploadItem, log);
+            await human();
+          }
+        }
+      }
       input = (await waitFor(findFileInput, 5000)) || findFileInput();
     }
     if (!input) return { ok: false, error: 'ไม่พบ file input — กด "เพิ่มสื่อ" เองก่อน' };
@@ -2597,7 +2623,7 @@ if (window._flowAutomatorLoaded) {
         // รอบแนบซ้ำ: re-encode ให้ไบต์ต่างจากเดิม ไม่งั้น Flow เห็นว่าเป็นไฟล์เดิมที่มีใน
         // library อยู่แล้วแล้วไม่สร้างไทล์ใหม่ → ตรวจไม่ได้ว่าแนบติดจริงไหม
         const src = why ? (await reencode(refs[i]).catch(() => refs[i])) : refs[i];
-        const u = await uploadImage(src, log);   // ใช้วิธีแนบจริง (เมนู ⋮ "เพิ่มไปยังพรอมต์")
+        const u = await uploadImage(src, log, { addToPrompt: false });   // อัปโหลดแล้ว Flow ผูกเป็น reference ให้อัตโนมัติในโหมดภาพ
         log(u.ok ? `รูป ${i + 1}: อัปแล้ว ${u.addedToPrompt ? "+ เข้าพรอมต์ ✓" : "แต่ยังไม่เข้าพรอมต์ ✗"}` : `รูป ${i + 1} อัปไม่สำเร็จ: ${u.error}`);
         uploads.push(u);
         await sleep(1200);                                      // เว้นจังหวะก่อนรูปถัดไป
