@@ -217,11 +217,10 @@ if (window._flowAutomatorLoaded) {
   }
   function findEditable() {
     const cands = editableCands();
-    // 1) ช่องที่บอกใบ้ว่าเป็น agent prompt
+    // 1) ช่องที่บอกใบ้ว่าเป็น agent prompt — ดูกล่องที่ครอบด้วย (UI ใหม่วาง placeholder ไว้นอกช่อง)
     const hint = cands.find((el) =>
-      /สร้างอะไร|ต้องการสร้าง|พิมพ์ไอเดีย|ask|prompt|message/i.test(
-        (el.getAttribute("placeholder") || "") + (el.getAttribute("aria-label") || "") + (el.textContent || "")
-      )
+      promptHintNear(el) ||
+      /ask|prompt|message/i.test((el.getAttribute("aria-label") || "") + (el.getAttribute("placeholder") || ""))
     );
     if (hint) return hint;
     // 2) ช่องที่อยู่ "ล่างสุด" ของจอ (chat input อยู่ล่าง) — กันไปโดน field กลางหน้า
@@ -612,12 +611,23 @@ if (window._flowAutomatorLoaded) {
 
   // ถ้าอยู่หน้า scene editor (ปลายทาง) → กด ← ย้อนกลับมาหน้าแชต agent ก่อน
   // เจอช่องแชต agent จริงไหม (placeholder "คุณต้องการสร้างอะไร")
+  // ข้อความใบ้ว่า "นี่คือช่องพิมพ์พรอมต์" อยู่ที่ตัวมันเองหรือกล่องที่ครอบมันอยู่
+  // Flow ตัวใหม่ (flow.google.com) ย้าย placeholder ออกไปเป็น div พี่น้อง ไม่ได้ฝังในช่องพิมพ์แล้ว
+  // ดูแค่ตัว element จึงไม่เจอ แล้วระบบสรุปว่า "ไม่มีช่องแชต" → วนสร้างโปรเจกต์ใหม่ไม่จบ
+  const PROMPT_HINT = /สร้างอะไร|ต้องการสร้าง|พิมพ์ไอเดีย|what do you want to create|describe your/i;
+  function promptHintNear(el) {
+    const own = (el.getAttribute("placeholder") || "") + " " + (el.getAttribute("aria-label") || "") + " " + (el.textContent || "");
+    if (PROMPT_HINT.test(own)) return true;
+    // ปีนขึ้นไปไม่เกิน 3 ชั้น และดูเฉพาะกล่องข้อความสั้น — กันไปแมตช์ทั้งหน้า
+    for (let n = el.parentElement, i = 0; n && i < 3; n = n.parentElement, i++) {
+      const t = (n.innerText || n.textContent || "").replace(/\s+/g, " ").trim();
+      if (t.length > 200) break;
+      if (PROMPT_HINT.test(t)) return true;
+    }
+    return false;
+  }
   function hasChatBox() {
-    return editableCands().some((el) =>
-      /สร้างอะไร|ต้องการสร้าง/.test(
-        (el.getAttribute("placeholder") || "") + (el.getAttribute("aria-label") || "") + (el.textContent || "")
-      )
-    );
+    return editableCands().some(promptHintNear);
   }
   // หน้า Flow ขึ้น error ("เกิดข้อผิดพลาด"/"something went wrong") — มักหน้าสั้น ไม่มีช่องแชต
   function isFlowErrorPage() {
