@@ -513,7 +513,9 @@ if (window._flowAutomatorLoaded) {
     if (opts.addToPrompt === false) { try { log && log(`แนบ reference (auto) ✓${refId ? ` [${refId.slice(0, 8)}]` : ""}`); } catch {} return { ok: true, addedToPrompt: "auto", refSrc, refId }; }
     // โหมด video (ingredient): อัปขึ้น library แล้ว → กดเพิ่มเข้า prompt ให้เป็นภาพอ้างอิงจริง
     const added = await addImageToPrompt(log, before);
-    return { ok: true, addedToPrompt: added, refSrc, refId };
+    return added
+      ? { ok: true, addedToPrompt: true, refSrc, refId }
+      : { ok: false, addedToPrompt: false, refSrc, refId, error: "อัปโหลดแล้วแต่ยืนยันไม่ได้ว่าเข้าพรอมต์" };
   }
 
   // ── probe (rich snapshot) ────────────────────────────────────────────
@@ -651,15 +653,26 @@ if (window._flowAutomatorLoaded) {
     } catch { return false; }
   };
 
+  // Flow มีสองบ้าน: ของเดิม labs.google/fx และของใหม่ flow.google.com (Google ย้ายเมื่อ ก.ย. 2026)
+  // labs.google redirect มา flow.google.com แล้ว แต่ผู้ใช้ยังเปิดลิงก์เก่าค้างไว้ได้ จึงต้องรับทั้งคู่
+  const FLOW_HOME = "https://flow.google.com/";
+  const isFlowHost = (h) => {
+    const host = h || location.host;
+    return /(^|\.)flow\.google\.com$/i.test(host) || /(^|\.)labs\.google$/i.test(host);
+  };
+
   // ── ตรวจความพร้อมของ Google Flow ก่อนเริ่มงาน ────────────────────────────
   // เครื่องที่ยังไม่ได้ตั้งค่า (ไม่ล็อกอิน / ยังไม่เคยเปิด Flow / ค้างหน้า error) เดิมจะไหลไปพัง
   // กลางทางแล้วขึ้น error ยาวเหยียดที่อ่านไม่รู้เรื่อง — เช็คให้ครบก่อนแล้วบอกเป็นข้อ ๆ ว่าต้องไปทำอะไร
   async function flowPreflight(log) {
     const L = (m) => { try { log && log(m); } catch {} };
     const problems = [], passed = [];
+    passed.push(`โดเมน ${location.host}`);
 
-    if (!/labs\.google/i.test(location.host))
-      return { ok: false, problems: [`แท็บนี้ไม่ใช่ Google Flow (อยู่ที่ ${location.host}) — เปิด labs.google/fx/th/tools/flow ก่อน`], checks: [] };
+    // Google ย้าย Flow จาก labs.google/fx มาอยู่ flow.google.com (ก.ย. 2026) — ต้องรับทั้งสองโดเมน
+    // ด่านนี้เคยตัดจบทันทีบนโดเมนใหม่ ทุกงานจึงตายตั้งแต่ยังไม่เริ่ม
+    if (!isFlowHost())
+      return { ok: false, problems: [`แท็บนี้ไม่ใช่ Google Flow (อยู่ที่ ${location.host}) — เปิด flow.google.com ก่อน`], checks: [] };
 
     if (signedOut()) problems.push("ยังไม่ได้ล็อกอิน Google ในแท็บนี้ — กดลงชื่อเข้าใช้ให้เรียบร้อยก่อน");
     else passed.push("ล็อกอินแล้ว");
@@ -1773,11 +1786,12 @@ if (window._flowAutomatorLoaded) {
       if (!acct) {
         // หลัง logout Flow มักเด้งไปหน้า landing เปล่าที่ /fx (ไม่มีทั้ง avatar และปุ่ม Sign in)
         // → บังคับเด้งไปหน้าเครื่องมือ /tools/flow เพื่อให้ modal "Sign in" โผล่มาให้กด
-        const onTools = /\/tools\/flow/.test(location.pathname);
+        // บ้านใหม่คือ flow.google.com ("หน้าเครื่องมือ" ของเดิมคือ labs.google/fx/.../tools/flow)
+        const onTools = /\/tools\/flow/.test(location.pathname) || /(^|\.)flow\.google\.com$/i.test(location.host);
         if (!onTools && Date.now() - _navAt > 15000) {
           _navAt = Date.now();
-          L("หน้าเปล่า/landing — เด้งไปหน้าเครื่องมือ Flow เพื่อเรียกหน้าเข้าสู่ระบบ");
-          location.href = "https://labs.google/fx/th/tools/flow";
+          L("หน้าเปล่า/landing — เด้งไปหน้า Flow เพื่อเรียกหน้าเข้าสู่ระบบ");
+          location.href = FLOW_HOME;
           return;
         }
         L("ยังหาปุ่มโปรไฟล์ไม่เจอ รอรอบถัดไป");
@@ -2341,10 +2355,31 @@ if (window._flowAutomatorLoaded) {
     return false;
   }
 
-  // รูปที่ Flow "สร้างขึ้น" ปัจจุบัน (ตัด avatar/ไอคอน) — ใช้หา "รูปใหม่" หลัง generate
-  const genImgSrcs = () => [...document.querySelectorAll("img")]
-    .filter((im) => /รูปภาพที่สร้างขึ้น|generated/i.test(im.alt || ""))
-    .map((im) => im.currentSrc || im.src).filter(Boolean);
+  // รูปที่ Flow "สร้างขึ้น" ปัจจุบัน — DOM รุ่นใหม่ย้ายคำว่า generated ไปไว้ที่
+  // aria-label/data-testid ของการ์ด ไม่ได้อยู่ใน alt ของ img เสมอไป
+  const genImgInfo = () => [...document.querySelectorAll("img")]
+    .map((im) => {
+      const r = im.getBoundingClientRect();
+      const parts = [im.alt, im.getAttribute("aria-label"), im.getAttribute("title")];
+      let node = im.parentElement;
+      for (let i = 0; i < 4 && node; i++, node = node.parentElement) {
+        parts.push(node.getAttribute?.("aria-label"), node.getAttribute?.("data-testid"), node.getAttribute?.("data-test-id"));
+      }
+      return {
+        im, src: im.currentSrc || im.src || "", width: Math.round(r.width), height: Math.round(r.height),
+        visible: r.width >= 96 && r.height >= 96 && r.bottom > 0 && r.top < innerHeight,
+        label: parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim(),
+      };
+    })
+    // ไม่กรองตาม viewport: ผลลัพธ์อาจอยู่ในแกลเลอรีด้านล่างจอ แต่ยังอยู่ใน DOM แล้ว
+    .filter((x) => x.width >= 96 && x.height >= 96 && x.src && !/avatar|profile|favicon|logo|icon/i.test(x.label));
+  const genImgSrcs = () => genImgInfo()
+    .filter((x) => /รูปภาพที่สร้าง|generated|generation|ผลลัพธ์|result|output/i.test(x.label)
+      || /googleusercontent|storage\.googleapis|media|name=[0-9a-f-]{20,}/i.test(x.src))
+    .map((x) => x.src).filter(Boolean);
+  const genImgSnapshot = () => genImgInfo().slice(0, 12)
+    .map((x) => `${x.width}x${x.height} ${x.label.slice(0, 42) || "(ไม่มี label)"} ${x.src.slice(-28)}`)
+    .join(" | ") || "ไม่พบ img ขนาดผลลัพธ์บนจอ";
 
   // ตรวจ nano banana ชนขีดจำกัดรายวัน — ข้อความจริง: "ล้มเหลว ... ถึงขีดจำกัดการใช้งานต่อวันแล้ว ลองใช้โมเดลอื่น"
   const nanoLimitHit = () => {
@@ -2551,12 +2586,22 @@ if (window._flowAutomatorLoaded) {
         uploads.push(u);
         await sleep(1200);                                      // เว้นจังหวะก่อนรูปถัดไป
       }
-      // ไม่มีไทล์โผล่ = รูปนั้นไม่ได้เข้าเป็นภาพอ้างอิงจริง โมเดลจะ "แต่งขึ้นเอง" แทน
-      // สำคัญสุดคือรูปที่ 1 (ใบหน้า) — ขาดแล้วได้คนละคนทันที
-      const missing = uploads.map((u, i) => (u && u.refId ? null : (REF_LABEL[i] || `รูปที่ ${i + 1}`))).filter(Boolean);
-      if (missing.length) log(`⚠ รูปอ้างอิงที่ไม่ยืนยันว่าแนบติด: ${missing.join(", ")} — ผลลัพธ์อาจไม่ตรงรูปที่อัป`);
+      // ไม่มีไทล์/เพิ่มเข้าพรอมต์ไม่สำเร็จ = หยุดก่อนกดส่งทันที โมเดลจะ "แต่งขึ้นเอง"
+      // ถ้าปล่อยผ่านจะเสียเครดิตและได้คน/สินค้าคนละตัว — ห้ามเสี่ยง
+      const missing = uploads.map((u, i) => {
+        if (u && u.ok && u.refId && u.addedToPrompt) return null;
+        const label = REF_LABEL[i] || `รูปที่ ${i + 1}`;
+        const why = !u?.ok ? (u?.error || "อัปโหลดไม่สำเร็จ") : !u.refId ? "ไม่พบไทล์รูปใหม่" : "ยังไม่ยืนยันว่าเข้าพรอมต์";
+        return `${label} (${why})`;
+      }).filter(Boolean);
+      if (missing.length) {
+        log(`หยุดก่อนกดส่ง — รูปอ้างอิงไม่ครบ ${missing.join(", ")}`);
+        return false;
+      }
+      log(`ยืนยันรูปอ้างอิงครบ ${uploads.length} รูป: ${uploads.map((u, i) => `${REF_LABEL[i] || `รูปที่ ${i + 1}`}#${u.refId.slice(0, 8)}`).join(", ")} ✓`);
+      return true;
     };
-    await attachRefs("");
+    if (!await attachRefs("")) return { ok: false, error: "รูปอ้างอิงเข้า Google Flow ไม่ครบ — หยุดก่อนกดส่งเพื่อไม่ให้ได้คนหรือสินค้าผิดตัว", uploads };
     const box = await waitFor(findEditable, 15000);
     if (!box) return { ok: false, error: "ไม่พบช่องพิมพ์ prompt", uploads };
     const mac = /Mac/i.test(navigator.platform);
@@ -2580,7 +2625,9 @@ if (window._flowAutomatorLoaded) {
         // ★ กดส่งไปแล้วรอบหนึ่ง = แถบพิมพ์ถูกล้างทั้งแถบ ทั้งข้อความ "และรูปอ้างอิง"
         //   เดิมพิมพ์ prompt ใหม่อย่างเดียว → รอบสลับรุ่นสร้างภาพโดยไม่มีรูปหน้าเลย
         //   ได้คนละคนกับรูปที่ผู้ใช้อัป และเกิดเฉพาะตอน Nano Banana Pro ชนลิมิต จึงดูเหมือนสุ่ม
-        await attachRefs("หลังสลับรุ่น — แถบพิมพ์ถูกล้างตอนกดส่งรอบก่อน");
+        if (!await attachRefs("หลังสลับรุ่น — แถบพิมพ์ถูกล้างตอนกดส่งรอบก่อน")) {
+          return { ok: false, error: "รูปอ้างอิงหายหลังสลับรุ่น — หยุดก่อนกดส่งเพื่อไม่ให้ได้คนหรือสินค้าผิดตัว", uploads };
+        }
         for (let a = 1; a <= 2 && !typedOk(); a++) { await trustedClickEl(box, log); await sleep(350); const had = boxText(box) && !placeholderVisible(); await sendTrusted({ action: "flow_trusted_type", text: prompt, clear: had, mac: mac2 }); await sleep(700); }
         if (!typedOk()) return { ok: false, error: "พิมพ์ prompt ใหม่ไม่สำเร็จหลังสลับรุ่น", uploads };
       }
@@ -2600,7 +2647,11 @@ if (window._flowAutomatorLoaded) {
         const n = genImgSrcs().filter((s) => !beforeImgs.has(s));
         return n.length ? { images: n } : null;
       }, 2 * 60 * 1000, 3000);
-      if (!res) return { ok: false, error: "รอรูปผลลัพธ์นานเกินไป (timeout)", uploads };
+      if (!res) {
+        const state = `โหมด=${modeSummary()} · ตัวโหลด=${busyReason() || "ไม่พบ"} · รูปที่จับได้=${genImgSrcs().length} · ภาพบนจอ: ${genImgSnapshot()}`;
+        log(`รอรูปผลลัพธ์นานเกินไป — ${state}`);
+        return { ok: false, error: `รอรูปผลลัพธ์นานเกินไป (timeout) | ${state}`, uploads };
+      }
       if (res.limit) {
         if (!switched) {
           log("Nano Banana Pro ชนลิมิตรายวัน → สลับเป็น Nano Banana 2 แล้วสร้างใหม่");
@@ -2625,8 +2676,12 @@ if (window._flowAutomatorLoaded) {
       // ★ ตัด "รูปอ้างอิงที่เราอัปเอง" ออกให้ชัด ไม่พึ่ง snapshot ก่อนกดส่งอย่างเดียว
       //   ไทล์รูปอ้างอิงโผล่ช้ากว่า snapshot ได้ → หลุดมาเป็นผลลัพธ์ แล้วรูปหน้าคนไปเป็นเฟรมเริ่ม
       const refIds = new Set(uploads.map((u) => u && u.refId).filter(Boolean));
+      const refSrcs = new Set(uploads.map((u) => u && u.refSrc).filter(Boolean));
       if (refIds.size) {
-        const kept = imgs.filter((s) => { const u = mediaUuid(s); return !u || !refIds.has(u); });
+        const kept = imgs.filter((s) => {
+          const u = mediaUuid(s);
+          return !refSrcs.has(s) && (!u || !refIds.has(u));
+        });
         if (kept.length !== imgs.length) log(`ตัดรูปอ้างอิงที่เราอัปเองออก ${imgs.length - kept.length} รูป`);
         if (kept.length) imgs = kept;
         else log("⚠ เหลือแต่รูปอ้างอิง ไม่เจอรูปที่ Flow สร้าง — ใช้รูปที่มีไปก่อน");

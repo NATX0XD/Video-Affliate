@@ -7,8 +7,8 @@ import { api } from '@/lib/api'
 // ลำดับขั้นการสร้างคลิป — ตรงกับ stage มาตรฐานที่ extension/desktop ยิงมา
 const STEPS = [
   { key: 'prompt',      label: 'AI เขียนสคริปต์วิดีโอ',  icon: Sparkles },
-  { key: 'submit',      label: 'ส่งให้ Veo สร้างวิดีโอ',  icon: Film },
-  { key: 'rendering',   label: 'Veo กำลังเรนเดอร์คลิป',   icon: Loader2 },
+  { key: 'submit',      label: 'ส่งคำสั่งสร้างภาพ/วิดีโอ',  icon: Film },
+  { key: 'rendering',   label: 'Google Flow กำลังสร้างผลลัพธ์',   icon: Loader2 },
   { key: 'downloading', label: 'ดาวน์โหลดคลิป',          icon: Download },
   { key: 'done',        label: 'เสร็จแล้ว',              icon: CheckCircle2 },
 ]
