@@ -25,6 +25,10 @@ _ERR_KW  = ("✗", "ไม่สำเร็จ", "พลาด", "ล้มเ�
 _OK_KW   = ("✓", "สำเร็จ", "เสร็จ", "ครบแล้ว")
 _WARN_KW = ("⚠", "เตือน", "งบ", "หยุด", "ข้าม")
 
+# งานคิวที่ extension คว้าไปแล้วไม่รายงานผลภายในเวลานี้ = service worker ตายกลางคัน → คืนเข้าคิว
+# ตั้งยาวกว่าเวลาที่ handleFlowStart ใช้จริงมาก (มันแค่เปิดแท็บ+ส่งงาน ไม่ได้รอเรนเดอร์วิดีโอ)
+QUEUE_CLAIM_TTL_SEC = 600
+
 def _classify_level(msg: str) -> str:
     m = msg or ""
     if any(k in m for k in _ERR_KW):  return "error"
@@ -2185,7 +2189,25 @@ class WebServer:
             if not self.db:
                 return {"ok": False, "item": None}
             worker = (body or {}).get("worker", "") if isinstance(body, dict) else ""
+            # ปล่อยงานที่ค้าง claimed เกิน 10 นาทีก่อน — service worker ของ extension ถูกฆ่ากลางคันได้ตลอด
+            # ถ้าไม่ปล่อย งานจะหายเงียบ ไม่มีใครหยิบต่อ และผู้ใช้ไม่รู้ว่าคิวตายไปแล้ว
+            for r in self.db.queue_reclaim_stale(QUEUE_CLAIM_TTL_SEC):
+                self.db.add_log(f"⚠ คิว #{r['id']} ถูกคว้าไว้เกิน {QUEUE_CLAIM_TTL_SEC // 60} นาทีแล้วเงียบ → "
+                                f"{'หยุดถาวร' if r['status'] == 'failed' else 'คืนเข้าคิว'} (ครั้งที่ {r['attempt']}/3)",
+                                "warn")
             return {"ok": True, "item": self.db.queue_claim(worker)}
+
+        @app.post("/api/queue/done")
+        async def queue_done(body: dict = None):
+            """extension เริ่มงาน Flow ได้แล้ว → ปิดแถวคิว ไม่ให้ค้าง claimed."""
+            if not self.db:
+                return {"ok": False}
+            qid = (body or {}).get("id") if isinstance(body, dict) else None
+            try:
+                ok = bool(qid) and self.db.queue_done(int(qid))
+            except (TypeError, ValueError):
+                ok = False
+            return {"ok": ok}
 
         @app.post("/api/queue/requeue")
         async def queue_requeue(body: dict = None):

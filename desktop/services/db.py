@@ -910,6 +910,44 @@ class JobStore:
             return {"ok": cur.rowcount > 0, "status": status, "attempt": attempt, "max_attempts": max_attempts,
                     "next_attempt_ts": next_at, "backoff_seconds": 0 if terminal else backoff}
 
+    def queue_done(self, queue_id: int) -> bool:
+        """ปิดงานที่ worker เริ่มได้สำเร็จ — ไม่มีขั้นนี้แถวจะค้าง claimed ตลอดกาล."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE queue SET status='done', claimed_by='', claimed_ts=0 WHERE id=? AND status='claimed'",
+                (int(queue_id),),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def queue_reclaim_stale(self, older_than_sec: int) -> list:
+        """คืนงานที่ถูก claim ไว้แล้วเงียบหาย (service worker ของ extension ถูกฆ่ากลางคัน).
+
+        ไม่มีตัวนี้ งานจะติดสถานะ claimed ถาวร — ไม่ถูกหยิบใหม่ ไม่แจ้งเตือน ผู้ใช้เห็นแค่
+        "คลิปไม่ขึ้นแล้วคิวไม่เดินต่อ". นับเป็นความล้มเหลวหนึ่งครั้ง จึงชนเพดาน 3 ครั้งเหมือนกัน
+        """
+        cutoff = _now() - int(older_than_sec)
+        out = []
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, retry_count FROM queue WHERE status='claimed' AND COALESCE(claimed_ts, 0) < ?",
+                (cutoff,),
+            ).fetchall()
+            for r in rows:
+                attempt = int(r["retry_count"] or 0) + 1
+                terminal = attempt >= 3
+                status = "failed" if terminal else "pending"
+                self._conn.execute(
+                    "UPDATE queue SET status=?, claimed_by='', claimed_ts=0, retry_count=?, next_attempt_ts=?, last_error=? "
+                    "WHERE id=? AND status='claimed'",
+                    (status, attempt, 0 if terminal else _now() + 15,
+                     "ส่วนขยายคว้างานไปแล้วเงียบหาย (service worker ถูกปิดกลางคัน)", r["id"]),
+                )
+                out.append({"id": r["id"], "status": status, "attempt": attempt})
+            if out:
+                self._conn.commit()
+        return out
+
     # ── logs (A1.8) ───────────────────────────────────────────
 
     LOG_CAP = 5000   # เก็บ log ล่าสุดเท่านี้ (prune ส่วนเกิน)

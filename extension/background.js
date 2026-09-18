@@ -1259,7 +1259,16 @@ async function pollQueue() {
   if (!item) { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); return; }
   const p = item.payload || item;
   if (!p || p.type !== 'flow_start') { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); return; }
-  try { await handleFlowStart(p); }
+  try {
+    await handleFlowStart(p);
+    // ปิดแถวคิวเมื่อเริ่มงานได้จริง — ไม่ปิด แถวจะค้าง claimed ตลอดไป และตัวคืนงานอัตโนมัติ
+    // ฝั่ง desktop จะเข้าใจผิดว่างานนี้เงียบหาย แล้วสั่งทำซ้ำทั้งที่ Flow กำลังเรนเดอร์อยู่
+    const base = await apiBase();
+    await fetch(`${base}/api/queue/done`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: item.id }), signal: AbortSignal.timeout(5000),
+    }).catch((e2) => console.warn('[VGAP] queue done report failed', e2));
+  }
   catch (e) {
     const reason = `ส่วนขยายเริ่มงาน Flow ไม่สำเร็จ: ${String(e && e.message || e)}`;
     const action = 'เปิดแท็บ Flow และตรวจว่าเข้าสู่ระบบ Google แล้ว จากนั้นกดเริ่มคิวใหม่';
