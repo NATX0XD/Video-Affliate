@@ -1874,7 +1874,9 @@ if (window._flowAutomatorLoaded) {
   const MODE_ALT = {
     "รูปภาพ": ["รูปภาพ", "image"], "วิดีโอ": ["วิดีโอ", "video"],
     "เฟรม": ["เฟรม", "frames"], "ส่วนผสม": ["ส่วนผสม", "ingredients"],
-    "1x": ["1x"], "x2": ["x2"], "x3": ["x3"], "x4": ["x4"],
+    // ป้ายจำนวนในป๊อปอัปเขียนว่า "x1 x2 x3 x4" (ไม่ใช่ "1x") — รับทั้งสองแบบกันรุ่น UI ต่างกัน
+    "x1": ["x1", "1x"], "1x": ["x1", "1x"],
+    "x2": ["x2", "2x"], "x3": ["x3", "3x"], "x4": ["x4", "4x"],
     "9:16": ["9:16"], "16:9": ["16:9"], "1:1": ["1:1"],
   };
   // หาตัวเลือกในป๊อปอัปโหมด (รูปภาพ/วิดีโอ/เฟรม/ส่วนผสม/1x…) — รองรับทั้ง button และ div, เลือกตัวเล็กสุด (ไม่ใช่ container ครอบ)
@@ -1963,8 +1965,14 @@ if (window._flowAutomatorLoaded) {
     return "?";
   };
   const is916 = () => currentAspect() === "9:16";
+  // จำนวนต่อครั้งจากปุ่มโหมด — เขียนท้ายแถบเป็น "x1"/"1x" (เช่น "Nano Banana 2 crop_9_16 x1")
+  const currentCount = () => {
+    const m = modeBtnText().match(/\b(?:x\s*([1-4])|([1-4])\s*x)\b/i);
+    return m ? `x${m[1] || m[2]}` : "?";
+  };
+  const isX1 = () => currentCount() === "x1";
   // ตรวจ "อยู่โหมดอะไร + สัดส่วนอะไร" ตอนนี้ — ใช้ log ให้ผู้ใช้เห็นก่อน/หลังทุกขั้น (จับข้าม/เลือกผิด)
-  const modeSummary = () => `${isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : "?"} · ${currentAspect()}`;
+  const modeSummary = () => `${isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : "?"} · ${currentAspect()} · ${currentCount()}`;
   // สลับโหมดสร้าง + ★ยืนยันจากปุ่มโหมดจริง★ retry 3 รอบ (กัน setMode หลุด → สร้างผิดโหมด/เสียเครดิต)
   // typeLabel = รูปภาพ/วิดีโอ · subLabel = เฟรม/ส่วนผสม · countLabel = 1x/x2… (ออปชั่น)
   // ช่องเฟรม "เริ่ม"/"สิ้นสุด" เป็น <div> เล็ก ~50x50 ข้อความตรงเป๊ะ (ไม่ใช่ปุ่ม → allClickable หาไม่เจอ)
@@ -2279,7 +2287,14 @@ if (window._flowAutomatorLoaded) {
         if (readModeState().sub !== wantSub)
           L(`เลือกโหมดย่อย "${subLabel}" ไม่ตรง (ได้=${readModeState().sub || "?"}) — ลองครบทุกวิธีแล้ว | ป๊อปอัป: ${dumpPopup()}`);
       }
-      if (countLabel) { await clickModeOption(countLabel, log); await sleep(500); }   // 1x/x2…
+      // จำนวนผลลัพธ์ต่อครั้ง (x1/x2…) — กดเฉพาะเมื่อยังไม่ถูกเลือก แล้วบอกผลไว้ในล็อก
+      // x1 สำคัญกับทั้งรูปและวิดีโอ: x2 ขึ้นไปหักเครดิตเป็นเท่าตัวและได้ไฟล์เกินที่ระบบใช้
+      if (countLabel) {
+        const cnt = findModeOption(countLabel);
+        if (!cnt) L(`ไม่เจอตัวเลือกจำนวน "${countLabel}" ในป๊อปอัป | ทำไมไม่เจอ: ${whyNoModeOption(countLabel)}`);
+        else if (isSelectedEl(cnt)) L(`จำนวน = ${countLabel} อยู่แล้ว`);
+        else { L(`ตั้งจำนวน → ${countLabel}`); await trustedClickEl(cnt, log); await sleep(500); }
+      }
       // บังคับสัดส่วน 9:16 (รูป+วิดีโอต้องแนวตั้ง) — กดเฉพาะเมื่อยังไม่ถูกเลือก
       const asp = findModeOption("9:16");
       if (asp && !isSelectedEl(asp)) { L("ตั้งสัดส่วน → 9:16"); await trustedClickEl(asp, log); await sleep(550); }
@@ -2290,7 +2305,7 @@ if (window._flowAutomatorLoaded) {
       await sleep(650);
       // ★ ยืนยันชัดเจน: โหมด + เฟรม(ถ้าขอ) + แนวตั้ง 9:16
       const framesOK = !/เฟรม/.test(subLabel || "") || framesSubReady() || subOk;
-      L(`ตรวจหลังตั้งค่า: ชนิด=${isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : "?"} · เฟรม=${/เฟรม/.test(subLabel || "") ? (framesOK ? "✓" : "✗") : "-"} · สัดส่วน=${currentAspect()}${is916() ? " ✓" : " (ไม่ใช่ 9:16!)"}`);
+      L(`ตรวจหลังตั้งค่า: ชนิด=${isVideoMode() ? "วิดีโอ" : isImageMode() ? "รูปภาพ" : "?"} · เฟรม=${/เฟรม/.test(subLabel || "") ? (framesOK ? "✓" : "✗") : "-"} · สัดส่วน=${currentAspect()}${is916() ? " ✓" : " (ไม่ใช่ 9:16!)"} · จำนวน=${currentCount()}${!countLabel ? "" : isX1() ? " ✓" : ` (ไม่ใช่ ${countLabel}!)`}`);
       if (onTarget() || (/วิดีโอ/.test(typeLabel) && isVideoMode() && subOk)) { L(`สลับโหมด → ${typeLabel}${subLabel ? " / " + subLabel : ""} ✓ (ยืนยันแล้ว)`); return true; }
       L(`สลับโหมด → ${typeLabel} ยังไม่ยืนยัน (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}") รอบ ${attempt}/${maxTry}`);
       await sleep(700);
@@ -2514,7 +2529,7 @@ if (window._flowAutomatorLoaded) {
     // รอแถบ prompt (ปุ่มโหมด crop_9_16) โผล่ก่อน — เผื่อเพิ่งเปิดโปรเจ็คใหม่/หน้ายังโหลด (กัน setMode พังเพราะปุ่มโหมดยังว่าง)
     if (!findModeBtn()) { log("รอแถบ prompt โหลด…"); await waitFor(findModeBtn, 25000, 800); }
     log(`ตรวจโหมดก่อนสร้างรูป: ${modeSummary()}`);                    // เช็คก่อน
-    const modeOk = await setMode("รูปภาพ", null, count || null, log);   // โหมดรูปภาพ (nano banana · 0 เครดิต) + บังคับ 9:16
+    const modeOk = await setMode("รูปภาพ", null, count || "x1", log);   // โหมดรูปภาพ (nano banana · 0 เครดิต) + บังคับ 9:16 + x1
     // ★ guard #1: ยืนยันโหมดรูปภาพ + 9:16 ไม่ได้ → ยกเลิกก่อนแนบ/สร้าง (กันเผลอสร้างในโหมดวิดีโอเสีย 15 เครดิต/รูป หรือได้สัดส่วนผิด)
     if (!modeOk || !isImageMode()) { const _d = dumpBtns(log, "image-mode-guard"); return { ok: false, error: `[v${EXT_VER}] ยืนยันโหมดรูปภาพไม่ได้ (ตรวจได้: ${modeSummary()}) | ปุ่มโหมด: ${modeBtnInfo()} | ป๊อปอัป: ${_modePopupDump || "(ไม่เปิด)"} | ปุ่มบนจอ: ${_d}`, uploads: [] }; }
     if (!is916()) log(`⚠ สัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()}) — ลองตั้งใหม่`);
@@ -2669,7 +2684,7 @@ if (window._flowAutomatorLoaded) {
     const pose = startPoseFor(style, name);
     if (style === "demo") log("สไตล์ demo → เฟรมเริ่มเป็น 'กำลังใช้งานสินค้า' (สาธิตจริง)");
     const { refs, prompt } = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose, bgImg, extra, moodImg);
-    const r = await genImage({ refs, prompt, count: opts.count || "1x", log });
+    const r = await genImage({ refs, prompt, count: opts.count || "x1", log });
     return { ...r, steps };
   }
   window._flowCompose = composeStill;   // เทส: _flowCompose()
@@ -2689,7 +2704,7 @@ if (window._flowAutomatorLoaded) {
     if (extra) log(`พรอมป์ผู้ใช้ (เฟรม): ${extra.slice(0, 60)}`);
     log(style === "demo" ? "=== [1/2] สร้างเฟรมเริ่ม: กำลังใช้งานสินค้า (สาธิตจริง) ===" : "=== [1/2] สร้างเฟรมเริ่ม: คนถือสินค้า ===");
     const sp = await startRefsAndPrompt(faceUrl, productUrl, name, opts.prompt, log, bg, pose, bgImg, extra, moodImg);
-    const start = await genImage({ refs: sp.refs, prompt: sp.prompt, count: opts.count || "1x", log });
+    const start = await genImage({ refs: sp.refs, prompt: sp.prompt, count: opts.count || "x1", log });
     if (!start.ok) return { ok: false, stage: "start", error: start.error, steps };
     const startUrl = start.images[start.images.length - 1];
     log("=== [2/2] สร้างเฟรมจบ: ชี้ตะกร้า CTA (จากเฟรมเริ่ม เพื่อความต่อเนื่อง) ===");
@@ -2697,9 +2712,9 @@ if (window._flowAutomatorLoaded) {
     const reenc = await reencode(startUrl).catch((e) => { log(`re-encode เฟรมเริ่มไม่ได้ (${(e && e.message) || e}) → ใช้ collage แทน`); return null; });
     if (reenc) {
       log("เอาเฟรมเริ่ม re-encode → ใช้เป็น ref เฟรมจบ (คน/ฉาก/แสงต่อเนื่องสุด)");
-      end = await genImage({ refs: [reenc], prompt: opts.endPrompt || endComposePrompt(), count: "1x", log });
+      end = await genImage({ refs: [reenc], prompt: opts.endPrompt || endComposePrompt(), count: "x1", log });
     } else {
-      end = await genImage({ refs: sp.refs, prompt: opts.endPrompt || endCollagePrompt(name, sp.hasBgRef, sp.hasMoodRef), count: "1x", log });
+      end = await genImage({ refs: sp.refs, prompt: opts.endPrompt || endCollagePrompt(name, sp.hasBgRef, sp.hasMoodRef), count: "x1", log });
     }
     if (!end.ok) return { ok: false, stage: "end", error: end.error, startImage: startUrl, steps };
     const endUrl = end.images[end.images.length - 1];
@@ -2784,7 +2799,7 @@ if (window._flowAutomatorLoaded) {
       await sleep(1200);
     }
     log(`ตรวจโหมดก่อนทำวิดีโอ: ${modeSummary()}`);                      // เช็คก่อน (จับข้าม/เลือกผิด)
-    const fmOk = await setMode("วิดีโอ", "เฟรม", null, log);            // วิดีโอ + เฟรม + บังคับ 9:16
+    const fmOk = await setMode("วิดีโอ", "เฟรม", "x1", log);            // วิดีโอ + เฟรม + บังคับ 9:16 + x1
     if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มโหมด: ${modeBtnInfo()} | แถบ prompt: ${dumpComposer()} | ขั้นตอนสลับโหมด: ${_modeTrace || "(ไม่มี)"} | ไล่กดปุ่ม: ${_probeLog || "(ไม่ได้ไล่)"} | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
     if (!is916()) log(`⚠ วิดีโอสัดส่วนยังไม่ใช่ 9:16 (ได้ ${currentAspect()})`);
     log(`โหมดหลังตั้งค่า: ${modeSummary()} ${isVideoMode() ? "✓" : ""}`);   // เช็คหลัง
@@ -2920,7 +2935,7 @@ if (window._flowAutomatorLoaded) {
     for (let i = 0; i < count; i++) {
       try {
         log(`สร้าง footage สินค้า ${i + 1}/${count} (โหมดรูปภาพ · ไม่หักเครดิตวิดีโอ)…`);
-        const r = await genImage({ refs: [productUrl], prompt: brollShotPrompt(name, i), count: "1x", log });
+        const r = await genImage({ refs: [productUrl], prompt: brollShotPrompt(name, i), count: "x1", log });
         if (!r.ok || !(r.images || []).length) { log(`footage ${i + 1} ไม่สำเร็จ: ${r.error || "ไม่ได้รูป"}`); continue; }
         const d = await reencode(r.images[r.images.length - 1]).catch(() => null);
         if (d) out.push(d);
