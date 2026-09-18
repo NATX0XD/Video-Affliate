@@ -550,7 +550,15 @@ if (window._flowAutomatorLoaded) {
     let input = findFileInput();
     if (!input) {
       const addBtn = findAddMediaButton();
-      if (addBtn) { await trustedClickEl(addBtn, log); await human(); }
+      if (addBtn) {
+        await trustedClickEl(addBtn, log);
+        await human();
+        input = (await waitFor(findFileInput, 1500, 250)) || findFileInput();
+        if (!input) {
+          const uploadItem = findByText(["อัปโหลด", "upload", "จากอุปกรณ์", "จากคอมพิวเตอร์"]);
+          if (uploadItem) { await trustedClickEl(uploadItem, log); await human(); }
+        }
+      }
       input = (await waitFor(findFileInput, 5000)) || findFileInput();
     }
     if (!input) return { ok: false, error: 'ไม่พบ file input สำหรับอัปโหลดหลายรูป' };
