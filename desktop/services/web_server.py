@@ -102,6 +102,7 @@ class WebServer:
         self._started_at: Optional[float] = None   # uptime (A1.8)
         self._last_ext_ping: float = 0.0           # เวลาที่ extension ติดต่อล่าสุด (P2.1) — onboarding เช็ค "เชื่อมแล้ว"
         self._flow_blocker = None                  # เหตุผลที่ extension หยุดคิวล่าสุด — แสดงบนเว็บหลัก
+        self._flow_dump = None                     # ผลตรวจสภาพหน้า Flow ล่าสุด (ดู /api/flow/dump)
 
         # Shared session token — สร้างใหม่ทุกครั้งที่เปิดโปรแกรม (in-memory เท่านั้น ไม่เขียนดิสก์).
         # extension ขอ token นี้ผ่าน /api/flow/config แล้วแนบใน header เวลาเรียก proxy sensitive
@@ -2016,6 +2017,24 @@ class WebServer:
             self.ws.broadcast_sync({"type": "flow_blocked", "reason": reason, "action": action})
             self.emit_log(f"[FLOW] หยุดคิว: {reason} · {action}", level="warn", source="FLOW")
             return {"ok": True}
+
+        @app.post("/api/flow/dump")
+        async def flow_dump_put(body: dict):
+            """extension ส่งผลตรวจสภาพหน้า Flow กลับมา — เก็บไว้ให้อ่านทีหลัง."""
+            self._flow_dump = body or {}
+            return {"ok": True}
+
+        @app.get("/api/flow/dump")
+        def flow_dump_get():
+            """ผลตรวจล่าสุด + สั่งตรวจรอบใหม่ด้วย ?refresh=1 (extension จะหยิบไปทำภายใน ~15 วิ)."""
+            return {"ok": True, "dump": getattr(self, "_flow_dump", None)}
+
+        @app.post("/api/flow/dump/request")
+        async def flow_dump_request():
+            if not self.db:
+                return {"ok": False}
+            qid = self.db.queue_push({"type": "flow_dump"}, priority=10)
+            return {"ok": True, "queue_id": qid}
 
         @app.post("/api/flow/blocker/clear")
         async def clear_flow_blocker():

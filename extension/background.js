@@ -1273,6 +1273,35 @@ async function pollQueue() {
   } catch { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); return; }
   if (!item) { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); return; }
   const p = item.payload || item;
+  // งานตรวจสภาพ: ถามหน้า Flow ว่าตัวหาองค์ประกอบยังเจอของจริงไหม แล้วส่งผลกลับ desktop
+  // มีไว้เพื่อไม่ต้องไปเปิด DevTools หรือสั่งเมนู Chrome ด้วยมือเวลา Google เปลี่ยนหน้า
+  if (p && p.type === 'flow_dump') {
+    try {
+      const base = await apiBase();
+      const tabs = (await chrome.tabs.query({})).filter((t) => {
+        try { const u = new URL(t.url || ''); return u.hostname === 'flow.google.com' || (u.hostname === 'labs.google' && u.pathname.startsWith('/fx')); }
+        catch { return false; }
+      });
+      let dump = { error: 'ไม่พบแท็บ Flow ที่เปิดอยู่' };
+      if (tabs.length) {
+        const id = tabs[0].id;
+        if (!(await pingFlow(id))) {
+          try { await chrome.scripting.executeScript({ target: { tabId: id }, files: ['content/util.js', 'content/flow.js'] }); await new Promise((r) => setTimeout(r, 1500)); } catch {}
+        }
+        dump = await new Promise((r) => chrome.tabs.sendMessage(id, { action: 'flow_dump' }, (res) =>
+          r(chrome.runtime.lastError ? { error: chrome.runtime.lastError.message } : (res && res.dump) || { error: 'ไม่มีคำตอบจาก flow.js' })));
+      }
+      await fetch(`${base}/api/flow/dump`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dump), signal: AbortSignal.timeout(10000),
+      }).catch(() => {});
+      await fetch(`${base}/api/queue/done`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id }),
+      }).catch(() => {});
+    } catch (e) { console.warn('[VGAP] flow_dump failed', e); }
+    await chrome.storage.local.remove('vgap_queue_lock').catch(() => {});
+    return;
+  }
   if (!p || p.type !== 'flow_start') { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); return; }
   try {
     await handleFlowStart(p);

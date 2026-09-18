@@ -3024,8 +3024,40 @@ if (window._flowAutomatorLoaded) {
   }
   window._flowMakeClip = makeClip;
 
+  // ── ภาพรวมว่าตัวหาองค์ประกอบแต่ละตัว "ยังเจอของจริงไหม" บนหน้า Flow ตอนนี้ ──────
+  // Google เขียนหน้า Flow ใหม่ได้ตลอด selector จึงล้าสมัยเงียบ ๆ แล้วเราไปเดาว่าพังตรงไหน
+  // ตัวนี้ตอบจากหน้าจริง สั่งจาก desktop ได้ ไม่ต้องเปิด DevTools หรือสั่งเมนู Chrome
+  async function flowDump() {
+    const t = (el) => el ? (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40) : null;
+    const out = {
+      at: Date.now(), url: location.href, host: location.host, title: document.title.slice(0, 80),
+      ext: EXT_VER,
+      signedOut: (() => { try { return signedOut(); } catch (e) { return "ERR:" + e.message; } })(),
+      chatBox: (() => { try { return hasChatBox(); } catch (e) { return "ERR:" + e.message; } })(),
+      editable: (() => { try { return !!findEditable(); } catch (e) { return "ERR:" + e.message; } })(),
+      accountBtn: (() => { try { return t(findAccountButton()); } catch (e) { return "ERR:" + e.message; } })(),
+      modeBtn: (() => { try { return modeBtnText().replace(/\s+/g, " ").slice(0, 60); } catch (e) { return "ERR:" + e.message; } })(),
+      aspect: (() => { try { return currentAspect(); } catch (e) { return "ERR:" + e.message; } })(),
+      count: (() => { try { return currentCount(); } catch (e) { return "ERR:" + e.message; } })(),
+      popupOpen: (() => { try { return popupOpen(); } catch (e) { return "ERR:" + e.message; } })(),
+      modeOptions: {},
+      genImages: (() => { try { const s = genImgSrcs(); return { n: s.length, sample: s.slice(-3) }; } catch (e) { return "ERR:" + e.message; } })(),
+      composer: (() => { try { return dumpComposer(); } catch (e) { return "ERR:" + e.message; } })(),
+      popup: (() => { try { return dumpPopup(); } catch (e) { return "ERR:" + e.message; } })(),
+      buttons: (() => { try { return dumpBtns(null, "dump"); } catch (e) { return "ERR:" + e.message; } })(),
+    };
+    for (const k of ["รูปภาพ", "วิดีโอ", "เฟรม", "ส่วนผสม", "9:16", "x1"]) {
+      try { const el = findModeOption(k); out.modeOptions[k] = el ? { text: t(el), selected: isSelectedEl(el) } : null; }
+      catch (e) { out.modeOptions[k] = "ERR:" + e.message; }
+    }
+    try { out.credits = await readFlowCredits(); } catch (e) { out.credits = "ERR:" + e.message; }
+    try { out.email = await currentActiveEmail(); } catch (e) { out.email = "ERR:" + e.message; }
+    return out;
+  }
+
   // ── message router ───────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.action === "flow_dump") { flowDump().then((d) => sendResponse({ ok: true, dump: d }), (e) => sendResponse({ ok: false, error: String(e && e.message || e) })); return true; }
     if (msg.action === "flow_probe") { sendResponse({ ok: true, probe: probe() }); return true; }
     if (msg.action === "flow_generate") { runGenerate(msg).then(sendResponse); return true; }
     if (msg.action === "flow_compose") { composeStill(msg).then(sendResponse); return true; }
