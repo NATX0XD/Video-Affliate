@@ -883,6 +883,17 @@ class JobStore:
             row = self._conn.execute("SELECT * FROM queue WHERE id=?", (qid,)).fetchone()
         return self._queue_row(row)
 
+    def queue_requeue(self, queue_id: int) -> bool:
+        """คืนงานที่ worker คว้าแล้วแต่เริ่มทำไม่สำเร็จ ให้ลองใหม่ได้."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE queue SET status='pending', claimed_by='', claimed_ts=0 "
+                "WHERE id=? AND status='claimed'",
+                (int(queue_id),),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     # ── logs (A1.8) ───────────────────────────────────────────
 
     LOG_CAP = 5000   # เก็บ log ล่าสุดเท่านี้ (prune ส่วนเกิน)

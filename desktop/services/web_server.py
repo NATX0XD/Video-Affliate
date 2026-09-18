@@ -2170,6 +2170,18 @@ class WebServer:
             worker = (body or {}).get("worker", "") if isinstance(body, dict) else ""
             return {"ok": True, "item": self.db.queue_claim(worker)}
 
+        @app.post("/api/queue/requeue")
+        async def queue_requeue(body: dict = None):
+            """คืนงานที่ extension คว้าแล้วแต่เปิด Flow ไม่สำเร็จ."""
+            if not self.db:
+                return {"ok": False, "requeued": False}
+            qid = (body or {}).get("id") if isinstance(body, dict) else None
+            try:
+                ok = bool(qid) and self.db.queue_requeue(int(qid))
+            except (TypeError, ValueError):
+                ok = False
+            return {"ok": ok, "requeued": ok}
+
         # ── Snapshot (pre-capture cache — responds instantly) ──
 
         @app.get("/snapshot/{serial}")

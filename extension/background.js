@@ -1235,7 +1235,24 @@ async function pollQueue() {
   if (!p || p.type !== 'flow_start') return;   // งานประเภทอื่น — ข้าม (ปล่อยไว้ให้ worker อื่น)
   _qBusy = true;
   try { await handleFlowStart(p); }
-  catch (e) { console.warn('[VGAP] queue flow_start error', e); }
+  catch (e) {
+    const reason = `ส่วนขยายเริ่มงาน Flow ไม่สำเร็จ: ${String(e && e.message || e)}`;
+    const action = 'เปิดแท็บ Flow และตรวจว่าเข้าสู่ระบบ Google แล้ว จากนั้นกดเริ่มคิวใหม่';
+    console.warn('[VGAP] queue flow_start error', e);
+    try {
+      const base = await apiBase();
+      await fetch(`${base}/api/flow/blocker`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, action }), signal: AbortSignal.timeout(5000),
+      });
+      await fetch(`${base}/api/queue/requeue`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id }), signal: AbortSignal.timeout(5000),
+      });
+    } catch (reportErr) {
+      console.warn('[VGAP] report queue failure error', reportErr);
+    }
+  }
   finally { _qBusy = false; }
 }
 chrome.alarms && chrome.alarms.create('vgap_queue', { periodInMinutes: 0.25 });   // ~ทุก 15 วิ
