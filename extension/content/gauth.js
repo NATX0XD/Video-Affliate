@@ -20,11 +20,15 @@
   let _diagLogged = false; // log สิ่งที่เห็นในกรอบครั้งเดียวต่อการโหลดกรอบ
 
   // อยู่ในกรอบที่ฝังในหน้า Flow ไหม (กรอบเมนูบัญชี) — ใช้ ancestorOrigins
+  // Flow ย้ายจาก labs.google ไป flow.google.com (ก.ย. 2026) — เช็คแค่โดเมนเก่าแล้วกรอบนี้จะตอบ "ไม่ใช่"
+  // ผลคือไม่มีใครอ่านเครดิตเลย currentCreditValue() ได้ null แล้วคิวหยุดที่ "อ่านเครดิต Flow ไม่ได้"
   function inFlowFrame() {
     try {
       if (window.top === window.self) return false; // top-frame ไม่ใช่กรอบฝัง
       const ao = window.location.ancestorOrigins;
-      if (ao) for (let i = 0; i < ao.length; i++) if (/labs\.google/i.test(ao[i])) return true;
+      if (ao) for (let i = 0; i < ao.length; i++) if (/labs\.google|flow\.google\.com/i.test(ao[i])) return true;
+      // บางเบราว์เซอร์/บางบริบทไม่ให้ ancestorOrigins — ใช้ referrer แทน ดีกว่าเดาว่าไม่ใช่
+      if (!ao || !ao.length) return /labs\.google|flow\.google\.com/i.test(document.referrer || "");
     } catch {}
     return false;
   }
