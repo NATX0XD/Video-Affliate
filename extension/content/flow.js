@@ -3195,8 +3195,14 @@ if (window._flowAutomatorLoaded) {
         } catch {}
       };
       runLog(`เริ่ม runQueue (dry=${!!msg.dry})`);
+      // ตอบรับทันทีว่า "เริ่มแล้ว" — ห้ามใช้ช่องนี้รอจนคิวจบ
+      // runQueue กินเวลาหลายนาทีและพาหน้าเปลี่ยน (เปิดโปรเจกต์ใหม่/สลับบัญชี) พอหน้าเปลี่ยน
+      // content script ถูกทำลาย ช่องสื่อสารปิดก่อนตอบ ฝั่ง background จึงอ่านว่า "flow.js ไม่ตอบ"
+      // แล้วคืนงานเข้าคิว → วนเปิดงานซ้ำทั้งที่ของเดิมยังทำอยู่ ความคืบหน้าจริงส่งผ่าน flow_log/flow_progress อยู่แล้ว
       runQueue(runLog, 100, !!msg.dry)
-        .then((n) => sendResponse({ ok: true, done: n, dry: !!msg.dry }));
+        .then((n) => runLog(`runQueue จบ — ทำได้ ${n} ชิ้น`))
+        .catch((e) => runLog(`runQueue ล้ม: ${String((e && e.message) || e)}`));
+      sendResponse({ ok: true, started: true, dry: !!msg.dry });
       return true;
     }
     if (msg.action === "flow_ping") { sendResponse({ ok: true, version: EXT_VER, url: location.href }); return true; }

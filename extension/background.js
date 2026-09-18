@@ -171,7 +171,15 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
   traceFlow(`send queue tab=${tab.id}`).catch(() => {});
   return new Promise((resolve) => {
     chrome.tabs.sendMessage(tab.id, { action: 'flow_run_queue', dry }, (res) => {
-      if (chrome.runtime.lastError) { traceFlow(`send error ${chrome.runtime.lastError.message}`).catch(() => {}); return resolve({ ok: false, error: 'flow.js ไม่ตอบ — ลองรีเฟรชแท็บ Flow เอง: ' + chrome.runtime.lastError.message }); }
+      if (chrome.runtime.lastError) {
+        const m = chrome.runtime.lastError.message || '';
+        traceFlow(`send error ${m}`).catch(() => {});
+        // "message channel closed" = หน้าเปลี่ยนระหว่างที่งานกำลังเริ่ม (Flow เปิดโปรเจกต์ใหม่/สลับบัญชี)
+        // ไม่ใช่ความล้มเหลว — ถือว่าเริ่มแล้ว ปล่อยให้ผลจริงมาทาง flow_log/flow_progress
+        // ถ้านับเป็นล้มเหลวจะคืนงานเข้าคิวแล้วสั่งซ้ำทับงานที่กำลังทำอยู่
+        if (/message channel closed|asynchronous response/i.test(m)) return resolve({ ok: true, started: true, note: m });
+        return resolve({ ok: false, error: 'flow.js ไม่ตอบ — ลองรีเฟรชแท็บ Flow เอง: ' + m });
+      }
       traceFlow(`send response ${JSON.stringify(res || {})}`).catch(() => {});
       resolve(res || { ok: true });
     });
