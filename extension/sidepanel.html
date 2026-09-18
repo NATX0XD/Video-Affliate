@@ -21,6 +21,10 @@
   --muted:#6e6557; --faint:#a89e8c; --fg:#1a1814; --line:rgba(26,24,20,.12);
   --sans:'IBM Plex Sans Thai',system-ui,-apple-system,sans-serif;
 }
+:root[data-theme="dark"]{
+  --bg:#14131a; --card:#211f2a; --accent:#a56bff; --orange:#ff9a62;
+  --muted:#b8b1c5; --faint:#8f879e; --fg:#f6f2fb; --line:rgba(255,255,255,.12)
+}
 body{font-family:var(--sans);background:var(--bg);color:var(--fg);
   min-height:100vh;display:flex;flex-direction:column;padding:20px 18px;gap:18px}
 .brand{display:flex;align-items:center;gap:12px}
@@ -51,6 +55,14 @@ body{font-family:var(--sans);background:var(--bg);color:var(--fg);
 .hint{font-size:11px;color:var(--faint);line-height:1.6;text-align:center}
 .spacer{flex:1}
 .foot{font-size:10.5px;color:var(--faint);text-align:center}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;background:rgba(127,93,175,.1);border-radius:12px}
+.tab{border:0;background:transparent;color:var(--muted);padding:9px 6px;border-radius:9px;font:600 12px var(--sans);cursor:pointer}
+.tab.active{background:var(--card);color:var(--fg);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.panel{display:flex;flex-direction:column;gap:10px}
+.panel[hidden]{display:none}
+.filter-title{font-size:12px;font-weight:700;color:var(--fg)}
+.filter-btn{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:var(--card);color:var(--fg);font:600 12px var(--sans);text-align:left;cursor:pointer}
+.filter-btn:hover{border-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -70,12 +82,25 @@ body{font-family:var(--sans);background:var(--bg);color:var(--fg);
     </div>
   </div>
 
-  <button class="btn btn-main" id="openApp">เปิดแอป VDO Gen</button>
+  <div class="tabs" role="tablist">
+    <button class="tab active" id="tabScrape" type="button">ดูดสินค้า</button>
+    <button class="tab" id="tabFilter" type="button">ตัวกรอง</button>
+  </div>
 
-  <button class="btn btn-sub" id="openShopee">เปิดหน้า Shopee Affiliate</button>
-  <button class="btn btn-sub" id="scrapeNow">ดูดสินค้าจากแท็บ Affiliate</button>
-
-  <div class="hint" id="hint">ดูดสินค้าได้จากปุ่มลอยบนหน้า Shopee ด้วย — สินค้าจะเข้าคลังในแอปอัตโนมัติ</div>
+  <section class="panel" id="scrapePanel">
+    <button class="btn btn-main" id="openApp">เปิดแอป VDO Gen</button>
+    <button class="btn btn-sub" id="openShopee">เปิดหน้า Shopee Affiliate</button>
+    <button class="btn btn-sub" id="scrapeNow">ดูดสินค้าจากแท็บ Affiliate</button>
+    <div class="hint" id="hint">ดูดสินค้าได้จากปุ่มลอยบนหน้า Shopee — สินค้าจะเข้าคลังในแอปอัตโนมัติ</div>
+  </section>
+  <section class="panel" id="filterPanel" hidden>
+    <div class="filter-title">เปิดคลังตามสถานะ</div>
+    <button class="filter-btn" data-filter="new">ยังไม่ได้สร้างคลิป</button>
+    <button class="filter-btn" data-filter="done">สร้างคลิปแล้ว</button>
+    <button class="filter-btn" data-filter="cart">มีตะกร้า</button>
+    <button class="filter-btn" data-filter="nocart">ยังไม่มีตะกร้า</button>
+    <div class="hint">เลือกแล้วระบบจะเปิดหน้าคลังด้วยตัวกรองนั้นทันที</div>
+  </section>
 
   <div class="spacer"></div>
   <div class="foot" id="foot"></div>

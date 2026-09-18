@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion } from 'motion/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Package, RefreshCw, Search, ExternalLink, Sparkles, Check, CheckSquare, Square,
   ShoppingCart, Loader2, LayoutGrid, Rows3, Trash2, AlertTriangle,
@@ -155,12 +155,17 @@ export default function ProductsPage() {
   const [toDelete, setToDelete] = useState(null)   // สินค้าที่รอยืนยันลบ (array) · null = ไม่มีโมดอล
   const [deleting, setDeleting] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const toast = useToast()
 
   // จำมุมมองที่เลือกไว้ (อ่านหลัง mount — กัน hydration ไม่ตรงตอน export เป็นไฟล์นิ่ง)
   useEffect(() => {
     try { const v = localStorage.getItem(VIEW_KEY); if (v === 'grid' || v === 'table') setView(v) } catch {}
   }, [])
+  useEffect(() => {
+    const f = searchParams.get('filter')
+    if (['new', 'done', 'all', 'cart', 'nocart'].includes(f)) setFilter(f)
+  }, [searchParams])
   const pickView = v => { setView(v); try { localStorage.setItem(VIEW_KEY, v) } catch {} }
 
   const load = useCallback(async (manual) => {

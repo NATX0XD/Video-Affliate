@@ -19,6 +19,17 @@ function foot() {
   $('foot').textContent = `Shopee VDO Gen v${v} · พอร์ต ${port()}`;
 }
 
+function syncTheme() {
+  chrome.tabs.query({ url: `${appBase()}/*` }, tabs => {
+    const tab = tabs && tabs[0]
+    if (!tab) return
+    chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => document.documentElement.dataset.theme || 'light' }, r => {
+      const theme = r && r[0] && r[0].result
+      if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme
+    })
+  })
+}
+
 // ── สถานะเชื่อมต่อ: ยิง /api/flow/status ที่เว็บแอป ──
 async function pollStatus() {
   try {
@@ -52,6 +63,19 @@ function openShopee() {
   });
 }
 
+function showTab(which) {
+  const scrape = which === 'scrape'
+  $('scrapePanel').hidden = !scrape
+  $('filterPanel').hidden = scrape
+  $('tabScrape').classList.toggle('active', scrape)
+  $('tabFilter').classList.toggle('active', !scrape)
+}
+
+function openFilter(filter) {
+  const url = `${appBase()}/products?filter=${encodeURIComponent(filter)}`
+  chrome.tabs.create({ url })
+}
+
 // ── ทางลัดดูดสินค้าจากแท็บ Affiliate ที่เปิดอยู่ ──
 // scrape_tab คืน products แต่ไม่เก็บเอง → forward เข้า add_products (เก็บ storage + mirror desktop)
 function scrapeNow() {
@@ -77,6 +101,9 @@ function scrapeNow() {
 $('openApp').addEventListener('click', openApp);
 $('openShopee').addEventListener('click', openShopee);
 $('scrapeNow').addEventListener('click', scrapeNow);
+$('tabScrape').addEventListener('click', () => showTab('scrape'));
+$('tabFilter').addEventListener('click', () => showTab('filter'));
+document.querySelectorAll('[data-filter]').forEach(el => el.addEventListener('click', () => openFilter(el.dataset.filter)));
 
 // อัปเดต hint เมื่อ background แจ้งว่ามีสินค้าใหม่เข้าคลัง
 chrome.runtime.onMessage.addListener(msg => {
@@ -88,3 +115,5 @@ chrome.runtime.onMessage.addListener(msg => {
 foot();
 pollStatus();
 setInterval(pollStatus, 5000);
+syncTheme();
+setInterval(syncTheme, 3000);
