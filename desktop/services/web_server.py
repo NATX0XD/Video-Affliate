@@ -1148,8 +1148,8 @@ class WebServer:
         # เดิมรองรับเฉพาะแบบแรก → เครื่องผู้ใช้จริงตอบ supported:false ทุกเครื่อง
         # ป๊อปอัปแจ้งเวอร์ชันใหม่จึงไม่เคยขึ้นเลย และแก้อะไรไปก็ไปไม่ถึงมือผู้ใช้
         VERSION_STAMP = ".vgap-version"      # เก็บ sha ที่ติดตั้งไว้ — ใช้แทน git ตอนเทียบเวอร์ชัน
-        GITHUB_MAIN   = "https://api.github.com/repos/Mewwi15/shopee-automation/commits/main"
-        TARBALL_MAIN  = "https://github.com/Mewwi15/shopee-automation/archive/refs/heads/main.tar.gz"
+        GITHUB_MAIN   = "https://api.github.com/repos/NATX0XD/Video-Affliate/commits/main"
+        TARBALL_MAIN  = "https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz"
 
         def _app_root():
             from pathlib import Path
@@ -1392,7 +1392,7 @@ class WebServer:
             import io, tarfile, shutil, tempfile, urllib.request
             from pathlib import Path          # ใช้ตอนไล่ไฟล์ใน tmp — ขาดไปทำให้พังทุกครั้งที่กดอัปเดต
             from types import SimpleNamespace
-            url = "https://github.com/Mewwi15/shopee-automation/archive/refs/heads/main.tar.gz"
+            url = "https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz"
             try:
                 with urllib.request.urlopen(url, timeout=timeout) as resp:
                     blob = resp.read()
