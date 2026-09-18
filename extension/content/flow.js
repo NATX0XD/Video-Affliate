@@ -3072,7 +3072,7 @@ if (window._flowAutomatorLoaded) {
     const t = (el) => el ? (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40) : null;
     let local = {};
     try {
-      local = await chrome.storage.local.get(["flow_jobs", "flow_queue_state", "error_log", "flow_gen", "flow_run_log"]);
+      local = await chrome.storage.local.get(["flow_jobs", "flow_queue_state", "error_log", "flow_gen", "flow_run_log", "flow_bg_trace"]);
     } catch (e) { local = { storageError: String(e && e.message || e) }; }
     const out = {
       at: Date.now(), url: location.href, host: location.host, title: document.title.slice(0, 80),
@@ -3094,6 +3094,7 @@ if (window._flowAutomatorLoaded) {
       pendingJobs: Array.isArray(local.flow_jobs) ? local.flow_jobs.length : null,
       errorLog: Array.isArray(local.error_log) ? local.error_log.slice(0, 5) : [],
       runLog: Array.isArray(local.flow_run_log) ? local.flow_run_log.slice(-40) : [],
+      bgTrace: Array.isArray(local.flow_bg_trace) ? local.flow_bg_trace.slice(-40) : [],
     };
     for (const k of ["รูปภาพ", "วิดีโอ", "เฟรม", "ส่วนผสม", "9:16", "x1"]) {
       try { const el = findModeOption(k); out.modeOptions[k] = el ? { text: t(el), selected: isSelectedEl(el) } : null; }

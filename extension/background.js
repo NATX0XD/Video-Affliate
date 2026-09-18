@@ -65,6 +65,15 @@ function waitTabComplete(tabId, settle = 2500, cap = 15000) {
   });
 }
 
+async function traceFlow(message) {
+  try {
+    const d = await chrome.storage.local.get('flow_bg_trace');
+    const a = Array.isArray(d.flow_bg_trace) ? d.flow_bg_trace : [];
+    a.push({ at: Date.now(), message: String(message) });
+    await chrome.storage.local.set({ flow_bg_trace: a.slice(-60) });
+  } catch {}
+}
+
 // หา/เปิดแท็บ Flow ของบัญชี au — ★ labs.google สลับบัญชีได้เฉพาะตอน "เปิดแท็บใหม่" เท่านั้น
 // เปลี่ยน ?authuser ในแท็บเดิมไม่สลับบัญชี (Google ผูกบัญชีไว้กับแท็บแล้ว) → ถ้าไม่มีแท็บของบัญชีนี้
 // ต้องปิดแท็บ Flow บัญชีอื่นทิ้งแล้วเปิดใหม่ (โมเดลแท็บเดียว). preferProject = เลือกหน้า /project/ ก่อน
@@ -102,6 +111,7 @@ const pingFlow = (tabId) => new Promise((r) =>
 // เปิด/โฟกัสแท็บ Flow ให้อัตโนมัติ แล้วรันคิว Flow บนแท็บนั้น
 // authuserOverride: ระบุบัญชีตรงๆ (จากปุ่ม "เปิด Flow" ในหน้าเมล) — ไม่ระบุ = ให้ระบบเลือกเอง
 async function openFlowAndRun(dry = false, authuserOverride = null) {
+  traceFlow(`open start dry=${!!dry}`).catch(() => {});
   // เลือกบัญชี Flow (authuser) ที่จะใช้ — ระบุเอง > ระบบเลือกตามเครดิต > บัญชีหลัก
   let au = authuserOverride;
   if (au == null) { const acc = await pickFlowAccount(); au = acc ? acc.authuser : null; }
@@ -127,6 +137,7 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
   // ★ ต้อง active:true — แท็บเบื้องหลัง SPA ไม่เรนเดอร์เต็ม element offsetParent=null flow.js หาช่องพิมพ์ไม่เจอ
   const acq = await acquireFlowTab(FLOW_URL, au, true);
   let tab = acq.tab;
+  traceFlow(`tab id=${tab && tab.id} fresh=${!!acq.fresh} url=${tab && tab.url}`).catch(() => {});
   if (acq.fresh) await waitTabComplete(tab.id, 2500);
   // ★ โฟกัสแท็บ Flow ให้เห็นจริง (active + focus window) — จำเป็นต่อการเรนเดอร์ของ SPA
   try {
@@ -136,6 +147,7 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
   } catch {}
   // ★ เช็คว่า flow.js ยังตอบไหม (ping) — ถ้าไม่ (เช่นหลัง reload extension) ให้ reload แท็บ
   if (!(await pingFlow(tab.id))) {
+    traceFlow('ping failed; reload/inject').catch(() => {});
     await chrome.tabs.reload(tab.id);
     await new Promise((resolve) => {
       const onUpd = (id, info) => {
@@ -153,9 +165,11 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
       } catch (e) { console.warn('[VGAP] inject flow.js failed', e); }
     }
   }
+  traceFlow(`send queue tab=${tab.id}`).catch(() => {});
   return new Promise((resolve) => {
     chrome.tabs.sendMessage(tab.id, { action: 'flow_run_queue', dry }, (res) => {
-      if (chrome.runtime.lastError) return resolve({ ok: false, error: 'flow.js ไม่ตอบ — ลองรีเฟรชแท็บ Flow เอง: ' + chrome.runtime.lastError.message });
+      if (chrome.runtime.lastError) { traceFlow(`send error ${chrome.runtime.lastError.message}`).catch(() => {}); return resolve({ ok: false, error: 'flow.js ไม่ตอบ — ลองรีเฟรชแท็บ Flow เอง: ' + chrome.runtime.lastError.message }); }
+      traceFlow(`send response ${JSON.stringify(res || {})}`).catch(() => {});
       resolve(res || { ok: true });
     });
   });
@@ -1167,6 +1181,7 @@ chrome.debugger.onDetach && chrome.debugger.onDetach.addListener((src) => { if (
 // ── flow_start (ใช้ร่วมกันระหว่าง onMessage และ poller คิวจากเว็บแอปหลัก) ────────────
 // เก็บ work-list + gen ลง storage → เปิดแท็บ Flow → รันสร้างคลิป (logic เดิม ไม่เปลี่ยน)
 async function handleFlowStart(msg) {
+  traceFlow(`start products=${Array.isArray(msg.products) ? msg.products.length : 0}`).catch(() => {});
   if (msg.products && msg.products.length) {
     await chrome.storage.local.set({ flow_jobs: msg.products });   // work-list ของ extension
   }
@@ -1227,19 +1242,21 @@ async function handleFlowStart(msg) {
       }
     } catch {}
     // รูปฉากหลังที่ผู้ใช้อัป → flow.js เอาไปแนบเป็นภาพอ้างอิงฉากตอนสร้างเฟรม (null = ล้างของรอบก่อน)
-    await chrome.storage.local.set({
+  await chrome.storage.local.set({
       flow_gen: gen,
       flow_char_img: img,
       flow_bg_img: msg.gen.bgImage || null,
       flow_mood_img: msg.gen.moodImage || null,
       // footage ที่ผู้ใช้อัปเอง — ตัวไฟล์จริงอยู่ใน app.db แล้ว โปรแกรมหลักอ่านเองตอนตัดต่อ
       flow_broll: Array.isArray(msg.gen.brollClips) ? msg.gen.brollClips.filter(Boolean).slice(0, 4) : [],
-    });
+  });
+  traceFlow('storage written').catch(() => {});
   }
   _flowCfg = null;   // โหลด config สดสำหรับรอบนี้ (เผื่อผู้ใช้เพิ่งแก้ settings)
   geminiBlocked = null;   // เริ่มรอบใหม่ → ลองเรียก Gemini อีกครั้ง (เผื่อเพิ่งเติมเครดิต)
   try { await chrome.storage.local.remove('gemini_blocked'); } catch {}
   const result = await openFlowAndRun(!!msg.dry);
+  traceFlow(`open result ${JSON.stringify(result || {})}`).catch(() => {});
   // openFlowAndRun รายงานความล้มเหลวเป็น {ok:false} ได้โดยไม่ throw
   // ต้องแปลงเป็น error เพื่อให้ poller แจ้งเว็บหลักและคืนงานเข้าคิว ไม่เงียบ
   if (!result || result.ok === false) {
