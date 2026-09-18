@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { Sidebar  } from '@/components/layout/Sidebar'
 import { Topbar   } from '@/components/layout/Topbar'
 import { GenProgress } from '@/components/GenProgress'
+import { PostBlockedPrompt } from '@/components/PostBlockedPrompt'
 import { Onboarding } from '@/components/Onboarding'
 import LicenseActivation from '@/components/LicenseActivation'
 import { useStatus } from '@/hooks/useStatus'
@@ -135,6 +136,10 @@ export default function AppLayout({ children }) {
           <GenProgress />
         </div>
       )}
+
+      {/* เตือนเมื่อโพสต์ไม่ได้ (ยังไม่เสียบมือถือ / ยังไม่เลือกแพลตฟอร์ม) — อยู่หลัง onboarding
+          จึงไม่ไปเด้งใส่คนที่ยังตั้งค่าไม่เสร็จ */}
+      <PostBlockedPrompt />
     </AppCtx.Provider>
   )
 }

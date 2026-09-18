@@ -48,3 +48,6 @@ desktop/.venv/
 
 # Playwright MCP artifacts (สกรีนช็อต/สแนปช็อตตอนเทส)
 .playwright-mcp/
+
+# ตราเวอร์ชันของเครื่องที่ติดตั้งจากตัวติดตั้ง (ตัวอัปเดตเขียนเอง) — ไม่ใช่ของ repo
+.vgap-version

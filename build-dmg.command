@@ -97,6 +97,15 @@ done
 chmod +x "$PAYLOAD"/*.command 2>/dev/null || true
 ok "สคริปต์ติดตั้ง/เปิด + คู่มือ"
 
+# ตราเวอร์ชัน — payload ไม่มี .git เครื่องผู้ใช้จึงเทียบเวอร์ชันด้วยไฟล์นี้กับ main บน GitHub
+# ขาดไฟล์นี้ = แอปถือว่า "ไม่ทราบเวอร์ชัน" แล้วชวนอัปเดตหนึ่งรอบ (ไม่พัง แค่เกินจำเป็น)
+if STAMP="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" && [ -n "$STAMP" ]; then
+  printf '%s' "$STAMP" > "$PAYLOAD/.vgap-version"
+  ok "ตราเวอร์ชัน ${STAMP:0:7}"
+else
+  warn "อ่าน commit จาก git ไม่ได้ — ข้ามตราเวอร์ชัน (ผู้ใช้จะถูกชวนอัปเดตหนึ่งรอบ)"
+fi
+
 # อ่านก่อน — ขั้นตอนใช้งาน (วางที่รากของ volume ให้เห็นทันทีตอน mount)
 cat > "$STAGE/อ่านก่อน-Mac.txt" <<'EOF'
 VDO Gen Auto Pilot — ติดตั้งบน macOS (แบบไม่ต้องรหัสเครื่อง)

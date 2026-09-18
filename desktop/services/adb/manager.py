@@ -336,10 +336,42 @@ class ADBManager:
             return "จับคู่ไม่สำเร็จ — ตรวจที่อยู่/พอร์ต และรหัส 6 หลักให้ตรงกับที่มือถือแสดง"
         return msg.strip()
 
+    @staticmethod
+    def _local_ipv4s() -> list:
+        """IPv4 ของคอมเครื่องนี้ — ใช้เทียบว่าอยู่วงเดียวกับมือถือหรือเปล่า"""
+        import socket
+        ips = set()
+        try:                                   # ที่อยู่ที่ใช้ออกเน็ตจริง (ไม่ได้ส่งแพ็กเก็ต)
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80)); ips.add(s.getsockname()[0]); s.close()
+        except Exception:
+            pass
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                ips.add(info[4][0])
+        except Exception:
+            pass
+        return sorted(i for i in ips if not i.startswith("127."))
+
+    def _lan_mismatch_hint(self, host: str) -> str:
+        """ถ้าคอมกับมือถืออยู่คนละวง → บอกตรง ๆ พร้อมเลข IP ทั้งสองฝั่ง
+
+        เจอจริงตอนทดสอบ: คอมใช้เน็ตแชร์จากมือถือ (172.20.10.x) ส่วนแท็บเล็ตอยู่ Wi-Fi
+        อีกวง (10.70.0.x) — adb ขึ้นแค่ "failed to connect ... timed out" ซึ่งอ่านแล้ว
+        นึกว่าโปรแกรมพัง ทั้งที่แค่คนละเครือข่ายกัน
+        """
+        mine = self._local_ipv4s()
+        if not mine or any(m.split(".")[:3] == host.split(".")[:3] for m in mine):
+            return ""
+        return (f"คอมอยู่วง {', '.join(mine)} แต่มือถืออยู่วง {host} — คนละเครือข่ายกัน "
+                f"ต้องต่อ Wi-Fi ให้เป็นวงเดียวกันก่อน "
+                f"(ถ้าคอมใช้เน็ตแชร์จากมือถืออยู่ ให้ปิดแล้วต่อ Wi-Fi วงเดียวกับแท็บเล็ต)")
+
     def connect_wifi(self, ip: str, port: int = 5555) -> tuple[bool, str]:
         """เชื่อมมือถือผ่าน Wi-Fi. คืน (สำเร็จจริงไหม, ข้อความจาก adb).
         adb connect บางเวอร์ชันคืน exit code 0 แม้ล้มเหลว → เช็คข้อความประกอบ."""
         target = ip if ":" in ip else f"{ip}:{port}"
+        self.last_connect_hint = ""
         ok, msg = self._adb("connect", target, timeout=15)
         low = (msg or "").lower()
         connected = ("connected to" in low) or ("already connected" in low)
@@ -348,6 +380,10 @@ class ADBManager:
                          "connection refused", "no route"))
         good = ok and connected and not failed
         self.log(f"[ADB] WiFi connect {target} → {msg}")
+        if not good:
+            self.last_connect_hint = self._lan_mismatch_hint(target.split(":")[0])
+            if self.last_connect_hint:
+                self.log(f"[ADB] {self.last_connect_hint}")
         return good, msg
 
     def tcpip(self, serial: str, port: int = 5555) -> tuple[bool, str]:

@@ -344,7 +344,14 @@ class BasePoster:
             self.log(f"[{self.TAG}] ✗ ยืนยันแล้วว่าโพสต์ไม่สำเร็จ: {res['reason']}")
             return False
         if status == "unverified":
-            self.log(f"[{self.TAG}] ⚠ ยืนยันผลไม่ได้ ({res['reason']}) — โพสต์อาจไม่ขึ้น โปรดตรวจเอง")
+            # ★ ยังไม่ใช่คำตัดสิน — คลาสลูก (เช่น Shopee) มีหลักฐานสำรองอีกชั้น
+            #   "ออกจากหน้า publish แล้ว" ซึ่งพิสูจน์ว่าโพสต์ขึ้นจริง
+            #   เดิมยิงข้อความ "โพสต์อาจไม่ขึ้น โปรดตรวจเอง" ตรงนี้ทันที ซึ่ง _classify_level
+            #   จัดเป็นระดับ error → งานที่โพสต์สำเร็จโผล่เป็น error ให้ผู้ใช้เห็นทุกครั้ง
+            #   (เจอจริงใน log: error 15:50:18 แล้วตามด้วย "✓ คลิปขึ้นแล้ว" วินาทีเดียวกัน)
+            #   ย้ายไปประกาศตอนรู้ผลสุดท้ายแทน — ดู _verdict()
+            self._verify_reason = res.get("reason", "")
+            self.log(f"[{self.TAG}] อ่านผลจากหน้าจอไม่ได้ ({res['reason']}) — ตรวจหลักฐานสำรองต่อ")
             return "unverified"
         self.log(f"[{self.TAG}] ✓ ยืนยันโพสต์สำเร็จ")
         return True
@@ -445,6 +452,10 @@ class BasePoster:
             ok = self._run_flow(serial, video_path, caption, has_adbkb, dry_run)
             if ok and not dry_run:
                 ok = self._maybe_verify(serial)
+                # ประกาศผลสุดท้ายที่นี่ที่เดียว — หลังหลักฐานสำรองทุกชั้นตัดสินแล้ว
+                if ok == "unverified":
+                    why = getattr(self, "_verify_reason", "") or "อ่านหน้าจอไม่ได้"
+                    self.log(f"[{self.TAG}] ⚠ ยืนยันผลไม่ได้ ({why}) — โพสต์อาจไม่ขึ้น โปรดตรวจเอง")
             return ok
         finally:
             self._clear_device_clipboard()

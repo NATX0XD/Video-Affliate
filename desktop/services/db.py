@@ -776,6 +776,27 @@ class JobStore:
             ).fetchone()
         return dict(r) if r else None
 
+    def delete_products(self, ids: list) -> int:
+        """ลบสินค้าออกจากแคตตาล็อกตาม id. คืนจำนวนแถวที่ลบจริง.
+
+        ลบเฉพาะตาราง products — คลิป/งานที่สร้างไปแล้วอยู่ในตาราง jobs ไม่ถูกแตะ.
+        """
+        clean = []
+        for i in ids or []:
+            try:
+                clean.append(int(i))
+            except (TypeError, ValueError):
+                continue
+        if not clean:
+            return 0
+        marks = ",".join("?" * len(clean))
+        with self._lock:
+            cur = self._conn.execute(
+                f"DELETE FROM products WHERE id IN ({marks})", clean
+            )
+            self._conn.commit()
+            return cur.rowcount or 0
+
     # ── queue (โครงคิวงานบน DB สำหรับอนาคต) ────────────────────
 
     def queue_push(self, payload: dict, priority: int = 0) -> int:
@@ -889,6 +910,33 @@ class JobStore:
         return dict(r) if r else None
 
     # ── recovery (near-zero-touch) ────────────────────────────
+
+    def requeue_stale_posting(self, older_than_sec: int) -> list:
+        """คลิปที่ค้างสถานะ 'posting' นานเกินกำหนด → ดึงกลับเป็น 'generated' ให้โพสต์ใหม่.
+
+        ทำไมต้องมี: reset_stuck() ทำงานตอนเปิดโปรแกรมเท่านั้น ถ้ามือถือหลุด/ค้าง
+        หรือเธรดโพสต์ตายกลางทาง คลิปจะค้าง 'posting' ไปเรื่อย ๆ ไม่มีใครหยิบ
+        (worker ตัวใหม่ claim เฉพาะ 'generated') = คลิปนั้นหายไปเงียบ ๆ จนกว่าจะรีสตาร์ต
+
+        ตั้ง older_than_sec ให้ยาวกว่าเวลาโพสต์จริงมาก ๆ — ระหว่างโพสต์ปกติ
+        updated_at จะไม่ขยับ ถ้าตั้งสั้นไปจะไปดึงงานที่กำลังทำอยู่ออกมาโพสต์ซ้ำ
+        คืนรายการ id ที่ถูกดึงกลับ (ให้ผู้เรียกเอาไป log ให้ผู้ใช้เห็น)
+        """
+        cutoff = _now() - int(older_than_sec)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id FROM jobs WHERE status=? AND updated_at < ?", (POSTING, cutoff)
+            ).fetchall()
+            ids = [r["id"] for r in rows]
+            if ids:
+                marks = ",".join("?" * len(ids))
+                self._conn.execute(
+                    f"""UPDATE jobs SET status=?, stage='', next_retry_at=0, updated_at=?
+                        WHERE id IN ({marks})""",
+                    (GENERATED, _now(), *ids),
+                )
+                self._conn.commit()
+        return ids
 
     def reset_stuck(self) -> int:
         """Called on startup: jobs left mid-flight by a crash are rewound so

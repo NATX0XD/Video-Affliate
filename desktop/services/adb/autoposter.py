@@ -230,8 +230,23 @@ class AutoPoster(BasePoster):
                 and UF.find_text(nodes, *AutoPoster.T_IMPORT) is not None)
 
     def _tap_r(self, serial: str, key: str, settle: float = 2.0):
+        """ลำดับการหาปุ่ม: node จาก dump → ขอบปุ่มจากภาพหน้าจอ → พิกัดสัดส่วน
+
+        ชั้นกลาง (ภาพหน้าจอ) มีไว้สำหรับหน้า publish โดยเฉพาะ ซึ่ง dump ไม่ผ่าน
+        ทำให้เดิมตกไปเดาพิกัดสัดส่วนทันที — ผิดไม่กี่ px ก็แตะเหนือขอบปุ่มแล้วไม่ติด
+        """
         if self._tap_by_node(serial, key, settle):
             return
+        if key in self.SHOT_KEYS:
+            hit = self._find_orange_pill(serial, self.R[key][1])
+            if hit:
+                x, y = hit
+                self.log(f"[{self.TAG}] tap {key} → ({x},{y}) [วัดขอบปุ่มจากภาพหน้าจอ]")
+                self._remember(key, x, y)
+                self._tap_xy(serial, x, y)
+                time.sleep(settle)
+                return
+            self.log(f"[{self.TAG}] {key}: หาปุ่มจากภาพหน้าจอไม่เจอ → ใช้พิกัดสำรอง")
         rx, ry = self.R[key]
         self._tap_ratio(serial, rx, ry, name=f"{key} [พิกัดสำรอง]", settle=settle)
 
@@ -275,6 +290,16 @@ class AutoPoster(BasePoster):
     # ถ้าไม่มีเพดาน คิวถัดไปของ autopilot ค้างตามไปด้วย
     POST_TIMEOUT_SEC = 600
 
+    # จำนวนครั้งที่ยอมกดปุ่ม "โพสต์" ซ้ำเมื่อพิสูจน์ได้ว่ายังค้างหน้าเดิม (= ยังไม่ได้โพสต์)
+    POST_TAP_TRIES = 3
+
+    # dump ล้มติดกันเกินนี้ = หน้านี้อ่าน node ไม่ได้จริง เลิกรอ (ไม่ใช่ "ยังไม่พร้อม")
+    DEAD_DUMP_LIMIT = 2
+    # แต่ห้ามเลิกรอเร็วกว่านี้ และต้องหน่วงก่อนเดินต่อ — วัดจากเครื่องจริง: ตัดเวลารอทิ้ง
+    # หมดแล้วขั้นถัดไปแตะเร็วเกินบนหน้าที่ยังไม่นิ่ง ทำให้ next_2 แตะพลาดจนแอปเด้งออก
+    BLIND_MIN_WAIT   = 6.0     # วิ ที่ต้องรออย่างน้อยก่อนสรุปว่า "อ่านไม่ได้จริง"
+    BLIND_SETTLE     = 2.5     # วิ ที่หน่วงให้หน้าถัดไปตั้งตัว ก่อนปล่อยให้ขั้นต่อไปแตะ
+
     def _overtime(self, step: str) -> bool:
         """เกินเพดานเวลารวมหรือยัง — เกินแล้วเลิกอย่างสุภาพพร้อมบอกว่าค้างขั้นไหน"""
         dl = getattr(self, "_deadline", None)
@@ -299,10 +324,36 @@ class AutoPoster(BasePoster):
         end = time.time() + timeout
         act = ""
         saw_nodes = False
+        dead_dumps = 0          # dump ล้มติดกันกี่ครั้ง (หน้าที่วิดีโอเล่นตลอดจะล้มทุกครั้ง)
+        t_start = time.time()
         while True:
-            nodes = UF.dump_nodes(serial, self.log, tries=1, tag=f"{key}_check")
             act = self._current_activity(serial)
+            # ── ทางลัด: ลองตัดสินด้วย "ชื่อหน้า" ก่อน ยังไม่ dump ──
+            # เงื่อนไขหลายข้อ (เช่น next_2) ดูแค่ชื่อ activity ไม่แตะ node เลย
+            # แต่เดิมยิง uiautomator dump ทุกรอบก่อนเสมอ = เสียฟรี 2-4 วิ/รอบ
+            # ผลลัพธ์เท่าเดิม: เป็นการเรียก pred ตัวเดียวกับที่โค้ดเรียกอยู่แล้วตอน dump ล้ม
+            # (เงื่อนไขที่ต้องใช้ node จะได้ False กับลิสต์ว่าง แล้วตกไป dump ตามปกติ)
+            try:
+                if pred([], act, UF):
+                    return True
+            except Exception:
+                pass
+            nodes = UF.dump_nodes(serial, self.log, tries=1, tag=f"{key}_check")
             saw_nodes = saw_nodes or bool(nodes)
+            dead_dumps = 0 if nodes else dead_dumps + 1
+            # หน้าที่มีวิดีโอเล่นตลอด (ฟีด Shopee, หน้า publish) dump ไม่ผ่านเลยสักครั้ง
+            # เดิมยังวนรอจนหมด timeout แล้วค่อยยอมแพ้ → วัดจากเครื่องจริง: live_video_tab
+            # กิน 52 วิ ทั้งที่แตะติดตั้งแต่ครั้งแรก (dump ล้ม 6 รอบ × 2.5 วิ แล้วแตะซ้ำอีกชุด)
+            # ล้มติดกันขนาดนี้ = หน้านี้อ่านไม่ได้จริง รอต่อก็ไม่มีอะไรเปลี่ยน → ออกเลย
+            # แล้วให้ _step ตัดสินด้วย _ready_blind (ไปต่อ ให้ขั้นถัดไปเป็นตัวจับผิด)
+            if (dead_dumps >= self.DEAD_DUMP_LIMIT
+                    and time.time() - t_start >= self.BLIND_MIN_WAIT):
+                self._ready_blind = not saw_nodes
+                if self._ready_blind:
+                    if not quiet:
+                        self.log(f"[{self.TAG}] {key}: หน้านี้อ่าน node ไม่ได้เลย "
+                                 f"{dead_dumps} ครั้งติด — ไม่รอต่อ")
+                    return False
             # ★ ตรวจแม้ dump ไม่ได้ — เงื่อนไขหลายข้อดูแค่ "ชื่อหน้า" ไม่ได้ใช้ node เลย
             #   หน้า publish เล่นพรีวิววิดีโอตลอด window ไม่เคย idle → uiautomator dump ล้มประจำ
             #   เดิมข้ามการตรวจทั้งก้อนเมื่อ dump ไม่ได้ เลยฟ้อง "next_2 ล้มเหลว" ทั้งที่อยู่หน้าถูกแล้ว
@@ -335,9 +386,13 @@ class AutoPoster(BasePoster):
         if skip_if_ready and self._ready(serial, key, timeout=0, quiet=True):
             self.log(f"[{self.TAG}] {key}: อยู่ในสถานะที่ต้องการแล้ว — ข้าม")
             return True
+        # ขั้นที่มีเงื่อนไข READY ไม่ต้องนอนรอเต็ม settle: _ready poll ให้อยู่แล้ว
+        # และจับได้เร็วกว่าเวลานอนตายตัว. เหลือ 1 วิ ไว้ให้จอมีจังหวะขยับก่อนตรวจ
+        # (ขั้นที่ไม่มีเงื่อนไข settle คือตัวรอเดียวที่มี — คงไว้เท่าเดิม)
+        eff_settle = min(settle, 1.0) if self.READY.get(key) else settle
         before = self._current_activity(serial)
         for i in range(1, tries + 1):
-            self._tap_r(serial, key, settle=settle)
+            self._tap_r(serial, key, settle=eff_settle)
             if self._ready(serial, key, timeout):
                 return True
             # หน้าเปลี่ยนไปแล้วแต่ READY ยังไม่ผ่าน = อย่าแตะซ้ำ ให้รออย่างเดียว
@@ -349,6 +404,11 @@ class AutoPoster(BasePoster):
                 if self._ready(serial, key, timeout):
                     return True
                 break
+            # อ่านหน้าจอไม่ได้เลย ≠ แตะไม่ติด — แตะซ้ำบนหน้าที่อ่านไม่ได้คือเดาสุ่ม
+            # และเสียเวลาอีกชุดเต็ม ๆ (วัดจริง: live_video_tab เสียไป 30 วิกับรอบที่สอง
+            # ทั้งที่รอบแรกแตะติดแล้ว) → ออกเลย ให้ _ready_blind ด้านล่างตัดสิน
+            if getattr(self, "_ready_blind", False):
+                break
             self.log(f"[{self.TAG}] แตะ {key} ไม่ติด (รอบ {i}/{tries}) — ลองใหม่")
         # ★ "อ่านหน้าจอไม่ได้เลย" ไม่เท่ากับ "แตะไม่ติด"
         #   หน้าฟีดวิดีโอของ Shopee dump ไม่ผ่านแทบทุกครั้ง (window ไม่เคย idle)
@@ -356,7 +416,9 @@ class AutoPoster(BasePoster):
         #   ไปต่อดีกว่า — ขั้นถัดไปมีตัวตรวจของตัวเอง ถ้าหลงจริงมันจะฟ้องทันที
         if getattr(self, "_ready_blind", False):
             self.log(f"[{self.TAG}] ⚠ {key}: อ่านหน้าจอไม่ได้เลย สรุปไม่ได้ว่าแตะติดไหม — "
-                     f"ไปต่อ แล้วให้ขั้นถัดไปเป็นตัวตัดสิน")
+                     f"รอให้หน้าตั้งตัว {self.BLIND_SETTLE:.0f} วิ แล้วไปต่อ "
+                     f"ให้ขั้นถัดไปเป็นตัวตัดสิน")
+            time.sleep(self.BLIND_SETTLE)   # ขาดจังหวะนี้ = ขั้นถัดไปแตะบนหน้าที่ยังไม่นิ่ง
             return True
         self.log(f"[{self.TAG}] ⚠ {key} ล้มเหลวหลังลอง {tries} รอบ")
         return False
@@ -391,45 +453,118 @@ class AutoPoster(BasePoster):
 
     # ปุ่ม "แตะเพื่อเพิ่มสินค้า" เป็นเม็ดยาสีส้มแบรนด์ Shopee — หาได้จากภาพหน้าจอตรง ๆ
     # โซนที่มันอยู่: ครึ่งบนของหน้า publish (ใต้แถบชื่อ เหนือแถว toggle)
-    ADDPROD_BAND = (0.22, 0.48)      # ช่วง y (สัดส่วนจอ) ที่ยอมให้เจอเม็ดยา
-    ADDPROD_MIN_W = 0.15             # กว้างอย่างน้อย 15% ของจอ ถึงจะนับว่าเป็นปุ่ม ไม่ใช่ไอคอน
 
-    def _screen_has_add_product(self, serial: str) -> bool:
-        """หาแถบสีส้มของปุ่ม "แตะเพื่อเพิ่มสินค้า" จากภาพหน้าจอ
+    # จุดที่ยอมให้หาปุ่มจากภาพหน้าจอ — หน้า publish dump ไม่ได้
+    # ไม่ได้ผูกโซนตายตัว แต่ "หาแถบส้มที่ใกล้พิกัดที่คาดไว้ที่สุด" (ดู _find_orange_pill)
+    # เพราะขนาด/ตำแหน่งปุ่มต่างกันมากระหว่างมือถือกับแท็บเล็ต:
+    #   วัดจาก SM-P585Y จริง — add_product กว้าง 0.117 ของจอ · post_button กว้าง 0.89
+    SHOT_KEYS = ("add_product", "post_button")
+    SHOT_TOL_Y = 0.10          # ยอมให้ปุ่มเลื่อนจากที่คาดไว้ได้ ±10% ความสูงจอ
+    SHOT_MIN_W = 0.06          # แถบส้มต้องกว้างอย่างน้อย 6% ของจอ ถึงจะนับว่าเป็นปุ่ม
 
-        ★ ต้องมีเพราะหน้า publish dump ไม่ได้ (พรีวิววิดีโอเล่นตลอด window ไม่ idle)
-        ถ้าเชื่อ dump อย่างเดียวจะสรุปว่า "ไม่มีแผงเพิ่มสินค้า" ทุกครั้ง แล้วข้ามการใส่ลิงก์
-        → คลิปขึ้นโดยไม่มีการ์ดสินค้า คนดูกดซื้อไม่ได้ และไม่ได้ค่านายหน้า
-        ภาพหน้าจอไม่สนใจ idle state จึงใช้ได้บนหน้านี้
-        """
+    def _screencap(self, serial: str):
+        """ภาพหน้าจอเป็น PIL Image — ไม่สนใจ idle state ต่างจาก uiautomator dump"""
         import subprocess
         from services.adb.adb_path import adb_bin
-        # เช็คเฉพาะตอนอยู่หน้า publish จริง — หน้าฟีดมีปุ่ม "ซื้อเลย" สีส้มเหมือนกัน
-        act = self._current_activity(serial)
-        if "PublishVideoActivity" not in act:
-            return False
+        r = subprocess.run([adb_bin(self.log), "-s", serial, "exec-out", "screencap", "-p"],
+                           capture_output=True, timeout=25)
+        if not r.stdout:
+            return None
+        from io import BytesIO
+        from PIL import Image
+        return Image.open(BytesIO(r.stdout)).convert("RGB")
+
+    @staticmethod
+    def _is_shopee_orange(p) -> bool:
+        """สีแบรนด์ Shopee ~#EE4D2D — เกณฑ์กว้างพอรับความต่างของจอ/การบีบอัด"""
+        return p[0] > 200 and 60 < p[1] < 130 and p[2] < 90
+
+    def _find_orange_pill(self, serial: str, expect_ry: float,
+                          tol: float = None, min_w_frac: float = None):
+        """หาแถบสีส้มของ Shopee ที่ใกล้ความสูง expect_ry ที่สุด → (x, y) กลางปุ่มจริง
+
+        ★ หัวใจของการแก้ "กดไม่ติด": หน้า publish dump ไม่ได้ (พรีวิววิดีโอเล่นตลอด
+        window ไม่เคย idle) ทุกจุดบนหน้านี้เดิมจึงต้องเดาจากพิกัดสัดส่วน ผิดไม่กี่ px
+        ก็แตะเหนือขอบปุ่มแล้วไม่ติด — ปุ่ม "โพสต์" คือจุดที่พลาดประจำ
+
+        ใช้พิกัดสัดส่วนเป็น "ที่คาดว่าจะอยู่" แล้วให้ภาพหน้าจอเป็นคนชี้ขอบจริง
+        (ไม่ผูกโซนตายตัว เพราะวัดจากเครื่องจริงแล้วปุ่มเดียวกันบนแท็บเล็ตกับมือถือ
+        กว้างต่างกัน 7 เท่า: add_product 0.117 ของจอ ส่วน post_button 0.89)
+        คืน None ถ้าไม่เจอ → ผู้เรียกตกไปใช้พิกัดสำรองตามเดิม
+        """
+        tol = self.SHOT_TOL_Y if tol is None else tol
+        min_w_frac = self.SHOT_MIN_W if min_w_frac is None else min_w_frac
         try:
-            r = subprocess.run([adb_bin(self.log), "-s", serial, "exec-out", "screencap", "-p"],
-                               capture_output=True, timeout=25)
-            if not r.stdout:
-                return False
-            from io import BytesIO
-            from PIL import Image
-            im = Image.open(BytesIO(r.stdout)).convert("RGB")
+            im = self._screencap(serial)
+            if im is None:
+                return None
             W, H = im.size
             px = im.load()
-            y0, y1 = int(H * self.ADDPROD_BAND[0]), int(H * self.ADDPROD_BAND[1])
-            need = int(W * self.ADDPROD_MIN_W)
-            for y in range(y0, y1, 4):                     # สุ่มทีละ 4 แถวพอ — เม็ดยาสูงหลายสิบ px
-                # วัด "ระยะจากส้มซ้ายสุดถึงส้มขวาสุด" ไม่ใช่ช่วงส้มติดกัน
-                # ตัวปุ่มมีตัวอักษรขาวคั่นกลาง ถ้านับแบบติดกันจะไม่มีวันถึงเกณฑ์
-                xs = [x for x in range(0, W, 4)
-                      if px[x, y][0] > 200 and 60 < px[x, y][1] < 130 and px[x, y][2] < 90]
+            need = int(W * min_w_frac)
+            # แถวไหน "กว้างพอ" ถือว่าเป็นตัวปุ่ม — วัดจากส้มซ้ายสุดถึงส้มขวาสุด
+            # ไม่ใช่ช่วงส้มติดกัน เพราะตัวอักษรขาวบนปุ่มคั่นกลางอยู่
+            rows = []
+            for y in range(0, H, 2):
+                xs = [x for x in range(0, W, 4) if self._is_shopee_orange(px[x, y])]
                 if xs and (xs[-1] - xs[0]) >= need:
-                    return True
+                    rows.append((y, xs[0], xs[-1]))
+            if not rows:
+                return None
+            # รวมแถวที่ติดกันเป็นก้อนเดียว = 1 ปุ่ม
+            runs, cur = [], [rows[0]]
+            for r in rows[1:]:
+                if r[0] - cur[-1][0] <= 8:
+                    cur.append(r)
+                else:
+                    runs.append(cur); cur = [r]
+            runs.append(cur)
+            # เลือกก้อนที่ "กลางปุ่ม" ใกล้ตำแหน่งที่คาดไว้ที่สุด และยังอยู่ในระยะที่ยอมรับ
+            best, best_d = None, None
+            for run in runs:
+                cy = (run[0][0] + run[-1][0]) / 2
+                d = abs(cy / H - expect_ry)
+                if d <= tol and (best_d is None or d < best_d):
+                    best, best_d = run, d
+            if best is None:
+                return None
+            mid = best[len(best) // 2]
+            x = (mid[1] + mid[2]) // 2
+            y = (best[0][0] + best[-1][0]) // 2
+            # ภาพหน้าจอกับพิกัดสั่งแตะอาจคนละสเกล (จอบางรุ่นย่อภาพ) → ปรับให้ตรง
+            if self._w and self._h and (W != self._w or H != self._h):
+                x = int(x * self._w / W); y = int(y * self._h / H)
+            return x, y
         except Exception as e:
-            self.log(f"[{self.TAG}] ดูภาพหน้าจอหาแผงเพิ่มสินค้าไม่ได้: {str(e)[:80]}")
-        return False
+            self.log(f"[{self.TAG}] อ่านภาพหน้าจอหาปุ่มไม่ได้: {str(e)[:80]}")
+            return None
+
+    def _keyboard_shown(self, serial: str) -> bool:
+        _, out = self.adb._adb("shell", "dumpsys", "input_method", serial=serial)
+        return "mInputShown=true" in (out or "")
+
+    def _dismiss_keyboard(self, serial: str):
+        """ปิดคีย์บอร์ดถ้าเปิดค้างอยู่
+
+        ★ วัดจากเครื่องจริง: หลังเลือกวิดีโอเสร็จ คีย์บอร์ดเปิดคาหน้า publish และ
+        ทับปุ่ม "โพสต์" ทั้งแถบ — แตะตอนนั้นคือแตะโดนปุ่มคีย์บอร์ด ไม่ใช่ปุ่มโพสต์
+        """
+        if not self._keyboard_shown(serial):
+            return
+        self.log(f"[{self.TAG}] คีย์บอร์ดเปิดค้างอยู่ (บังปุ่ม) — ปิดก่อน")
+        self.adb._adb("shell", "input", "keyevent", "4", serial=serial)   # BACK ปิด IME ก่อนเสมอ
+        time.sleep(1.2)
+
+    def _screen_has_add_product(self, serial: str) -> bool:
+        """มีแผง "เพิ่มสินค้า" บนหน้า publish ไหม — ดูจากภาพหน้าจอ
+
+        ★ ต้องมีเพราะหน้า publish dump ไม่ได้. ถ้าเชื่อ dump อย่างเดียวจะสรุปว่า
+        "ไม่มีแผงเพิ่มสินค้า" ทุกครั้ง แล้วข้ามการใส่ลิงก์ → คลิปขึ้นโดยไม่มีการ์ดสินค้า
+        คนดูกดซื้อไม่ได้ และไม่ได้ค่านายหน้า
+        """
+        # เช็คเฉพาะตอนอยู่หน้า publish จริง — หน้าฟีดมีปุ่ม "ซื้อเลย" สีส้มเหมือนกัน
+        if "PublishVideoActivity" not in self._current_activity(serial):
+            return False
+        return self._find_orange_pill(serial, self.R["add_product"][1]) is not None
 
     def _wait_add_product_panel(self, serial: str, timeout: float = 20.0) -> bool:
         """แผง "เพิ่มสินค้า" ของหน้า publish โหลดแยกทีหลัง (ดึงสิทธิ์ affiliate จากเซิร์ฟเวอร์)
@@ -643,6 +778,7 @@ class AutoPoster(BasePoster):
         limit = self.settings.get("post_timeout_sec", self.POST_TIMEOUT_SEC)
         self._deadline = time.time() + limit
         self._caption_unverified = False
+        self._verify_reason = ""
         self._warn_unverified_preset()
         self._warn_locale(serial)
 
@@ -769,22 +905,64 @@ class AutoPoster(BasePoster):
             return "unverified" if self._caption_unverified else True
 
         # 11. โพสต์
-        self.log("[POST] กดโพสต์...")
-        before_act = self._current_activity(serial)
-        self._tap_r(serial, "post_button", settle=5)
-        # ★ หลักฐานว่าโพสต์ขึ้นจริงที่ไม่ต้องพึ่ง dump: Shopee ออกจากหน้า publish
-        #   กดไม่ติด = ค้างหน้าเดิม (พิสูจน์แล้วตอนปุ่มพลาด 94px — ค้าง 2 รอบติด)
-        #   หน้า publish และหน้าฟีดหลังโพสต์ dump ไม่ผ่านทั้งคู่ ตัวยืนยันเดิมจึงตอบ
-        #   "ยืนยันไม่ได้" ทุกครั้ง แล้วงานที่โพสต์สำเร็จไปโผล่เป็น error ในหน้างาน
+        return self._tap_post_until_left(serial)
+
+    def _wait_leave_publish(self, serial: str, secs: int) -> bool:
+        """รอจน Shopee ออกจากหน้า publish — จริง = ออกแล้ว (คลิปขึ้นจริง)"""
+        for _ in range(secs):
+            if "PublishVideoActivity" not in self._current_activity(serial):
+                self._left_publish = True
+                return True
+            time.sleep(1)
+        return False
+
+    def _tap_post_until_left(self, serial: str) -> bool:
+        """กดปุ่ม "โพสต์" จนพิสูจน์ได้ว่าโพสต์ไปแล้ว — คืน False ถ้ายังไม่ได้โพสต์จริง
+
+        ★ หลักฐานที่ไม่ต้องพึ่ง dump: Shopee ออกจากหน้า publish เมื่อโพสต์ขึ้น
+          กดไม่ติด = ค้างหน้าเดิม (พิสูจน์แล้วตอนปุ่มพลาด 94px — ค้าง 2 รอบติด)
+          หน้า publish และหน้าฟีดหลังโพสต์ dump ไม่ผ่านทั้งคู่ ตัวยืนยันปกติจึงตอบ
+          "ยืนยันไม่ได้" ทุกครั้ง แล้วงานที่โพสต์สำเร็จไปโผล่เป็น error ในหน้างาน
+
+        ★★ เดิมกดครั้งเดียวแล้วเดินต่อไม่ว่าผลเป็นอะไร: ปุ่มพลาดไปไม่กี่ px = ไม่ได้โพสต์
+           แต่ถูกรายงานเป็น "unverified" ซึ่งเป็นสถานะจบ (ไม่ retry) → คลิปหายทั้งที่
+           แค่กดไม่โดน ตอนนี้กดซ้ำได้ และถ้ายังไม่ติดจริงจะรายงานว่า "ล้มเหลว"
+           ให้ autopilot เอาไปลองใหม่ตามรอบ backoff
+        """
+        self._dismiss_keyboard(serial)     # คีย์บอร์ดทับปุ่มโพสต์ทั้งแถบ (เจอจริงบน SM-P585Y)
+        on_publish = "PublishVideoActivity" in self._current_activity(serial)
         self._left_publish = False
-        if "PublishVideoActivity" in before_act:
-            for _ in range(25):
-                if "PublishVideoActivity" not in self._current_activity(serial):
-                    self._left_publish = True
-                    break
-                time.sleep(1)
-            self.log("[POST] ออกจากหน้าโพสต์แล้ว — คลิปขึ้นแล้ว ✓" if self._left_publish
-                     else "[POST] ⚠ ยังค้างหน้าโพสต์หลังกดปุ่ม — อาจกดไม่ติด")
+        taps = 0
+        for i in range(1, self.POST_TAP_TRIES + 1):
+            self.log("[POST] กดโพสต์..." + (f" (รอบ {i}/{self.POST_TAP_TRIES})" if i > 1 else ""))
+            self._tap_r(serial, "post_button", settle=5)
+            taps = i
+            if not on_publish:
+                return True                # ไม่ได้เริ่มจากหน้า publish → ใช้หลักฐานนี้ตัดสินไม่ได้
+            if self._wait_leave_publish(serial, 25 if i == 1 else 15):
+                break
+            if i == self.POST_TAP_TRIES:
+                break
+            # กันกดซ้ำตอนที่กดติดแล้วแต่ Shopee อัปโหลดช้า: ปุ่มหายไปจากจอ
+            # แปลว่ากำลังดำเนินการอยู่ ห้ามแตะซ้ำ (เสี่ยงโพสต์ซ้ำ) — รอต่ออย่างเดียว
+            if self._find_orange_pill(serial, self.R["post_button"][1]) is None:
+                self.log("[POST] ปุ่มโพสต์หายจากจอแล้ว — กำลังดำเนินการอยู่ รอต่อ ไม่กดซ้ำ")
+                self._wait_leave_publish(serial, 20)
+                break
+            self.log("[POST] ยังค้างหน้าโพสต์ = ปุ่มไม่ติด (ยังไม่ได้โพสต์) — กดใหม่")
+        if self._left_publish:
+            self.log("[POST] ออกจากหน้าโพสต์แล้ว — คลิปขึ้นแล้ว ✓")
+            return True
+        # ยังค้างหน้า publish — แยกสองกรณีให้ขาด เพราะผลลัพธ์ต่างกันคนละเรื่อง
+        # · ปุ่มยังอยู่บนจอ  = กดไม่โดนแน่นอน ยังไม่ได้โพสต์ → ล้มเหลวจริง ให้ลองใหม่ได้ ไม่มีทางซ้ำ
+        # · ปุ่มหายไปแล้ว   = น่าจะกดติดแต่ยังดำเนินการอยู่ → ห้ามบอกว่าล้ม ไม่งั้น retry = โพสต์ซ้ำ
+        #   ปล่อยให้ชั้นยืนยันผลตัดสิน (จะจบเป็น unverified ให้ผู้ใช้ตรวจเอง)
+        if self._find_orange_pill(serial, self.R["post_button"][1]) is not None:
+            self.log(f"[POST] ✗ กดปุ่มโพสต์ไม่ติดหลังลอง {taps} รอบ — ปุ่มยังอยู่บนจอ "
+                     f"แปลว่ายังไม่ได้โพสต์")
+            return False       # ล้มจริง → autopilot ลองใหม่ให้ ไม่ใช่สถานะจบแบบ unverified
+        self.log("[POST] ⚠ ยังค้างหน้าโพสต์แต่ปุ่มหายไปแล้ว — สรุปไม่ได้ว่าโพสต์ขึ้นหรือยัง "
+                 "(ไม่กดซ้ำ กันโพสต์ซ้ำ) ให้ตัวยืนยันผลตัดสิน")
         return True
 
     def _maybe_verify(self, serial: str):
@@ -806,6 +984,6 @@ class AutoPoster(BasePoster):
             if left:
                 self.log(f"[{self.TAG}] โพสต์ขึ้นแล้ว ✓ (ยืนยันเนื้อแคปชั่นไม่ได้เพราะอ่านหน้าจอไม่ได้)")
                 return True
-            self.log(f"[{self.TAG}] ⚠ โพสต์ขึ้นแล้วแต่ยืนยันแคปชั่นไม่ได้ — รายงาน unverified")
+            self._verify_reason = "ยืนยันเนื้อแคปชั่นไม่ได้"
             return "unverified"
         return res

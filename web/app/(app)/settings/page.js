@@ -9,8 +9,16 @@ import { InfoTooltip } from '@/components/ui/InfoTooltip'
 import { CaptionBuilder } from '@/components/ui/CaptionBuilder'
 import { useToast } from '@/components/ui/Toast'
 import { termTh, termHint, MSG } from '@/lib/copy'
-import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound, Wrench, RefreshCw, Users } from 'lucide-react'
+import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound, Wrench, RefreshCw, Users, Zap, ShieldCheck } from 'lucide-react'
 import { FlowAccounts } from '@/components/settings/FlowAccounts'
+
+// สิ่งที่เกิดขึ้นหลังสร้างคลิปเสร็จ — ค่าเดียวกับที่เลือกตอนติดตั้ง (review_mode)
+const REVIEW_MODES = [
+  { key: 'auto', Icon: Zap,         label: 'โพสต์อัตโนมัติทันที',
+    desc: 'สร้างคลิปเสร็จแล้วโพสต์ให้เลย ไม่ต้องกดอะไร — ต้องเสียบมือถือไว้และเลือกแพลตฟอร์มปลายทางแล้ว' },
+  { key: 'hold', Icon: ShieldCheck, label: 'พักไว้ให้ฉันตรวจก่อน',
+    desc: 'คลิปไปกองที่หน้ารายการคลิป รอคุณกด "โพสต์เลย" ทีละอันจึงจะโพสต์' },
+]
 
 // ── helpers ───────────────────────────────────────────────────────
 
@@ -91,7 +99,12 @@ export default function SettingsPage() {
   const [extVer, setExtVer]           = useState('')
   const keySet = cfg.google_api_key === '********'   // public_load ส่ง mask มาถ้าตั้ง key แล้ว
 
+  const [pilot, setPilot] = useState(null)   // สถานะลูปโพสต์จริงจากเซิร์ฟเวอร์
+
   useEffect(() => { api.getSettings().then(setCfg).catch(() => {}) }, [])
+  // เช็คว่าลูปโพสต์ "ทำงานอยู่จริง" ไม่ใช่แค่ค่าที่บันทึกไว้ — เปิดหน้ามาก็รู้ทันทีว่าออโต้เดินอยู่ไหม
+  const loadPilot = () => api.pilot().then(setPilot).catch(() => {})
+  useEffect(() => { loadPilot() }, [])
   useEffect(() => { api.platforms().then(d => setPlatforms(d.platforms || [])).catch(() => {}) }, [])
   useEffect(() => { api.flowAdapter().then(d => setAdapterVer(d.version || '')).catch(() => {}) }, [])
 
@@ -162,6 +175,7 @@ export default function SettingsPage() {
       setApiKey('')
       setSaved(true); setTimeout(() => setSaved(false), 2000)
       toast.success(MSG.saveOk)
+      loadPilot()          // โหมดโพสต์เพิ่งเปลี่ยน — อ่านสถานะจริงกลับมาโชว์
     } catch {
       toast.error(MSG.saveFail)   // (api.js เด้ง toast ออฟไลน์ให้แล้ว — อันนี้เสริมบริบท "บันทึก")
     }
@@ -247,7 +261,45 @@ export default function SettingsPage() {
           </Row>
 
           {/* ══ การโพสต์ ══════════════════════════════════ */}
-          <Section title="การโพสต์" subtitle="เลือกแพลตฟอร์มปลายทางสำหรับโพสต์แต่ละคลิป" />
+          <Section title="การโพสต์" subtitle="สร้างคลิปเสร็จแล้วให้ทำอะไรต่อ และโพสต์ไปที่ไหนบ้าง" />
+          <Row icon={Zap} delay={38}
+               title="หลังสร้างคลิปเสร็จ"
+               info="เลือก 'โพสต์อัตโนมัติทันที' แล้วระบบจะโพสต์เองตลอดโดยไม่ต้องมีคนเฝ้า — ยังเคารพตารางเวลา โควต้าต่อวัน และการพักเครื่องตอนร้อน/แบตต่ำเหมือนเดิม"
+               desc="ค่าเดียวกับที่เลือกตอนติดตั้ง — เปลี่ยนที่นี่ได้ตลอด มีผลทันทีที่กดบันทึก">
+            <div className="flex flex-col gap-2">
+              {REVIEW_MODES.map(m => {
+                const on = (cfg.review_mode || 'auto') === m.key
+                return (
+                  <button key={m.key} type="button" onClick={() => set('review_mode')(m.key)}
+                    className={`flex items-start gap-3 text-left p-3.5 rounded-xl border transition-all cursor-pointer
+                      ${on ? 'border-accent bg-accent-wash' : 'border-border hover:border-accent/40'}`}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0
+                      ${on ? 'bg-accent text-white' : 'bg-secondary text-muted-foreground'}`}>
+                      <m.Icon size={15} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-sm font-semibold ${on ? 'text-accent' : 'text-foreground'}`}>{m.label}</p>
+                      <p className="text-muted-foreground text-xs mt-1 leading-relaxed">{m.desc}</p>
+                    </div>
+                    {on && <Check size={15} strokeWidth={3} className="text-accent shrink-0 mt-1" />}
+                  </button>
+                )
+              })}
+              {/* สถานะจริงจากเซิร์ฟเวอร์ — กันเคสเลือก auto ไว้แต่ลูปไม่ได้เดิน */}
+              {pilot && (
+                <p className="text-xs mt-1 flex items-center gap-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${pilot.enabled ? 'bg-success' : 'bg-muted-foreground'}`} />
+                  <span className="text-muted-foreground">
+                    ตอนนี้ลูปโพสต์อัตโนมัติ{' '}
+                    <span className={pilot.enabled ? 'text-success font-semibold' : 'text-foreground font-semibold'}>
+                      {pilot.enabled ? 'ทำงานอยู่' : 'ปิดอยู่'}
+                    </span>
+                    {(cfg.review_mode || 'auto') !== pilot.review_mode && ' — กดบันทึกเพื่อให้มีผล'}
+                  </span>
+                </p>
+              )}
+            </div>
+          </Row>
           <Row icon={Share2} delay={40}
                title={termTh('platform')}
                info={termHint('dry_run')}

@@ -68,13 +68,23 @@ class AutoPilot:
         return self._enabled
 
     def restore(self):
-        """คืนสถานะโหมดอัตโนมัติจากครั้งก่อน (จำค่าใน DB) — ครั้งแรก default ปิดเพื่อความปลอดภัย.
+        """เปิด/ปิดโหมดอัตโนมัติตาม review_mode ที่ผู้ใช้เลือกไว้ (auto = โพสต์เอง, hold = รอกดอนุมัติ).
+
+        เดิมอ่านธง autopilot_on ใน DB ซึ่ง default '0' และไม่มีปุ่มไหนในเว็บสั่งเปิดเลย
+        → ผู้ใช้เลือก "โพสต์อัตโนมัติทันที" ตอนติดตั้ง แต่ลูปโพสต์ไม่เคยเริ่มทำงาน
+        ตอนนี้ review_mode เป็นสวิตช์ตัวจริงตัวเดียว ทั้งหน้าติดตั้งและหน้าตั้งค่าใช้ค่าเดียวกัน.
         (ปุ่ม โพสต์เลย/ทดสอบ ยังใช้ได้เสมอไม่ว่าออโต้เปิดหรือปิด)"""
-        on = False
-        if self.db:
-            on = (self.db.get_config("autopilot_on", "0") == "1")
+        try:
+            mode = (cfg.load().get("review_mode") or "auto").strip()
+        except Exception:
+            mode = "auto"
+        on = (mode == "auto")
         self._enabled = on
-        self.log(f"[AUTO] คืนสถานะโหมดอัตโนมัติ: {'เปิด' if on else 'ปิด'}")
+        if self.db:
+            self.db.set_config("autopilot_on", "1" if on else "0")
+        self.log(f"[AUTO] โหมดหลังสร้างคลิปเสร็จ: "
+                 + ("โพสต์อัตโนมัติทันที — ลูปโพสต์ทำงานอยู่" if on
+                    else "พักไว้รอตรวจ — จะโพสต์เมื่อกดอนุมัติในหน้ารายการคลิป"))
 
     def set_enabled(self, on: bool):
         self._enabled = bool(on)
@@ -222,10 +232,34 @@ class AutoPilot:
 
     # ── loop ──────────────────────────────────────────────────
 
+    # คลิปที่ค้าง 'posting' นานกว่านี้ = ไม่มีใครทำอยู่จริงแล้ว (มือถือหลุด/เธรดตาย)
+    # ตั้งยาวกว่าเพดานเวลาต่อโพสต์ (600 วิ) เท่าตัว — ไม่มีทางไปดึงงานที่กำลังทำอยู่
+    STALE_POSTING_SEC = 1200
+
+    def _sweep_stale(self):
+        """กู้คลิปที่ค้างกลางทางกลับเข้าคิว — ไม่ต้องรอผู้ใช้ปิดเปิดโปรแกรม"""
+        if not self.db:
+            return
+        try:
+            ids = self.db.requeue_stale_posting(self.STALE_POSTING_SEC)
+        except Exception as e:
+            self.log(f"[AUTO] กู้คลิปค้างไม่สำเร็จ: {e}")
+            return
+        if ids:
+            self.log(f"[AUTO] พบคลิปค้างสถานะ 'กำลังโพสต์' {len(ids)} คลิป "
+                     f"(เกิน {self.STALE_POSTING_SEC // 60} นาที — มือถือหลุดหรือค้างกลางทาง) "
+                     f"→ ดึงกลับเข้าคิวให้โพสต์ใหม่")
+
     def _loop(self):
-        """Manager: ดูแลให้ทุกเครื่องที่ต่ออยู่มี worker โพสต์ของตัวเอง (ขนาน)."""
+        """Manager: ดูแลให้ทุกเครื่องที่ต่ออยู่มี worker โพสต์ของตัวเอง (ขนาน)
+        + กวาดคลิปที่ค้างกลางทางกลับเข้าคิวเป็นระยะ."""
+        last_sweep = 0.0
         while not self._stop:
             try:
+                now = time.time()
+                if now - last_sweep > 60:
+                    last_sweep = now
+                    self._sweep_stale()
                 if self._enabled and self.adb:
                     for d in list(self.adb.devices.values()):
                         if d.status != "device":
@@ -388,6 +422,27 @@ class AutoPilot:
             time.sleep(1)
 
     def _post_one(self, job, serial, s, dev_plats=None):
+        """ห่อ _post_one_inner ไว้ด้วยกันเหนียว: ข้อผิดพลาดที่ไม่ได้ดัก (มือถือหลุดกลาง
+        คำสั่ง adb, scrcpy ตาย, ฯลฯ) เดิมทำให้เธรดตายทั้งเส้น แล้วคลิปค้างสถานะ
+        'กำลังโพสต์' ตลอดไป — worker ตัวใหม่ claim เฉพาะ 'generated' จึงไม่มีใครหยิบอีก
+        ตอนนี้ล้มยังไงก็ถูกดันกลับเข้าคิวพร้อม backoff เสมอ"""
+        try:
+            self._post_one_inner(job, serial, s, dev_plats)
+        except Exception as e:
+            jid = job.get("id")
+            self.log(f"[AUTO] โพสต์ล้มกลางทาง ({type(e).__name__}: {str(e)[:120]}) — ดึงกลับเข้าคิว")
+            try:
+                res = self.db.record_failure(jid, GENERATED, f"ขัดข้องกลางทาง: {str(e)[:200]}")
+                if not res.get("retrying"):
+                    self.log(f"[AUTO] คลิป #{jid} ล้มครบจำนวนครั้งที่ตั้งไว้ — พักไว้ให้ตรวจเอง")
+            except Exception:
+                pass
+            dev = self.adb.devices.get(serial) if self.adb else None
+            if dev:
+                dev.posting = False
+            self._stats()
+
+    def _post_one_inner(self, job, serial, s, dev_plats=None):
         with self._device_lock(serial):   # T5: กันโพสต์ชนกันบนเครื่องเดียว
             jid = job["id"]; product = job["product"]
             pid = product.get("product_id") or str(jid)

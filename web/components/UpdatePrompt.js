@@ -44,7 +44,8 @@ export function UpdatePrompt() {
     setBusy(true); setErr('')
     try {
       const r = await api.appUpdate()
-      if (r?.ok) setDone(true)
+      // ok:true + warning = ไฟล์ทับแล้วแต่ลงไลบรารีใหม่ไม่ผ่าน — ต้องบอก ไม่งั้นเปิดใหม่แล้วงง
+      if (r?.ok) { setDone(true); setErr(r.warning || '') }
       else setErr(r?.error || 'อัปเดตไม่สำเร็จ')
     } catch { setErr('อัปเดตไม่สำเร็จ — เช็คอินเทอร์เน็ต') }
     finally { setBusy(false) }

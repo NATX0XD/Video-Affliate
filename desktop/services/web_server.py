@@ -450,8 +450,10 @@ class WebServer:
             ok, msg = self.adb.connect_wifi(host)
             if ok:
                 self.adb.scan()   # อัปเดตรายชื่อเครื่องทันที
+            # hint บอกสาเหตุที่แท้จริง (เช่น คอมกับมือถืออยู่คนละวง) — ตรงกว่าข้อความ adb ดิบ
+            hint = getattr(self.adb, "last_connect_hint", "")
             return {"ok": ok, "message": msg,
-                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+                    "error": "" if ok else (hint or self.adb._friendly_adb_error(msg))}
 
         @app.post("/api/adb/tcpip")
         async def adb_tcpip(body: dict):
@@ -496,8 +498,9 @@ class WebServer:
             ok, msg = self.adb.connect_wifi(host, port)
             if ok:
                 self.adb.scan()
+            hint = getattr(self.adb, "last_connect_hint", "")
             return {"ok": ok, "message": msg,
-                    "error": "" if ok else self.adb._friendly_adb_error(msg)}
+                    "error": "" if ok else (hint or self.adb._friendly_adb_error(msg))}
 
         @app.post("/api/adb/test")
         async def adb_test(body: dict):
@@ -510,18 +513,79 @@ class WebServer:
             res = self.adb.test_ready(serial)
             return {"ok": res["ready"], **res}
 
-        @app.post("/api/pilot/start")
-        async def pilot_start(body: dict):
-            # เปิดโหมดโพสต์อัตโนมัติ (auto-post loop)
+        def _apply_review_mode(mode: str):
+            """review_mode = สวิตช์ตัวจริงของลูปโพสต์อัตโนมัติ.
+            'auto' = สร้างเสร็จโพสต์เลย · 'hold' = พักไว้รอกดอนุมัติในหน้ารายการคลิป.
+            เก็บให้ตรงกันทุกทางเข้า (หน้าติดตั้ง / หน้าตั้งค่า / endpoint pilot) ไม่งั้น
+            ผู้ใช้เลือก auto แต่ลูปยังปิดอยู่ = ไม่โพสต์เอง และไม่มีอะไรบอกว่าทำไม"""
+            if mode not in ("auto", "hold"):
+                return
+            import config as cfg
+            s = cfg.load()
+            if s.get("review_mode") != mode:
+                s["review_mode"] = mode
+                cfg.save(s)
             if self.autopilot:
-                self.autopilot.set_enabled(True)
-            return {"ok": True, "enabled": True}
+                self.autopilot.set_enabled(mode == "auto")
+
+        @app.post("/api/pilot/start")
+        async def pilot_start(body: dict = None):
+            # เปิดโหมดโพสต์อัตโนมัติ (auto-post loop) + จำไว้ใน review_mode
+            _apply_review_mode("auto")
+            return {"ok": True, "enabled": True, "review_mode": "auto"}
 
         @app.post("/api/pilot/stop")
         async def pilot_stop():
-            if self.autopilot:
-                self.autopilot.set_enabled(False)
-            return {"ok": True, "enabled": False}
+            _apply_review_mode("hold")
+            return {"ok": True, "enabled": False, "review_mode": "hold"}
+
+        @app.get("/api/pilot")
+        def pilot_state():
+            """สถานะลูปโพสต์ตอนนี้ + สิ่งที่ขวางไม่ให้โพสต์ได้.
+
+            หน้าเว็บเอาไปโชว์ว่า 'ทำงานอยู่จริง' ไม่ใช่แค่ค่าที่บันทึกไว้ และเด้งเตือนเมื่อ
+            เปิดออโต้ไว้แต่ยังไม่ได้เสียบมือถือ — เดิมคลิปจะกองเงียบ ๆ โดยไม่มีอะไรบอก
+            """
+            import config as cfg
+            from services.platforms import ready_enabled
+            from services.db import GENERATED
+
+            s = cfg.load()
+            enabled = bool(self.autopilot and self.autopilot.enabled)
+            online = 0
+            if self.adb:
+                online = sum(1 for d in self.adb.devices.values() if d.status == "device")
+            plats = ready_enabled(s)
+            waiting = 0
+            if self.db:
+                try:
+                    waiting = int((self.db.stats().get("by_status") or {}).get(GENERATED, 0))
+                except Exception:
+                    pass
+
+            # เตือนเฉพาะตอนที่มันสำคัญจริง: เปิดออโต้ไว้ หรือมีคลิปรอโพสต์อยู่แล้ว
+            blockers = []
+            if enabled or waiting:
+                if online == 0:
+                    blockers.append({
+                        "code": "device",
+                        "title": "ยังไม่ได้เชื่อมมือถือ — โพสต์ไม่ได้",
+                        "detail": "เสียบสาย USB แล้วเปิด 'การแก้จุดบกพร่อง USB' หรือเชื่อมผ่าน Wi-Fi "
+                                  "ที่หน้าอุปกรณ์ · คลิปที่สร้างเสร็จจะรออยู่จนกว่าจะมีเครื่อง",
+                    })
+                if not plats:
+                    blockers.append({
+                        "code": "platform",
+                        "title": "ยังไม่ได้เลือกแพลตฟอร์มปลายทาง",
+                        "detail": "ไปที่ ตั้งค่า → การโพสต์ แล้วเปิดแพลตฟอร์มที่จะโพสต์อย่างน้อยหนึ่งที่",
+                    })
+            return {"ok": True,
+                    "enabled": enabled,
+                    "review_mode": s.get("review_mode", "auto"),
+                    "devices_online": online,
+                    "platforms": plats,
+                    "waiting": waiting,
+                    "blockers": blockers}
 
         # ── Generated video library ──
 
@@ -727,6 +791,7 @@ class WebServer:
             if body.get("review_mode") in ("auto", "hold"):
                 s["review_mode"] = body["review_mode"]
             cfg.save(s)   # ตัด secrets ออกก่อนเขียนไฟล์เสมอ
+            _apply_review_mode(body.get("review_mode"))   # เลือก auto ตอนติดตั้ง = ลูปโพสต์เริ่มทำงานจริง
 
             # Google API key → .env (ข้ามค่า mask กันทับ key เดิม)
             key = (body.get("google_api_key") or "").strip()
@@ -1022,7 +1087,10 @@ class WebServer:
                 self.emit_log("[SETTINGS] อัปเดต Google API key แล้ว")
             cfg.save(body)             # strips secrets; masked values are ignored
             # AutoPoster/AutoPilot อ่าน cfg.load() สดทุกครั้ง — ไม่ต้อง push เข้า worker
-            return {"ok": True}
+            # ยกเว้นสวิตช์ลูปโพสต์: ต้องสั่งเปิด/ปิดให้ตรงกับโหมดที่เพิ่งบันทึก
+            _apply_review_mode(body.get("review_mode"))
+            return {"ok": True,
+                    "autopilot": bool(self.autopilot and self.autopilot.enabled)}
 
         @app.post("/api/settings/test-key")
         async def test_google_key(body: dict):
@@ -1071,7 +1139,15 @@ class WebServer:
         # ── อัปเดต extension เอง (ปุ่มในหน้า Settings) — ดึงล่าสุดจาก GitHub ลงโฟลเดอร์ extension ──
         # ใช้คำสั่งเดียวกับที่ผู้ใช้พิมพ์ใน Terminal (curl|tar) แต่รันให้จากเซิร์ฟเวอร์
         # ── อัปเดตตัวโปรแกรม ────────────────────────────────────────────────
-        # โฟลเดอร์ติดตั้งเป็น git clone อยู่แล้ว → เทียบ commit ที่รันอยู่กับ main บน GitHub
+        # มีสองแบบ เพราะโฟลเดอร์ติดตั้งจริงกับโฟลเดอร์นักพัฒนาไม่เหมือนกัน:
+        #   · มี .git (เครื่องนักพัฒนา / ติดตั้งด้วย git clone) → fetch + reset --hard
+        #   · ไม่มี .git (ตัวติดตั้ง .dmg ที่แตกจาก payload) → โหลด main.tar.gz มาทับ
+        # เดิมรองรับเฉพาะแบบแรก → เครื่องผู้ใช้จริงตอบ supported:false ทุกเครื่อง
+        # ป๊อปอัปแจ้งเวอร์ชันใหม่จึงไม่เคยขึ้นเลย และแก้อะไรไปก็ไปไม่ถึงมือผู้ใช้
+        VERSION_STAMP = ".vgap-version"      # เก็บ sha ที่ติดตั้งไว้ — ใช้แทน git ตอนเทียบเวอร์ชัน
+        GITHUB_MAIN   = "https://api.github.com/repos/NATX0XD/Video-Affliate/commits/main"
+        TARBALL_MAIN  = "https://github.com/NATX0XD/Video-Affliate/archive/refs/heads/main.tar.gz"
+
         def _app_root():
             from pathlib import Path
             return Path(__file__).resolve().parents[2]
@@ -1085,47 +1161,196 @@ class WebServer:
             except Exception as e:
                 return False, str(e)[:200]
 
+        def _is_frozen():
+            """รุ่นที่ PyInstaller หุ้มเป็น .exe — โค้ด Python อยู่ในไฟล์เดียว เขียนทับทีละไฟล์ไม่ได้"""
+            import sys as _s
+            return bool(getattr(_s, "frozen", False))
+
+        def _local_sha():
+            """commit ที่เครื่องนี้รันอยู่ — จาก git ถ้ามี ไม่งั้นอ่านจากไฟล์ตราเวอร์ชันที่ตัวติดตั้ง/ตัวอัปเดตเขียนไว้"""
+            root = _app_root()
+            if (root / ".git").exists():
+                ok, cur = _git("rev-parse", "HEAD")
+                return cur.strip() if ok else None
+            try:
+                return (root / VERSION_STAMP).read_text(encoding="utf-8").strip() or None
+            except Exception:
+                return None                       # ติดตั้งรุ่นเก่าที่ยังไม่มีตรา → ถือว่าเก่ากว่า main เสมอ
+
+        def _latest_commit(timeout=12):
+            """(sha, หัวข้อ commit, error) ของ main บน GitHub"""
+            import httpx
+            try:
+                data = httpx.get(GITHUB_MAIN, timeout=timeout,
+                                 headers={"Accept": "application/vnd.github+json"}).json()
+            except Exception as e:
+                return None, "", f"เช็กอัปเดตไม่ได้: {str(e)[:120]}"
+            sha = data.get("sha") or ""
+            if not sha:
+                return None, "", "GitHub ไม่ตอบข้อมูลเวอร์ชัน"
+            return sha, ((data.get("commit") or {}).get("message") or "").split("\n")[0], ""
+
+        # โฟลเดอร์/ไฟล์ที่ตัวอัปเดตแบบโหลดไฟล์จะทับ — allowlist ไม่ใช่ "ทับทั้งก้อน"
+        # ของผู้ใช้ (คลิป/คิว/คีย์) อยู่ที่ ~/.vgap และ desktop/data ซึ่งไม่อยู่ในรายการนี้
+        APP_DIRS  = ("desktop/", "web/out/", "web/public/", "extension/", "electron/")
+        APP_EXTS  = (".command", ".bat", ".ps1", ".vbs", ".md")   # สคริปต์+คู่มือที่รากโฟลเดอร์
+        APP_SKIP  = {".git", ".venv", "__pycache__", "node_modules", "data", "dist", "bin"}
+        APP_SKIP_NAMES = {"settings.json", ".env"}
+
+        def _wanted(rel: str) -> bool:
+            parts = rel.split("/")
+            if any(p in APP_SKIP for p in parts) or ".." in parts:
+                return False
+            if parts[-1] in APP_SKIP_NAMES:
+                return False
+            if any(rel.startswith(d) for d in APP_DIRS):
+                return True
+            return len(parts) == 1 and rel.endswith(APP_EXTS)
+
+        def _pull_app(root, timeout=180):
+            """โหลด main.tar.gz แล้วทับเฉพาะไฟล์ในรายการ — สำหรับเครื่องที่ติดตั้งจากตัวติดตั้ง (ไม่มี .git).
+            ทับทีละไฟล์ ไม่ลบโฟลเดอร์เดิมก่อน → ไฟล์ของผู้ใช้ที่ไม่อยู่ใน tarball ยังอยู่ครบ.
+            คืน (จำนวนไฟล์ที่เขียน, ข้อความ error)."""
+            import io, tarfile, shutil, tempfile, urllib.request
+            from pathlib import Path
+            try:
+                with urllib.request.urlopen(TARBALL_MAIN, timeout=timeout) as resp:
+                    blob = resp.read()
+            except Exception as e:
+                return 0, f"โหลดไฟล์อัปเดตไม่ได้: {str(e)[:160]}"
+            tmp = tempfile.mkdtemp(prefix="vgap-app-")
+            try:
+                with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
+                    picked = []
+                    for m in tf.getmembers():
+                        if not m.isfile():
+                            continue
+                        rel = m.name.split("/", 1)[1] if "/" in m.name else ""   # ตัด Video-Affliate-main/
+                        if not rel or not _wanted(rel):
+                            continue
+                        m.name = rel
+                        picked.append(m)
+                    if not picked:
+                        return 0, "ไฟล์ที่โหลดมาไม่มีเนื้อโปรแกรม — ยกเลิกการอัปเดต"
+                    try:
+                        tf.extractall(tmp, members=picked, filter="data")   # py3.12+ กัน path แปลก
+                    except TypeError:
+                        tf.extractall(tmp, members=picked)
+                n = 0
+                for src in Path(tmp).rglob("*"):
+                    if not src.is_file():
+                        continue
+                    dst = root / src.relative_to(tmp)
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
+                    n += 1
+                return n, ""
+            except Exception as e:
+                return 0, f"แตกไฟล์อัปเดตไม่สำเร็จ: {str(e)[:160]}"
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+
+        # ── dependency หลังอัปเดต ────────────────────────────────────────────
+        # อัปเดตทับไฟล์อย่างเดียวไม่พอ: ถ้าเวอร์ชันใหม่เพิ่ม lib ใน requirements.txt
+        # เปิดโปรแกรมรอบหน้าจะ ImportError ตั้งแต่ยังไม่ทันขึ้นหน้าจอ
+        # → เทียบ requirements.txt ก่อน/หลัง ถ้าเปลี่ยนจริงค่อยลง (pip ช้าและกินเน็ต)
+        def _req_hash(root):
+            import hashlib
+            try:
+                return hashlib.sha1((root / "desktop" / "requirements.txt").read_bytes()).hexdigest()
+            except Exception:
+                return ""
+
+        def _pip_sync(root, timeout=600):
+            """ลง dependency ตาม requirements.txt ด้วย Python ตัวที่รันเซิร์ฟเวอร์อยู่ (= venv เดียวกัน).
+            คืน (สถานะ, ข้อความ) — 'installed' | 'failed' | 'skipped'"""
+            import subprocess, sys as _s
+            req = root / "desktop" / "requirements.txt"
+            if not req.exists():
+                return "skipped", "ไม่พบ requirements.txt"
+            try:
+                r = subprocess.run(
+                    [_s.executable, "-m", "pip", "install", "-r", str(req),
+                     "--disable-pip-version-check", "--no-input"],
+                    cwd=str(root / "desktop"), capture_output=True, text=True, timeout=timeout)
+            except Exception as e:
+                return "failed", str(e)[:200]
+            if r.returncode != 0:
+                return "failed", (r.stderr or r.stdout or "").strip()[-300:]
+            return "installed", ""
+
+        def _sync_deps_if_changed(root, before):
+            """เรียกหลังทับไฟล์เสร็จ. คืน (deps, warning) — warning มีค่าเมื่อลงไม่สำเร็จ"""
+            if _req_hash(root) == before:
+                return "unchanged", ""
+            self.emit_log("[UPDATE] requirements.txt เปลี่ยน — กำลังลงไลบรารีใหม่ (อาจใช้เวลาสักครู่)")
+            deps, msg = _pip_sync(root)
+            if deps == "failed":
+                # ไฟล์ถูกทับไปแล้ว ย้อนไม่ได้ → บอกให้ชัดดีกว่าปล่อยไปพังตอนเปิดใหม่
+                self.emit_log(f"[UPDATE] ลงไลบรารีใหม่ไม่สำเร็จ: {msg[:160]}", level="warn")
+                return deps, ("อัปเดตไฟล์แล้ว แต่ลงไลบรารีใหม่ไม่สำเร็จ — "
+                              "เปิดโปรแกรมใหม่แล้วอาจไม่ขึ้น ให้รัน pip install -r desktop/requirements.txt เอง")
+            self.emit_log("[UPDATE] ลงไลบรารีใหม่เรียบร้อย")
+            return deps, ""
+
         @app.get("/api/app/update-check")
         def app_update_check():
-            import httpx
             root = _app_root()
-            if not (root / ".git").exists():
+            if _is_frozen():
                 return {"ok": True, "supported": False,
-                        "reason": "โฟลเดอร์นี้ไม่ได้ติดตั้งผ่าน git — อัปเดตด้วยการโหลดตัวติดตั้งใหม่"}
-            ok, cur = _git("rev-parse", "HEAD")
-            if not ok:
-                return {"ok": True, "supported": False, "reason": "อ่านเวอร์ชันในเครื่องไม่ได้"}
-            try:
-                r = httpx.get("https://api.github.com/repos/NATX0XD/Video-Affliate/commits/main",
-                              timeout=12, headers={"Accept": "application/vnd.github+json"})
-                data = r.json()
-                latest = data.get("sha") or ""
-                msg = ((data.get("commit") or {}).get("message") or "").split("\n")[0]
-            except Exception as e:
-                return {"ok": False, "supported": True, "error": f"เช็กอัปเดตไม่ได้: {str(e)[:120]}"}
-            if not latest:
-                return {"ok": False, "supported": True, "error": "GitHub ไม่ตอบข้อมูลเวอร์ชัน"}
-            return {"ok": True, "supported": True, "current": cur[:7], "latest": latest[:7],
-                    "update_available": cur[:40] != latest[:40], "message": msg}
+                        "reason": "รุ่นนี้เป็นโปรแกรมสำเร็จรูป — อัปเดตด้วยการโหลดตัวติดตั้งใหม่"}
+            latest, msg, err = _latest_commit()
+            if err:
+                return {"ok": False, "supported": True, "error": err}
+            local = _local_sha()
+            return {"ok": True, "supported": True,
+                    "current": local[:7] if local else "ไม่ทราบ",
+                    "latest": latest[:7],
+                    "update_available": (local or "")[:40] != latest[:40],
+                    "method": "git" if (root / ".git").exists() else "download",
+                    "message": msg}
 
         @app.post("/api/app/update")
         def app_update():
             """ดึงโค้ดล่าสุดจาก main — ต้องปิดเปิดโปรแกรมเองหลังอัปเดต"""
             root = _app_root()
-            if not (root / ".git").exists():
-                return {"ok": False, "error": "โฟลเดอร์นี้ไม่ได้ติดตั้งผ่าน git — ต้องโหลดตัวติดตั้งใหม่"}
-            ok, out = _git("status", "--porcelain")
-            if ok and out.strip():
-                return {"ok": False, "error": "มีไฟล์ที่แก้ค้างไว้ในโฟลเดอร์ติดตั้ง — อัปเดตอัตโนมัติไม่ได้ (กันงานหาย)"}
-            ok, out = _git("fetch", "--depth", "1", "origin", "main", timeout=90)
-            if not ok:
-                return {"ok": False, "error": f"ดึงข้อมูลไม่สำเร็จ: {out[:180]}"}
-            ok, out = _git("reset", "--hard", "origin/main", timeout=60)
-            if not ok:
-                return {"ok": False, "error": f"อัปเดตไม่สำเร็จ: {out[:180]}"}
-            _, ver = _git("rev-parse", "--short", "HEAD")
-            self.emit_log(f"[UPDATE] อัปเดตโปรแกรมเป็น {ver} แล้ว — ปิดแล้วเปิดโปรแกรมใหม่เพื่อใช้เวอร์ชันใหม่")
-            return {"ok": True, "version": ver, "restart_required": True}
+            if _is_frozen():
+                return {"ok": False, "error": "รุ่นนี้เป็นโปรแกรมสำเร็จรูป — ต้องโหลดตัวติดตั้งใหม่"}
+
+            req_before = _req_hash(root)           # เทียบหลังอัปเดตว่าต้องลง lib ใหม่ไหม
+
+            if (root / ".git").exists():           # เครื่องนักพัฒนา — ใช้ git เหมือนเดิม
+                ok, out = _git("status", "--porcelain")
+                if ok and out.strip():
+                    return {"ok": False, "error": "มีไฟล์ที่แก้ค้างไว้ในโฟลเดอร์ติดตั้ง — อัปเดตอัตโนมัติไม่ได้ (กันงานหาย)"}
+                ok, out = _git("fetch", "--depth", "1", "origin", "main", timeout=90)
+                if not ok:
+                    return {"ok": False, "error": f"ดึงข้อมูลไม่สำเร็จ: {out[:180]}"}
+                ok, out = _git("reset", "--hard", "origin/main", timeout=60)
+                if not ok:
+                    return {"ok": False, "error": f"อัปเดตไม่สำเร็จ: {out[:180]}"}
+                _, ver = _git("rev-parse", "--short", "HEAD")
+                deps, warn = _sync_deps_if_changed(root, req_before)
+                self.emit_log(f"[UPDATE] อัปเดตโปรแกรมเป็น {ver} แล้ว — ปิดแล้วเปิดโปรแกรมใหม่เพื่อใช้เวอร์ชันใหม่")
+                return {"ok": True, "version": ver, "restart_required": True,
+                        "deps": deps, "warning": warn}
+
+            # เครื่องผู้ใช้จริง (แตกจากตัวติดตั้ง) — โหลด tarball มาทับ แล้วประทับตราเวอร์ชันไว้
+            latest, _msg, err = _latest_commit()
+            if err:
+                return {"ok": False, "error": err}
+            n, err = _pull_app(root)
+            if err:
+                return {"ok": False, "error": err}
+            try:
+                (root / VERSION_STAMP).write_text(latest, encoding="utf-8")
+            except Exception as e:
+                # ทับไฟล์ไปแล้วจริง แค่จำเวอร์ชันไม่ได้ → รอบหน้าจะถามอัปเดตซ้ำ ไม่ถึงกับพัง
+                self.emit_log(f"[UPDATE] เขียนไฟล์เวอร์ชันไม่ได้: {str(e)[:120]}", level="warn")
+            deps, warn = _sync_deps_if_changed(root, req_before)
+            self.emit_log(f"[UPDATE] อัปเดตโปรแกรมเป็น {latest[:7]} แล้ว ({n} ไฟล์) — ปิดแล้วเปิดโปรแกรมใหม่")
+            return {"ok": True, "version": latest[:7], "files": n, "restart_required": True,
+                    "deps": deps, "warning": warn}
 
         # ── ที่เก็บของหน้าสร้างคลิป: เทมเพลต / ฉากของฉัน / หน้าของฉัน / ร่าง ──────
         # เดิมเก็บใน localStorage ของเบราว์เซอร์ ซึ่งผูกกับ origin ไม่ใช่กับโปรแกรม
@@ -1481,11 +1706,15 @@ class WebServer:
                     "title": "งบ AI ใกล้เต็ม",
                     "detail": f"ใช้ไปแล้ว {snap.get('percent', 0)}% ของงบเดือนนี้",
                 })
-            if not online and not running:
+            # เดิมเงื่อนไขเป็น `not online and not running` → เคสที่แย่ที่สุด (เปิดออโต้ไว้
+            # แต่ไม่มีเครื่อง = คลิปกองไม่มีใครโพสต์) กลับเงียบสนิท ตอนนี้เตือนทั้งสองเคส
+            # และยกระดับเป็น warn เมื่อออโต้เปิดอยู่
+            if not online:
                 alerts.append({
-                    "level": "info", "icon": "phone",
+                    "level": "warn" if running else "info", "icon": "phone",
                     "title": "ยังไม่พบเครื่องที่เชื่อมต่อ",
-                    "detail": "เสียบมือถือ/เปิด ADB เพื่อเริ่มโพสต์อัตโนมัติ",
+                    "detail": ("เปิดโพสต์อัตโนมัติไว้แต่ยังไม่มีมือถือ — คลิปที่สร้างเสร็จจะรอจนกว่าจะเสียบเครื่อง"
+                               if running else "เสียบมือถือ/เปิด ADB เพื่อเริ่มโพสต์อัตโนมัติ"),
                 })
 
             return {
@@ -1851,6 +2080,23 @@ class WebServer:
             if not self.db:
                 return {"products": []}
             return {"products": self.db.list_products(status, limit, offset)}
+
+        @app.post("/api/products/delete")
+        async def delete_products(body: dict):
+            """ลบสินค้าที่ดูดมาออกจากแคตตาล็อก — {ids: [1,2,3]} (เว็บยืนยันก่อนเรียก).
+            แตะเฉพาะตาราง products: คลิปที่สร้างไปแล้วยังอยู่ครบ."""
+            if not self.db:
+                return {"ok": False, "error": "db not ready"}
+            ids = body.get("ids")
+            if not isinstance(ids, list):
+                ids = [body.get("id")] if body.get("id") is not None else []
+            try:
+                n = self.db.delete_products(ids)
+            except Exception as e:
+                self.emit_log(f"[PRODUCTS] ลบไม่สำเร็จ: {e}", level="warn")
+                return {"ok": False, "error": str(e)[:180]}
+            self.emit_log(f"[PRODUCTS] ลบสินค้า {n} รายการ")
+            return {"ok": True, "deleted": n}
 
         # ── Queue (โครงคิวงานบน DB สำหรับอนาคต — วาง endpoint + เก็บใน DB เท่านั้น) ──
 

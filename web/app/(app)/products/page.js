@@ -4,13 +4,22 @@ import { motion } from 'motion/react'
 import { useRouter } from 'next/navigation'
 import {
   Package, RefreshCw, Search, ExternalLink, Sparkles, Check, CheckSquare, Square,
-  ShoppingCart, Loader2,
+  ShoppingCart, Loader2, LayoutGrid, Rows3, Trash2, AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { Dialog } from '@/components/ui/Dialog'
+import { useToast } from '@/components/ui/Toast'
 import { api } from '@/lib/api'
 import { productUid, hasCart, productName, productPrice, productImg, commissionRate } from '@/lib/gen-options'
 
 const AFFILIATE_URL = 'https://affiliate.shopee.co.th/offer/product_offer'
+
+// มุมมองคลังสินค้า — จำค่าที่ผู้ใช้เลือกไว้ข้ามการเปิดหน้าใหม่
+const VIEW_KEY = 'products_view'
+const VIEWS = [
+  { id: 'grid',  label: 'การ์ด',  Icon: LayoutGrid },
+  { id: 'table', label: 'ตาราง', Icon: Rows3 },
+]
 
 const STATUS_FILTERS = [
   { id: 'all',    label: 'ทั้งหมด' },
@@ -31,14 +40,15 @@ function fmtPrice(v) {
   return isFinite(n) && n > 0 ? `฿${n.toLocaleString()}` : '—'
 }
 
-function ProductCard({ p, selected, onToggle }) {
+function ProductCard({ p, selected, onToggle, onDelete }) {
   const img = productImg(p)
   const cart = hasCart(p)
   const st = statusOf(p)
   const name = productName(p)
   const rate = commissionRate(p)
   return (
-    <button type="button" onClick={onToggle}
+    <div role="button" tabIndex={0} aria-pressed={selected} onClick={onToggle}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
       className={`group text-left rounded-xl border overflow-hidden bg-card transition-all cursor-pointer
         ${selected ? 'border-accent ring-2 ring-accent/40' : 'border-border hover:border-accent/40'}`}>
       <div className="aspect-square relative bg-secondary overflow-hidden">
@@ -61,6 +71,14 @@ function ProductCard({ p, selected, onToggle }) {
             {cart ? 'มีตะกร้า' : 'ไม่มีตะกร้า'}
           </span>
         </div>
+        {/* ลบรายการเดียว — โผล่ตอนชี้เมาส์ กันกดโดนตอนเลือกสินค้า */}
+        <button type="button" title="ลบสินค้านี้" aria-label="ลบสินค้านี้"
+          onClick={e => { e.stopPropagation(); onDelete() }}
+          className="absolute bottom-2 right-2 w-7 h-7 rounded-lg flex items-center justify-center
+            bg-black/60 text-white/80 opacity-0 group-hover:opacity-100 focus:opacity-100
+            hover:bg-destructive hover:text-white transition-all cursor-pointer">
+          <Trash2 size={13} />
+        </button>
       </div>
       <div className="p-2.5">
         <p className="text-foreground text-xs font-medium line-clamp-2 leading-snug min-h-[2rem]">
@@ -71,7 +89,56 @@ function ProductCard({ p, selected, onToggle }) {
           {rate != null && <span className="text-[10px] text-muted-foreground">คอม {rate}%</span>}
         </div>
       </div>
-    </button>
+    </div>
+  )
+}
+
+function ProductRow({ p, selected, onToggle, onDelete }) {
+  const img = productImg(p)
+  const cart = hasCart(p)
+  const st = statusOf(p)
+  const name = productName(p)
+  const rate = commissionRate(p)
+  return (
+    <tr onClick={onToggle}
+      className={`border-t border-border cursor-pointer transition-colors
+        ${selected ? 'bg-accent-wash' : 'hover:bg-secondary/60'}`}>
+      <td className="px-3 py-2 w-9">
+        <div className={`w-[18px] h-[18px] rounded flex items-center justify-center border transition-all
+          ${selected ? 'bg-accent border-accent' : 'border-border'}`}>
+          {selected && <Check size={12} className="text-white" strokeWidth={3} />}
+        </div>
+      </td>
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-10 h-10 rounded-lg bg-secondary overflow-hidden shrink-0 flex items-center justify-center">
+            {img
+              ? <img src={img} alt={name} loading="lazy" className="w-full h-full object-cover" />
+              : <Package size={14} className="text-muted-foreground/40" />}
+          </div>
+          <p className="text-foreground text-xs font-medium line-clamp-2 leading-snug">{name || 'ไม่มีชื่อ'}</p>
+        </div>
+      </td>
+      <td className="px-3 py-2 text-accent font-bold text-xs whitespace-nowrap">{fmtPrice(productPrice(p))}</td>
+      <td className="px-3 py-2 text-muted-foreground text-xs whitespace-nowrap">{rate != null ? `${rate}%` : '—'}</td>
+      <td className="px-3 py-2 whitespace-nowrap">
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cart ? 'bg-accent-wash text-accent' : 'bg-secondary text-muted-foreground'}`}>
+          {cart ? 'มีตะกร้า' : 'ไม่มีตะกร้า'}
+        </span>
+      </td>
+      <td className="px-3 py-2 whitespace-nowrap">
+        {st === 'done'   && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-success/15 text-success">มีคลิปแล้ว</span>}
+        {st === 'queued' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500">ในคิว</span>}
+        {st === 'new'    && <span className="text-[10px] text-muted-foreground">ยังไม่สร้าง</span>}
+      </td>
+      <td className="px-3 py-2 w-10 text-right">
+        <button type="button" onClick={e => { e.stopPropagation(); onDelete() }}
+          title="ลบสินค้านี้" aria-label="ลบสินค้านี้"
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer">
+          <Trash2 size={14} />
+        </button>
+      </td>
+    </tr>
   )
 }
 
@@ -83,7 +150,17 @@ export default function ProductsPage() {
   const [filter, setFilter] = useState('all')
   const [cat, setCat] = useState('all')
   const [selected, setSelected] = useState(() => new Set())
+  const [view, setView] = useState('grid')
+  const [toDelete, setToDelete] = useState(null)   // สินค้าที่รอยืนยันลบ (array) · null = ไม่มีโมดอล
+  const [deleting, setDeleting] = useState(false)
   const router = useRouter()
+  const toast = useToast()
+
+  // จำมุมมองที่เลือกไว้ (อ่านหลัง mount — กัน hydration ไม่ตรงตอน export เป็นไฟล์นิ่ง)
+  useEffect(() => {
+    try { const v = localStorage.getItem(VIEW_KEY); if (v === 'grid' || v === 'table') setView(v) } catch {}
+  }, [])
+  const pickView = v => { setView(v); try { localStorage.setItem(VIEW_KEY, v) } catch {} }
 
   const load = useCallback(async (manual) => {
     if (manual) setRefreshing(true)
@@ -132,16 +209,82 @@ export default function ProductsPage() {
   // ส่ง id สินค้าที่เลือกไปหน้าสร้างคลิป (6 ขั้น)
   const openCreate = () => router.push(`/products/create?ids=${chosen.map(productUid).join(',')}`)
 
+  // ── ลบสินค้า: กดแล้วเปิดโมดอลยืนยันเสมอ ไม่ลบทันที ──
+  const askDelete = items => setToDelete(items.filter(Boolean))
+  const doDelete = async () => {
+    const items = toDelete || []
+    const ids = items.map(p => p.id).filter(id => id != null)
+    if (ids.length === 0) { setToDelete(null); return }
+    setDeleting(true)
+    try {
+      const d = await api.deleteProducts(ids)
+      if (d?.ok === false) throw new Error(d.error || 'ลบไม่สำเร็จ')
+      const gone = new Set(items.map(productUid))
+      setProducts(prev => prev.filter(p => !gone.has(productUid(p))))
+      setSelected(prev => {
+        const n = new Set(prev)
+        gone.forEach(uid => n.delete(uid))
+        return n
+      })
+      setToDelete(null)
+      toast.success(`ลบสินค้า ${d?.deleted ?? ids.length} รายการแล้ว`)
+      load()
+    } catch (e) {
+      toast.error(e?.message || 'ลบสินค้าไม่สำเร็จ')
+    } finally { setDeleting(false) }
+  }
+
+  const Grid = ({ items }) => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+      {items.map(p => {
+        const uid = productUid(p)
+        return <ProductCard key={uid} p={p} selected={selected.has(uid)}
+          onToggle={() => toggle(uid)} onDelete={() => askDelete([p])} />
+      })}
+    </div>
+  )
+
   const Section = ({ title, items }) => items.length === 0 ? null : (
     <div>
       <p className="text-muted-foreground text-xs font-bold mb-2.5 flex items-center gap-1.5">
         {title} <span className="nums">({items.length})</span>
       </p>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-        {items.map(p => {
-          const uid = productUid(p)
-          return <ProductCard key={uid} p={p} selected={selected.has(uid)} onToggle={() => toggle(uid)} />
-        })}
+      <Grid items={items} />
+    </div>
+  )
+
+  const allVisibleSelected = visible.length > 0 && visible.every(p => selected.has(productUid(p)))
+
+  const Table = ({ items }) => (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="bg-secondary/60 text-muted-foreground text-[11px] font-bold">
+              <th className="px-3 py-2 w-9">
+                <button type="button" aria-label="เลือกทั้งหมดที่เห็น"
+                  onClick={() => allVisibleSelected ? clearSel() : selectAllVisible()}
+                  className={`w-[18px] h-[18px] rounded flex items-center justify-center border transition-all cursor-pointer
+                    ${allVisibleSelected ? 'bg-accent border-accent' : 'border-border hover:border-accent'}`}>
+                  {allVisibleSelected && <Check size={12} className="text-white" strokeWidth={3} />}
+                </button>
+              </th>
+              <th className="px-3 py-2">สินค้า</th>
+              <th className="px-3 py-2">ราคา</th>
+              <th className="px-3 py-2">คอม</th>
+              <th className="px-3 py-2">ตะกร้า</th>
+              <th className="px-3 py-2">สถานะ</th>
+              <th className="px-3 py-2 w-10" />
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(p => {
+              const uid = productUid(p)
+              return <ProductRow key={uid} p={p} selected={selected.has(uid)}
+                onToggle={() => toggle(uid)} onDelete={() => askDelete([p])} />
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -159,6 +302,16 @@ export default function ProductsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* สลับมุมมอง: การ์ด (เดิม) / ตาราง */}
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-secondary">
+            {VIEWS.map(v => (
+              <button key={v.id} onClick={() => pickView(v.id)} title={`มุมมอง${v.label}`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer
+                  ${view === v.id ? 'bg-card text-foreground shadow-card' : 'text-muted-foreground hover:text-foreground'}`}>
+                <v.Icon size={13} /> {v.label}
+              </button>
+            ))}
+          </div>
           <Button variant="outline" size="sm" asChild>
             <a href={AFFILIATE_URL} target="_blank" rel="noreferrer">
               <ExternalLink size={13} /> เปิดหน้า Affiliate
@@ -219,8 +372,14 @@ export default function ProductsPage() {
         <p className="text-muted-foreground text-sm text-center py-16">ไม่พบสินค้าตามที่กรอง</p>
       ) : (
         <div className="flex flex-col gap-6 pb-24">
-          <Section title="พร้อมโพสต์ · มีตะกร้า" items={withCart} />
-          <Section title="ยังไม่มีตะกร้า" items={noCart} />
+          {view === 'table' ? (
+            <Table items={visible} />
+          ) : (
+            <>
+              <Section title="พร้อมโพสต์ · มีตะกร้า" items={withCart} />
+              <Section title="ยังไม่มีตะกร้า" items={noCart} />
+            </>
+          )}
         </div>
       )}
 
@@ -235,11 +394,46 @@ export default function ProductsPage() {
           <button onClick={clearSel} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
             <Square size={13} /> ล้าง
           </button>
+          <Button size="sm" variant="outline" onClick={() => askDelete(chosen)}
+            className="text-destructive border-destructive/40 hover:bg-destructive/10">
+            <Trash2 size={14} /> ลบที่เลือก
+          </Button>
           <Button size="sm" onClick={openCreate}>
             <Sparkles size={14} /> สร้างคลิปจากที่เลือก
           </Button>
         </motion.div>
       )}
+
+      {/* ยืนยันก่อนลบ — ลบแล้วเอาคืนไม่ได้ ต้องดูดสินค้าใหม่ */}
+      <Dialog
+        open={!!toDelete}
+        onClose={() => { if (!deleting) setToDelete(null) }}
+        icon={AlertTriangle}
+        title={`ลบสินค้า ${toDelete?.length || 0} รายการ?`}
+        description="ลบออกจากคลังสินค้าถาวร — เอากลับคืนไม่ได้ ต้องดูดจากหน้า Affiliate ใหม่ · คลิปที่สร้างไปแล้วยังอยู่ครบ"
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setToDelete(null)} disabled={deleting}>
+              ยกเลิก
+            </Button>
+            <Button variant="destructive" size="sm" onClick={doDelete} disabled={deleting}>
+              {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              {deleting ? 'กำลังลบ…' : `ลบ ${toDelete?.length || 0} รายการ`}
+            </Button>
+          </>
+        }>
+        <ul className="flex flex-col gap-1.5 text-sm">
+          {(toDelete || []).slice(0, 8).map(p => (
+            <li key={productUid(p)} className="flex items-center gap-2 text-foreground">
+              <Package size={13} className="text-muted-foreground shrink-0" />
+              <span className="truncate">{productName(p) || 'ไม่มีชื่อ'}</span>
+            </li>
+          ))}
+          {(toDelete?.length || 0) > 8 && (
+            <li className="text-muted-foreground text-xs">…และอีก {toDelete.length - 8} รายการ</li>
+          )}
+        </ul>
+      </Dialog>
 
     </div>
   )

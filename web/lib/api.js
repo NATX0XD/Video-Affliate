@@ -35,6 +35,7 @@ export const api = {
   devices:         ()         => req('GET',  '/api/devices'),   // รายการมือถือ + รุ่น/ยี่ห้อ
   getSettings:     ()         => req('GET',  '/api/settings'),
   saveSettings:    (data)     => req('POST', '/api/settings', data),
+  pilot:           ()         => req('GET',  '/api/pilot'),   // ลูปโพสต์อัตโนมัติทำงานอยู่จริงไหม
   // ที่เก็บของหน้าสร้างคลิป (templates / scenes / faces / draft) — อยู่ใน app.db ไม่ใช่ localStorage
   genStore:        (name)        => req('GET',  `/api/gen/store/${name}`),
   genStoreSet:     (name, value) => req('POST', `/api/gen/store/${name}`, { value }),
@@ -104,6 +105,7 @@ export const api = {
   products:        (q = '')   => req('GET',  `/api/products${q}`),
   pushProduct:     (body)     => req('POST', '/api/products', body),   // สินค้าเดี่ยว {name,price,...} หรือ {products:[...]}
   addProducts:     (body)     => req('POST', '/api/products', body),   // {products:[...]} หรือ product เดี่ยว (คงไว้ — เดิม)
+  deleteProducts:  (ids)      => req('POST', '/api/products/delete', { ids }),  // ลบหลายรายการ — เว็บยืนยันก่อนเรียก
   // คิวงานบน DB (โครงอนาคต)
   queuePush:       (body)     => req('POST', '/api/queue/push', body),
   queueNext:       ()         => req('GET',  '/api/queue/next'),
