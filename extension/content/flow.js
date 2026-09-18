@@ -2739,9 +2739,20 @@ if (window._flowAutomatorLoaded) {
       const before2 = boxText(box);
       await trustedClickEl(editor, log); await sleep(300);
       await sendTrusted({ action: "flow_trusted_key" }); await sleep(1500);
-      if (boxText(box) === before2) {
-        const sendBtn = allClickable().filter((el) => { const t = txt(el); return t.includes("สร้าง") && !t.includes("add_2") && !t.includes("เพิ่มสื่อ"); }).sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)[0];
-        if (sendBtn) { await trustedClickEl(sendBtn, log); await sleep(1500); }
+      const afterEnter = boxText(box);
+      // Flow รุ่นใหม่แสดงปุ่มส่งเป็นไอคอน `arrow_forward` และไม่มีคำว่า "สร้าง"
+      // ใน textContent เลย ทำให้การกด Enter อย่างเดียวไม่ส่งงานบางครั้ง
+      // (โดยเฉพาะหลังแนบรูปอ้างอิง) — ถ้าข้อความยังค้างอยู่ ให้กดปุ่มส่งจริงซ้ำด้วย trusted click
+      const sendBtn = allClickable().filter((el) => {
+        const t = txt(el);
+        const a = `${el.getAttribute?.("aria-label") || ""} ${el.getAttribute?.("data-testid") || ""}`;
+        return (/สร้าง|เริ่มสร้าง|create|generate|arrow_forward/i.test(`${t} ${a}`))
+          && !/add_2|เพิ่มสื่อ|moodboard|โลโก้|ระดมความคิด|แสดงวิธีคิด/i.test(`${t} ${a}`);
+      }).sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)[0];
+      log(`ตรวจการส่ง: Enter=${afterEnter !== before2 ? "เปลี่ยน" : "ไม่เปลี่ยน"} · ปุ่มส่ง=${sendBtn ? "พบ" : "ไม่พบ"}`);
+      if (sendBtn && (afterEnter === before2 || match(afterEnter, prompt))) {
+        log("Enter ยังไม่ส่งหรือ prompt ยังอยู่ → คลิก arrow_forward ด้วย trusted click");
+        await trustedClickEl(sendBtn, log); await sleep(1800);
       }
       log("รอ Nano Banana สร้างรูป…");
       // เช็กลิมิตเฉพาะรอบแรก — รอบสลับรุ่นรอแค่ "รูปใหม่" (กัน false-positive จากข้อความ error เก่าที่ค้างใน DOM)
