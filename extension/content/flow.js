@@ -3070,6 +3070,10 @@ if (window._flowAutomatorLoaded) {
   // ตัวนี้ตอบจากหน้าจริง สั่งจาก desktop ได้ ไม่ต้องเปิด DevTools หรือสั่งเมนู Chrome
   async function flowDump() {
     const t = (el) => el ? (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40) : null;
+    let local = {};
+    try {
+      local = await chrome.storage.local.get(["flow_jobs", "flow_queue_state", "error_log", "flow_gen"]);
+    } catch (e) { local = { storageError: String(e && e.message || e) }; }
     const out = {
       at: Date.now(), url: location.href, host: location.host, title: document.title.slice(0, 80),
       ext: EXT_VER,
@@ -3086,6 +3090,9 @@ if (window._flowAutomatorLoaded) {
       composer: (() => { try { return dumpComposer(); } catch (e) { return "ERR:" + e.message; } })(),
       popup: (() => { try { return dumpPopup(); } catch (e) { return "ERR:" + e.message; } })(),
       buttons: (() => { try { return dumpBtns(null, "dump"); } catch (e) { return "ERR:" + e.message; } })(),
+      queueState: local.flow_queue_state || null,
+      pendingJobs: Array.isArray(local.flow_jobs) ? local.flow_jobs.length : null,
+      errorLog: Array.isArray(local.error_log) ? local.error_log.slice(0, 5) : [],
     };
     for (const k of ["รูปภาพ", "วิดีโอ", "เฟรม", "ส่วนผสม", "9:16", "x1"]) {
       try { const el = findModeOption(k); out.modeOptions[k] = el ? { text: t(el), selected: isSelectedEl(el) } : null; }
