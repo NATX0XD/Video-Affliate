@@ -95,6 +95,10 @@ async function acquireFlowTab(url, au, preferProject) {
   return { tab: created, fresh: true };
 }
 
+// flow.js ยังมีชีวิตในแท็บนี้ไหม — ใช้ซ้ำหลายจุด (ก่อน reload, หลัง reload, หลังฉีดเอง)
+const pingFlow = (tabId) => new Promise((r) =>
+  chrome.tabs.sendMessage(tabId, { action: 'flow_ping' }, (res) => r(!chrome.runtime.lastError && !!res)));
+
 // เปิด/โฟกัสแท็บ Flow ให้อัตโนมัติ แล้วรันคิว Flow บนแท็บนั้น
 // authuserOverride: ระบุบัญชีตรงๆ (จากปุ่ม "เปิด Flow" ในหน้าเมล) — ไม่ระบุ = ให้ระบบเลือกเอง
 async function openFlowAndRun(dry = false, authuserOverride = null) {
@@ -126,9 +130,7 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
     await new Promise((r) => setTimeout(r, 500));
   } catch {}
   // ★ เช็คว่า flow.js ยังตอบไหม (ping) — ถ้าไม่ (เช่นหลัง reload extension) ให้ reload แท็บ
-  const alive = await new Promise((r) =>
-    chrome.tabs.sendMessage(tab.id, { action: 'flow_ping' }, (res) => r(!chrome.runtime.lastError && !!res)));
-  if (!alive) {
+  if (!(await pingFlow(tab.id))) {
     await chrome.tabs.reload(tab.id);
     await new Promise((resolve) => {
       const onUpd = (id, info) => {
@@ -137,6 +139,14 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
       chrome.tabs.onUpdated.addListener(onUpd);
       setTimeout(resolve, 15000);
     });
+    // reload อย่างเดียวไม่พอ: แท็บที่เปิดค้างไว้ก่อนติดตั้ง/อัปเดตส่วนขยาย จะไม่มี content script เลย
+    // Chrome ฉีดให้เฉพาะแท็บที่โหลดหลังลงทะเบียน → ต้องฉีดเองซ้ำ ไม่งั้นค้างที่ "flow.js ไม่ตอบ" ตลอด
+    if (!(await pingFlow(tab.id))) {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content/util.js', 'content/flow.js'] });
+        await new Promise((r) => setTimeout(r, 1500));
+      } catch (e) { console.warn('[VGAP] inject flow.js failed', e); }
+    }
   }
   return new Promise((resolve) => {
     chrome.tabs.sendMessage(tab.id, { action: 'flow_run_queue', dry }, (res) => {

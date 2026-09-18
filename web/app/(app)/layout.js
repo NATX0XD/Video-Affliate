@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/Toast'
 import { MSG } from '@/lib/copy'
 import { api } from '@/lib/api'
 import { usePathname } from 'next/navigation'
+import { X } from 'lucide-react'
 
 export const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -164,16 +165,24 @@ export default function AppLayout({ children }) {
 
       {state.flowBlocker && (
         <div className="fixed bottom-5 left-5 z-50 w-[min(430px,calc(100vw-2.5rem))] rounded-2xl border border-amber-400/30 bg-card p-4 shadow-lift">
-          <div className="text-sm font-semibold text-foreground">คิว Flow หยุดรอการยืนยัน</div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-sm font-semibold text-foreground">คิว Flow หยุดรอการยืนยัน</div>
+            {/* ปิดได้จริง — ต้องล้างที่เซิร์ฟเวอร์ ไม่ใช่ซ่อนใน state เพราะ poll ทุก 5 วิจะพามันกลับมา */}
+            <button aria-label="ปิด" title="ปิด"
+              className="-mr-1 -mt-1 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => api.clearFlowBlocker().then(refresh).catch(() => {})}>
+              <X size={15} />
+            </button>
+          </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{state.flowBlocker.reason}</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{state.flowBlocker.action}</p>
           <div className="mt-3 flex gap-2">
             <button className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600"
-              onClick={async () => { await api.flowCreditOverride(); await api.flowStatus(); }}>
+              onClick={() => api.flowCreditOverride().then(refresh).catch(() => {})}>
               ลองต่อไปเลย (เสี่ยงเครดิตไม่พอ)
             </button>
             <button className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground"
-              onClick={() => api.flowStatus().catch(() => {})}>เช็คอีกครั้ง</button>
+              onClick={() => refresh()}>เช็คอีกครั้ง</button>
           </div>
         </div>
       )}
