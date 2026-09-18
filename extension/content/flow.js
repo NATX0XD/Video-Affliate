@@ -1798,8 +1798,33 @@ if (window._flowAutomatorLoaded) {
   async function maybeResumeQueue() {
     if (_queueRunning) return;
     let d;
-    try { d = await chrome.storage.local.get(["flow_queue_state", "flow_switch", "flow_jobs"]); } catch { return; }
+    try { d = await chrome.storage.local.get(["flow_queue_state", "flow_switch", "flow_jobs", "flow_credit_halt"]); } catch { return; }
     const qs = d.flow_queue_state;
+    // คิวถูกหยุดเพราะอ่านเครดิตไม่ได้ แล้วผู้ใช้กด "ลองต่อไปเลย" ในหน้าเว็บ → รับช่วงรันต่อให้
+    // (ไม่ผ่านด่าน qs.running ปกติ เพราะตอนหยุดเราปิด running ไปแล้ว)
+    if ((!qs || !qs.running) && d.flow_credit_halt) {
+      const halt = d.flow_credit_halt;
+      if (!halt.at || Date.now() - halt.at > 30 * 60 * 1000) {
+        try { await chrome.storage.local.remove("flow_credit_halt"); } catch {}
+        return;
+      }
+      if (d.flow_switch) return;
+      if (!(Array.isArray(d.flow_jobs) && d.flow_jobs.length)) return;
+      if (!findAccountButton()) return;
+      const ov = await desktop("GET", "/api/flow/credit-override");
+      if (!(ov && ov.allowed)) return;                               // ยังไม่ได้กดยืนยัน — รอต่อ
+      try { await chrome.storage.local.remove("flow_credit_halt"); } catch {}
+      // ตั้ง running เองก่อน (qstate อยู่ในสโคป runQueue เรียกจากตรงนี้ไม่ได้) — runQueue จะเขียนทับด้วยค่าจริง
+      try {
+        await chrome.storage.local.set({
+          flow_queue_state: { ...(qs || {}), running: true, current: null, at: Date.now() },
+        });
+      } catch {}
+      const L2 = (m) => { try { chrome.runtime.sendMessage({ action: "flow_log", msg: m }); } catch {} };
+      L2("ผู้ใช้ยืนยันให้ลองต่อ — รันคิวต่อ");
+      runQueue(L2).catch(() => {});
+      return;
+    }
     if (!qs || !qs.running) return;                                  // ไม่ได้สั่งให้คิวรันอยู่
     if (!qs.at || Date.now() - qs.at > 5 * 60 * 1000) return;        // สถานะเก่าค้าง > 5 นาที = ไม่ resume (กันรันเองโดยไม่ตั้งใจ)
     if (d.flow_switch) return;                                       // ยังสลับบัญชีไม่เสร็จ
