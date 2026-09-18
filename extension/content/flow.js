@@ -3072,7 +3072,7 @@ if (window._flowAutomatorLoaded) {
     const t = (el) => el ? (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40) : null;
     let local = {};
     try {
-      local = await chrome.storage.local.get(["flow_jobs", "flow_queue_state", "error_log", "flow_gen"]);
+      local = await chrome.storage.local.get(["flow_jobs", "flow_queue_state", "error_log", "flow_gen", "flow_run_log"]);
     } catch (e) { local = { storageError: String(e && e.message || e) }; }
     const out = {
       at: Date.now(), url: location.href, host: location.host, title: document.title.slice(0, 80),
@@ -3093,6 +3093,7 @@ if (window._flowAutomatorLoaded) {
       queueState: local.flow_queue_state || null,
       pendingJobs: Array.isArray(local.flow_jobs) ? local.flow_jobs.length : null,
       errorLog: Array.isArray(local.error_log) ? local.error_log.slice(0, 5) : [],
+      runLog: Array.isArray(local.flow_run_log) ? local.flow_run_log.slice(-40) : [],
     };
     for (const k of ["รูปภาพ", "วิดีโอ", "เฟรม", "ส่วนผสม", "9:16", "x1"]) {
       try { const el = findModeOption(k); out.modeOptions[k] = el ? { text: t(el), selected: isSelectedEl(el) } : null; }
@@ -3114,7 +3115,18 @@ if (window._flowAutomatorLoaded) {
     if (msg.action === "flow_make_clip") { makeClip(msg).then(sendResponse); return true; }
     if (msg.action === "flow_new_project") { newProject((m) => { try { chrome.runtime.sendMessage({ action: "flow_log", msg: "[compose] " + m }); } catch {} }).then((ok) => sendResponse({ ok })); return true; }
     if (msg.action === "flow_run_queue") {
-      runQueue((m) => { try { chrome.runtime.sendMessage({ action: "flow_log", msg: m }); } catch {} }, 100, !!msg.dry)
+      const runLog = (m) => {
+        try {
+          chrome.storage.local.get("flow_run_log").then((d) => {
+            const a = Array.isArray(d.flow_run_log) ? d.flow_run_log : [];
+            a.push({ at: Date.now(), msg: String(m) });
+            return chrome.storage.local.set({ flow_run_log: a.slice(-80) });
+          }).catch(() => {});
+          chrome.runtime.sendMessage({ action: "flow_log", msg: m });
+        } catch {}
+      };
+      runLog(`เริ่ม runQueue (dry=${!!msg.dry})`);
+      runQueue(runLog, 100, !!msg.dry)
         .then((n) => sendResponse({ ok: true, done: n, dry: !!msg.dry }));
       return true;
     }
