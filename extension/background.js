@@ -1304,7 +1304,13 @@ async function pollQueue() {
       });
       let dump = { error: 'ไม่พบแท็บ Flow ที่เปิดอยู่' };
       if (tabs.length) {
-        const id = tabs[0].id;
+        // อาจมีแท็บ Home ค้างอยู่พร้อมแท็บโปรเจ็กต์จริง — dump ต้องอ่านแท็บที่ผู้ใช้กำลังเห็น
+        // ก่อน ไม่เช่นนั้นจะได้ editable=false/chatBox=false จาก Home แล้ววินิจฉัย selector ผิดจุด
+        const tab = tabs.find((t) => t.active && /\/project\//.test(t.url || ""))
+          || tabs.find((t) => /\/project\//.test(t.url || ""))
+          || tabs.find((t) => t.active)
+          || tabs[0];
+        const id = tab.id;
         if (!(await pingFlow(id))) {
           try { await chrome.scripting.executeScript({ target: { tabId: id }, files: ['content/util.js', 'content/flow.js'] }); await new Promise((r) => setTimeout(r, 1500)); } catch {}
         }
