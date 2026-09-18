@@ -69,10 +69,12 @@ function waitTabComplete(tabId, settle = 2500, cap = 15000) {
 // เปลี่ยน ?authuser ในแท็บเดิมไม่สลับบัญชี (Google ผูกบัญชีไว้กับแท็บแล้ว) → ถ้าไม่มีแท็บของบัญชีนี้
 // ต้องปิดแท็บ Flow บัญชีอื่นทิ้งแล้วเปิดใหม่ (โมเดลแท็บเดียว). preferProject = เลือกหน้า /project/ ก่อน
 async function acquireFlowTab(url, au, preferProject) {
-  const tabs = await chrome.tabs.query({ url: 'https://labs.google/fx/*' });
+  const tabs = (await chrome.tabs.query({ url: 'https://labs.google/*' }))
+    .filter((t) => { try { return new URL(t.url || '').pathname.startsWith('/fx'); } catch { return false; } });
   const sameAu = (t) => au == null || tabAuthuser(t.url) === au;
   let tab = (preferProject ? tabs.find((t) => sameAu(t) && /\/project\//.test(t.url || '')) : null) || tabs.find(sameAu);
   if (tab) {
+    for (const t of tabs) if (t.id !== tab.id) { try { await chrome.tabs.remove(t.id); } catch {} }
     try {
       await chrome.tabs.update(tab.id, { active: true });
       await chrome.windows.update(tab.windowId, { focused: true });
@@ -1224,9 +1226,16 @@ async function handleFlowStart(msg) {
 // เว็บแอปหลัก (หน้า คลังสินค้า) กด "สร้างคลิป" → POST /api/queue/push {payload:{type:'flow_start',...}}
 // extension claim คิวมาแล้วเรียก handleFlowStart เดิม (additive — ไม่แตะ flow/credit logic)
 // กันชนกันเอง: _qBusy = กำลังรัน batch อยู่ → ไม่ claim งานใหม่จนกว่าจะเสร็จ
-let _qBusy = false;
+const Q_LOCK_TTL = 120000;
+async function acquireQueueLock() {
+  const now = Date.now();
+  const d = await chrome.storage.local.get('vgap_queue_lock');
+  if (d.vgap_queue_lock && now - Number(d.vgap_queue_lock.at || 0) < Q_LOCK_TTL) return false;
+  await chrome.storage.local.set({ vgap_queue_lock: { at: now, worker: 'ext' } });
+  return true;
+}
 async function pollQueue() {
-  if (_qBusy) return;
+  if (!(await acquireQueueLock().catch(() => false))) return;
   let item = null;
   try {
     const base = await apiBase();
@@ -1235,11 +1244,10 @@ async function pollQueue() {
       body: JSON.stringify({ worker: 'ext' }), signal: AbortSignal.timeout(5000),
     }).then((x) => x.json());
     item = r && r.item;
-  } catch { return; }   // desktop ปิด/ออฟไลน์ → เงียบ
-  if (!item) return;
+  } catch { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); return; }
+  if (!item) { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); return; }
   const p = item.payload || item;
-  if (!p || p.type !== 'flow_start') return;   // งานประเภทอื่น — ข้าม (ปล่อยไว้ให้ worker อื่น)
-  _qBusy = true;
+  if (!p || p.type !== 'flow_start') { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); return; }
   try { await handleFlowStart(p); }
   catch (e) {
     const reason = `ส่วนขยายเริ่มงาน Flow ไม่สำเร็จ: ${String(e && e.message || e)}`;
@@ -1253,13 +1261,20 @@ async function pollQueue() {
       });
       await fetch(`${base}/api/queue/requeue`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id }), signal: AbortSignal.timeout(5000),
+        body: JSON.stringify({ id: item.id, error: reason }), signal: AbortSignal.timeout(5000),
+      }).then(async (r) => {
+        const rr = await r.json().catch(() => ({}));
+        if (rr.status === 'failed') {
+          await fetch(`${base}/api/flow/blocker`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: `${reason} ล้มเหลว ${rr.attempt}/${rr.max_attempts} ครั้ง ระบบหยุดงานนี้แล้ว`,
+              action: 'แก้ปัญหาตามข้อความด้านบน แล้วกดสร้างคลิปใหม่อีกครั้ง' }) });
+        }
       });
     } catch (reportErr) {
       console.warn('[VGAP] report queue failure error', reportErr);
     }
   }
-  finally { _qBusy = false; }
+  finally { await chrome.storage.local.remove('vgap_queue_lock').catch(() => {}); }
 }
 chrome.alarms && chrome.alarms.create('vgap_queue', { periodInMinutes: 0.25 });   // ~ทุก 15 วิ
 chrome.alarms && chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'vgap_queue') pollQueue(); });

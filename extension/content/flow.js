@@ -1332,17 +1332,28 @@ if (window._flowAutomatorLoaded) {
         const me = await currentActiveEmail();
         const cur = await currentCreditValue(me);
         // (0) อ่านเครดิตไม่ได้ทั้งหน้าสดและค่าเก็บ → ไม่เสี่ยงสร้าง (กันเปลืองเครดิตแบบที่เคยพลาด)
+        // เว้นแต่ผู้ใช้กด "ลองต่อไปเลย" ในหน้าเว็บหลัก → ข้ามด่านเครดิตทั้งด่าน
+        // (ห้ามปล่อยให้ตกไปเช็ก cur < need ต่อ: null < need เป็นจริงเสมอ จะเด้งไปสลับบัญชีทั้งที่ยังไม่รู้ยอด)
+        let skipCreditGate = false;
         if (cur == null) {
-          const reason = "อ่านเครดิต Flow ไม่ได้ จึงหยุดคิวเพื่อกันใช้เครดิตโดยไม่รู้ตัว";
-          const action = "เปิดแท็บเมล/หน้า Flow ให้เห็นเลขเครดิต แล้วกดเริ่มคิวใหม่ หรือใช้ปุ่มลองต่อไปเลยเมื่อยอมรับความเสี่ยง";
-          log(`${reason} — ${action}`);
-          reportFlowBlock(reason, action);
-          qstate(false, null);
-          _queueRunning = false;
-          return done;
+          const override = await desktop("GET", "/api/flow/credit-override");
+          if (override && override.allowed) {
+            skipCreditGate = true;
+            log("ผู้ใช้ยืนยันให้ลองต่อแม้อ่านเครดิตไม่ได้ — อาจใช้เครดิตไม่พอ");
+          } else {
+            const reason = "อ่านเครดิต Flow ไม่ได้ จึงหยุดคิวเพื่อกันใช้เครดิตโดยไม่รู้ตัว";
+            const action = "เปิดแท็บ Flow ให้เห็นเลขเครดิต หรือกดปุ่ม ‘ลองต่อไปเลย (เสี่ยงเครดิตไม่พอ)’ ในหน้าเว็บหลัก";
+            log(`${reason} — ${action}`);
+            reportFlowBlock(reason, action);
+            // ปักหมุดว่าหยุดเพราะอ่านเครดิตไม่ได้ — ผู้ใช้กดยืนยันทีหลังแล้ว maybeResumeQueue จะรันต่อให้เอง
+            try { await chrome.storage.local.set({ flow_credit_halt: { at: Date.now() } }); } catch {}
+            qstate(false, null);
+            _queueRunning = false;
+            return done;
+          }
         }
         // (1) เครดิตไม่พอ → สลับบัญชี
-        if (cur < need) {
+        if (!skipCreditGate && cur < need) {
           const next = await pickNextEmail(me, need);
           if (!next) {
             const reason = `ทุกบัญชีเครดิตไม่พอ (เหลือ ${cur}, ใช้ ${need}/คลิป)`;

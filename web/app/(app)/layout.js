@@ -162,6 +162,22 @@ export default function AppLayout({ children }) {
         </div>
       )}
 
+      {state.flowBlocker && (
+        <div className="fixed bottom-5 left-5 z-50 w-[min(430px,calc(100vw-2.5rem))] rounded-2xl border border-amber-400/30 bg-card p-4 shadow-lift">
+          <div className="text-sm font-semibold text-foreground">คิว Flow หยุดรอการยืนยัน</div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{state.flowBlocker.reason}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{state.flowBlocker.action}</p>
+          <div className="mt-3 flex gap-2">
+            <button className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600"
+              onClick={async () => { await api.flowCreditOverride(); await api.flowStatus(); }}>
+              ลองต่อไปเลย (เสี่ยงเครดิตไม่พอ)
+            </button>
+            <button className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground"
+              onClick={() => api.flowStatus().catch(() => {})}>เช็คอีกครั้ง</button>
+          </div>
+        </div>
+      )}
+
       {/* เตือนเมื่อโพสต์ไม่ได้ (ยังไม่เสียบมือถือ / ยังไม่เลือกแพลตฟอร์ม) — อยู่หลัง onboarding
           จึงไม่ไปเด้งใส่คนที่ยังตั้งค่าไม่เสร็จ */}
       <PostBlockedPrompt />

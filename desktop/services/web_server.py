@@ -2018,6 +2018,23 @@ class WebServer:
             self._flow_blocker = None
             return {"ok": True}
 
+        @app.post("/api/flow/credit-override")
+        async def flow_credit_override():
+            """ผู้ใช้ยืนยันเองให้ลองต่อแม้อ่านเครดิต Flow ไม่ได้ (หมดอายุใน 30 นาที)."""
+            until = int(time.time()) + 30 * 60
+            self.db.set_config("flow_unknown_credit_override", str(until))
+            self._flow_blocker = None
+            self.ws.broadcast_sync({"type": "flow_credit_override", "until": until})
+            return {"ok": True, "until": until}
+
+        @app.get("/api/flow/credit-override")
+        def flow_credit_override_state():
+            try:
+                until = int(self.db.get_config("flow_unknown_credit_override", "0") or 0)
+            except (TypeError, ValueError):
+                until = 0
+            return {"ok": True, "allowed": until > int(time.time()), "until": until}
+
         @app.post("/api/flow/progress")
         async def flow_progress(body: dict):
             """extension รายงานความคืบหน้าการสร้างคลิป → broadcast WS ให้หน้าเว็บโชว์ step checklist.
@@ -2177,10 +2194,10 @@ class WebServer:
                 return {"ok": False, "requeued": False}
             qid = (body or {}).get("id") if isinstance(body, dict) else None
             try:
-                ok = bool(qid) and self.db.queue_requeue(int(qid))
+                result = self.db.queue_requeue(int(qid), (body or {}).get("error", "")) if qid else {"ok": False}
             except (TypeError, ValueError):
-                ok = False
-            return {"ok": ok, "requeued": ok}
+                result = {"ok": False, "status": "invalid_id"}
+            return {"ok": bool(result.get("ok")), "requeued": result.get("status") == "pending", **result}
 
         # ── Snapshot (pre-capture cache — responds instantly) ──
 

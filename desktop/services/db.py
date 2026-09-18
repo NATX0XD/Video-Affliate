@@ -148,11 +148,14 @@ class JobStore:
                 CREATE TABLE IF NOT EXISTS queue (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,
                     payload    TEXT DEFAULT '{}',    -- JSON งาน (product/prompt/ฯลฯ)
-                    status     TEXT NOT NULL DEFAULT 'pending',  -- pending | claimed | done
+                    status     TEXT NOT NULL DEFAULT 'pending',  -- pending | claimed | done | failed
                     priority   INTEGER DEFAULT 0,    -- มากกว่า = ทำก่อน
                     claimed_by TEXT DEFAULT '',
                     created_ts INTEGER,
-                    claimed_ts INTEGER DEFAULT 0
+                    claimed_ts INTEGER DEFAULT 0,
+                    retry_count INTEGER DEFAULT 0,
+                    next_attempt_ts INTEGER DEFAULT 0,
+                    last_error TEXT DEFAULT ''
                 );
                 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);
                 """
@@ -211,6 +214,9 @@ class JobStore:
                 ("claimed_by", "ALTER TABLE queue ADD COLUMN claimed_by TEXT DEFAULT ''"),
                 ("created_ts", "ALTER TABLE queue ADD COLUMN created_ts INTEGER"),
                 ("claimed_ts", "ALTER TABLE queue ADD COLUMN claimed_ts INTEGER DEFAULT 0"),
+                ("retry_count", "ALTER TABLE queue ADD COLUMN retry_count INTEGER DEFAULT 0"),
+                ("next_attempt_ts", "ALTER TABLE queue ADD COLUMN next_attempt_ts INTEGER DEFAULT 0"),
+                ("last_error", "ALTER TABLE queue ADD COLUMN last_error TEXT DEFAULT ''"),
             ):
                 if q_cols and col not in q_cols:
                     q_adds.append(ddl)
@@ -859,8 +865,8 @@ class JobStore:
         """ดูงานถัดไปในคิว (peek) โดยไม่ claim — priority สูงก่อน แล้วเก่าก่อน."""
         with self._lock:
             r = self._conn.execute(
-                """SELECT * FROM queue WHERE status='pending'
-                   ORDER BY priority DESC, id ASC LIMIT 1"""
+                """SELECT * FROM queue WHERE status='pending' AND COALESCE(next_attempt_ts, 0) <= ?
+                   ORDER BY priority DESC, id ASC LIMIT 1""", (_now(),)
             ).fetchone()
         return self._queue_row(r)
 
@@ -869,8 +875,8 @@ class JobStore:
         ts = _now()
         with self._lock:
             r = self._conn.execute(
-                """SELECT id FROM queue WHERE status='pending'
-                   ORDER BY priority DESC, id ASC LIMIT 1"""
+                """SELECT id FROM queue WHERE status='pending' AND COALESCE(next_attempt_ts, 0) <= ?
+                   ORDER BY priority DESC, id ASC LIMIT 1""", (ts,)
             ).fetchone()
             if r is None:
                 return None
@@ -883,16 +889,26 @@ class JobStore:
             row = self._conn.execute("SELECT * FROM queue WHERE id=?", (qid,)).fetchone()
         return self._queue_row(row)
 
-    def queue_requeue(self, queue_id: int) -> bool:
-        """คืนงานที่ worker คว้าแล้วแต่เริ่มทำไม่สำเร็จ ให้ลองใหม่ได้."""
+    def queue_requeue(self, queue_id: int, error: str = "") -> dict:
+        """คืนงานที่เริ่มไม่สำเร็จ โดยหน่วงเวลาและหยุดถ้าล้มเหลวซ้ำเกินเพดาน."""
+        max_attempts = 3
         with self._lock:
+            row = self._conn.execute("SELECT retry_count FROM queue WHERE id=? AND status='claimed'", (int(queue_id),)).fetchone()
+            if row is None:
+                return {"ok": False, "status": "not_claimed", "attempt": 0, "max_attempts": max_attempts}
+            attempt = int(row["retry_count"] or 0) + 1
+            terminal = attempt >= max_attempts
+            backoff = min(60, 15 * (2 ** max(0, attempt - 1)))
+            status = "failed" if terminal else "pending"
+            next_at = 0 if terminal else _now() + backoff
             cur = self._conn.execute(
-                "UPDATE queue SET status='pending', claimed_by='', claimed_ts=0 "
+                "UPDATE queue SET status=?, claimed_by='', claimed_ts=0, retry_count=?, next_attempt_ts=?, last_error=? "
                 "WHERE id=? AND status='claimed'",
-                (int(queue_id),),
+                (status, attempt, next_at, str(error or "")[:1000], int(queue_id)),
             )
             self._conn.commit()
-            return cur.rowcount > 0
+            return {"ok": cur.rowcount > 0, "status": status, "attempt": attempt, "max_attempts": max_attempts,
+                    "next_attempt_ts": next_at, "backoff_seconds": 0 if terminal else backoff}
 
     # ── logs (A1.8) ───────────────────────────────────────────
 

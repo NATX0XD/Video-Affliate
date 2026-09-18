@@ -158,6 +158,7 @@ export const api = {
   gemini:           (prompt, generationConfig) => geminiReq(prompt, generationConfig),
   // สถานะ Flow/ส่วนขยาย — {ok, queued, ext_online} ใช้เช็กก่อนสั่งสร้างคลิป
   flowStatus:        ()       => req('GET', '/api/flow/status'),
+  flowCreditOverride:()       => req('POST', '/api/flow/credit-override'),
   // บัญชี Google Flow ที่ให้ระบบหมุนเวลาเครดิตหมด (เก็บแค่อีเมล ไม่เก็บรหัสผ่าน)
   flowAccounts:      ()       => req('GET',  '/api/flow/accounts'),
   saveFlowAccounts:  (accounts) => req('POST', '/api/flow/accounts', { accounts }),
