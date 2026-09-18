@@ -252,6 +252,8 @@ class JobStore:
                  QUEUED, max_attempts, ts, ts),
             )
             self._conn.commit()
+            if cur.rowcount and str(pid).isdigit():
+                self.mark_products_status([pid], QUEUED)
             return cur.lastrowid if cur.rowcount else None
 
     def add_many(self, products: list, max_attempts: int = 3) -> int:
@@ -280,6 +282,8 @@ class JobStore:
                  status, video_path, posted_at, ts, ts),
             )
             self._conn.commit()
+            if cur.rowcount and str(pid).isdigit() and status in (GENERATED, POSTED):
+                self.mark_products_status([pid], "done")
             return cur.lastrowid if cur.rowcount else None
 
     # ── claim (atomic) ────────────────────────────────────────
@@ -345,10 +349,17 @@ class JobStore:
         fields["updated_at"] = _now()
         cols = ", ".join(f"{k}=?" for k in fields)
         with self._lock:
+            product_id = None
+            if "status" in fields:
+                row = self._conn.execute("SELECT product_id FROM jobs WHERE id=?", (job_id,)).fetchone()
+                product_id = row["product_id"] if row else None
             self._conn.execute(
                 f"UPDATE jobs SET {cols} WHERE id=?",
                 (*fields.values(), job_id),
             )
+            if product_id is not None and str(product_id).isdigit():
+                mapped = "done" if fields["status"] in (GENERATED, POSTED) else ("queued" if fields["status"] in (QUEUED, GENERATING, POSTING) else "new")
+                self._conn.execute("UPDATE products SET status=? WHERE id=?", (mapped, int(product_id)))
             self._conn.commit()
 
     def set_status(self, job_id: int, status: str, **extra):
@@ -758,16 +769,39 @@ class JobStore:
 
     def list_products(self, status: Optional[str] = None,
                       limit: int = 500, offset: int = 0) -> list:
-        q = "SELECT * FROM products"
+        # สถานะจริงมาจาก jobs ด้วย เพราะสินค้าเดิมไม่มีคอลัมน์ video_status
+        q = """SELECT p.*, j.status AS video_status, j.posted_at AS video_posted_at
+               FROM products p
+               LEFT JOIN jobs j ON j.product_id = CAST(p.id AS TEXT)"""
         args: list = []
         if status:
-            q += " WHERE status=?"
+            q += " WHERE p.status=?"
             args.append(status)
         q += " ORDER BY created_ts DESC, id DESC LIMIT ? OFFSET ?"
         args += [limit, offset]
         with self._lock:
+            # ซ่อมสถานะ catalog ของงานเก่าที่สร้างเสร็จก่อนมีการซิงก์นี้
+            self._conn.execute("""UPDATE products SET status='done'
+                WHERE id IN (SELECT CAST(product_id AS INTEGER) FROM jobs
+                             WHERE status IN (?, ?) AND product_id GLOB '[0-9]*')""", (GENERATED, POSTED))
+            self._conn.commit()
             rows = self._conn.execute(q, args).fetchall()
         return [dict(r) for r in rows]
+
+    def mark_products_status(self, product_ids, status: str):
+        """อัปเดตสถานะ catalog ตามคิวสร้างคลิป โดยไม่แตะข้อมูลสินค้าอื่น."""
+        ids = []
+        for value in product_ids or []:
+            try:
+                ids.append(int(value))
+            except (TypeError, ValueError):
+                pass
+        if not ids:
+            return
+        marks = ",".join("?" * len(ids))
+        with self._lock:
+            self._conn.execute(f"UPDATE products SET status=? WHERE id IN ({marks})", (status, *ids))
+            self._conn.commit()
 
     def get_product(self, product_id: int) -> Optional[dict]:
         with self._lock:

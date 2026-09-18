@@ -128,7 +128,7 @@ DEFAULT = {
     "prompt_style_note": "",     # ข้อความสไตล์เพิ่มเติม (ต่อท้ายตอนโหมด AI)
     "engine": "template",        # "template" (free) | "veo" (AI paid) | "avatar" (D-ID review)
     "vdo_model": "veo-2.0-generate-001",
-    "prompt_model": "gemini-2.0-flash",
+    "prompt_model": "gemini-3.5-flash-lite",
     "generate_audio": False,
     # Flow adapter — URL ของไฟล์ override selector/behavior ของ Google Flow (ว่าง = ใช้ bundled เท่านั้น)
     "flow_adapter_url": "",

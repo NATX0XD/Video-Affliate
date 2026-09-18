@@ -1075,6 +1075,9 @@ if (window._flowAutomatorLoaded) {
       } catch (e) { resolve({ ok: false, error: String(e) }); }
     });
   }
+  function reportFlowBlock(reason, action) {
+    try { desktop("POST", "/api/flow/blocker", { reason, action }); } catch {}
+  }
   function fetchImageDataUrl(url) {
     return new Promise((resolve) => {
       try { chrome.runtime.sendMessage({ action: "fetch_image", url }, (res) => resolve((res && res.dataUrl) || null)); }
@@ -1330,7 +1333,10 @@ if (window._flowAutomatorLoaded) {
         const cur = await currentCreditValue(me);
         // (0) อ่านเครดิตไม่ได้ทั้งหน้าสดและค่าเก็บ → ไม่เสี่ยงสร้าง (กันเปลืองเครดิตแบบที่เคยพลาด)
         if (cur == null) {
-          log("อ่านเครดิตไม่ได้ — หยุดคิวไว้ก่อน กันเปลืองเครดิต (เปิดแท็บเมล/หน้า Flow ให้เห็นเลขเครดิตก่อน แล้วรันใหม่)");
+          const reason = "อ่านเครดิต Flow ไม่ได้ จึงหยุดคิวเพื่อกันใช้เครดิตโดยไม่รู้ตัว";
+          const action = "เปิดแท็บเมล/หน้า Flow ให้เห็นเลขเครดิต แล้วกดเริ่มคิวใหม่ หรือใช้ปุ่มลองต่อไปเลยเมื่อยอมรับความเสี่ยง";
+          log(`${reason} — ${action}`);
+          reportFlowBlock(reason, action);
           qstate(false, null);
           _queueRunning = false;
           return done;
@@ -1339,7 +1345,10 @@ if (window._flowAutomatorLoaded) {
         if (cur < need) {
           const next = await pickNextEmail(me, need);
           if (!next) {
-            log(`ทุกบัญชีเครดิตไม่พอ (เหลือ ${cur}, ใช้ ${need}/คลิป) — หยุดคิวไว้ก่อน เติม/รอเครดิตแล้วกดรันคิวใหม่`);
+            const reason = `ทุกบัญชีเครดิตไม่พอ (เหลือ ${cur}, ใช้ ${need}/คลิป)`;
+            const action = "เติม/รอเครดิต แล้วกดเริ่มคิวใหม่ หรือเลือกบัญชี Flow อื่นที่มีเครดิต";
+            log(`${reason} — ${action}`);
+            reportFlowBlock(reason, action);
             qstate(false, null);
             _queueRunning = false;
             return done;

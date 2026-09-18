@@ -10,7 +10,7 @@ import { ImageSlot } from '@/components/gen/ImageSlot'
 import { Topic, PromptBox } from '@/components/gen/CustomField'
 import { BrollPicker } from '@/components/gen/BrollPicker'
 
-export function StepLook({ o, set, onNotify, onError }) {
+export function StepLook({ o, set, onNotify, onError, products }) {
   const prompts = o.prompts || {}
   const onPrompts = p => set({ prompts: p })
   const [scenes, setScenes] = useState([])
@@ -81,6 +81,7 @@ export function StepLook({ o, set, onNotify, onError }) {
       </div>
 
       <Topic label="ฉากหลัง" fieldKey="scene" prompts={prompts} onPrompts={onPrompts}
+        products={products} presets={o}
         hint="เลือกฉากสำเร็จรูป หรือกด เขียนเอง เพื่อพิมพ์ฉาก + แนบรูป"
         custom={sceneSlot}
         onClear={() => set({ bgImage: null, bgImageName: '', sceneId: '' })}>
@@ -108,6 +109,7 @@ export function StepLook({ o, set, onNotify, onError }) {
       <div className="h-px bg-line" />
 
       <Topic label="อารมณ์ภาพ" fieldKey="mood" prompts={prompts} onPrompts={onPrompts}
+        products={products} presets={o}
         hint="คุมโทนสีและแสงรวมของคลิป — กด เขียนเอง เพื่อพิมพ์เอง + แนบรูปอ้างอิง"
         custom={moodSlot}
         onClear={() => set({ moodImage: null, moodImageName: '' })}>
@@ -126,8 +128,8 @@ export function StepLook({ o, set, onNotify, onError }) {
       <div className="h-px bg-line" />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <PromptBox fieldKey="light" prompts={prompts} onPrompts={onPrompts} rows={2} />
-        <PromptBox fieldKey="camera" prompts={prompts} onPrompts={onPrompts} rows={2} />
+        <PromptBox fieldKey="light" prompts={prompts} onPrompts={onPrompts} rows={2} products={products} presets={o} />
+        <PromptBox fieldKey="camera" prompts={prompts} onPrompts={onPrompts} rows={2} products={products} presets={o} />
       </div>
     </div>
   )

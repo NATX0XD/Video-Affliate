@@ -469,7 +469,7 @@ ${userBlockI2V}${recentBlock}
     const m = charImg.match(/^data:([^;]+);base64,(.+)$/s);
     if (m) parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
   }
-  const model = cfg.prompt_model || 'gemini-2.0-flash';
+  const model = cfg.prompt_model || 'gemini-3.5-flash-lite';
   // เรียก Gemini ผ่าน proxy ของ desktop — key ไม่หลุดออกนอกเครื่อง (desktop ถือ GOOGLE_API_KEY เอง)
   // ไม่มี token = desktop รุ่นเก่าที่ไม่มี proxy → error ชัดเลย ไม่ยิง key ดิบเงียบ (เลิกใช้ key ดิบแล้ว)
   if (!cfg.token) throw new Error('desktop รุ่นนี้ยังไม่รองรับ AI proxy — อัปเดตโปรแกรมหลักในเครื่องก่อน');

@@ -97,6 +97,7 @@ class WebServer:
         self._thread: Optional[threading.Thread] = None
         self._started_at: Optional[float] = None   # uptime (A1.8)
         self._last_ext_ping: float = 0.0           # เวลาที่ extension ติดต่อล่าสุด (P2.1) — onboarding เช็ค "เชื่อมแล้ว"
+        self._flow_blocker = None                  # เหตุผลที่ extension หยุดคิวล่าสุด — แสดงบนเว็บหลัก
 
         # Shared session token — สร้างใหม่ทุกครั้งที่เปิดโปรแกรม (in-memory เท่านั้น ไม่เขียนดิสก์).
         # extension ขอ token นี้ผ่าน /api/flow/config แล้วแนบใน header เวลาเรียก proxy sensitive
@@ -180,6 +181,7 @@ class WebServer:
                     "errors":        by.get(ERROR, 0),
                     "pilot_running": running,
                     "extension":     ext,               # {connected, last_ping_ts} (P2.1)
+                    "flow_blocker":  self._flow_blocker,
                     "jobs":          self.db.stats(),   # breakdown ละเอียดสำหรับค็อกพิต
                     "budget":        self.budget.snapshot() if self.budget else None,
                     "token":         self.api_token,    # ให้หน้าเว็บ/extension แนบเวลาเรียก proxy
@@ -191,6 +193,7 @@ class WebServer:
                 "errors":     0,
                 "pilot_running": running,
                 "extension":  ext,
+                "flow_blocker": self._flow_blocker,
                 "token":      self.api_token,
             }
 
@@ -1496,7 +1499,7 @@ class WebServer:
                 "prompt_mode":       s.get("prompt_mode", "ai"),
                 "prompt_template":   s.get("prompt_template", ""),
                 "prompt_style_note": s.get("prompt_style_note", ""),
-                "prompt_model":      s.get("prompt_model", "gemini-2.0-flash"),
+                "prompt_model":      s.get("prompt_model", "gemini-3.5-flash-lite"),
                 "duration":          s.get("duration", 8),
                 "shop_name":         s.get("shop_name", ""),
                 "background":        s.get("background", "สตูดิโอ"),
@@ -1523,7 +1526,7 @@ class WebServer:
                     {"error": {"message": "ยังไม่ได้ใส่รหัส Google API key ใน desktop"}},
                     status_code=400)
             model = (body.get("model") or cfg.load().get("prompt_model")
-                     or "gemini-2.0-flash").strip()
+                     or "gemini-3.5-flash-lite").strip()
             import re as _re
             if not _re.fullmatch(r"[A-Za-z0-9._\-]{1,64}", model):
                 return JSONResponse({"error": {"message": "ชื่อโมเดลไม่ถูกต้อง"}}, status_code=400)
@@ -1993,10 +1996,27 @@ class WebServer:
             # ext_online = extension เพิ่งติดต่อเข้ามาภายใน 20 วิ (poller/ping) → ใช้เช็กก่อนสั่งสร้าง
             q = self.db.count(QUEUED)
             ext_online = (time.time() - self._last_ext_ping) < 20 if self._last_ext_ping else False
-            out = {"ok": True, "queued": q, "ext_online": ext_online}
+            out = {"ok": True, "queued": q, "ext_online": ext_online,
+                   "blocker": self._flow_blocker}
             if self.budget:
                 out["budget"] = self.budget.snapshot()
             return out
+
+        @app.post("/api/flow/blocker")
+        async def flow_blocker(body: dict):
+            """extension แจ้งเหตุผลที่หยุดคิว เพื่อให้หน้าเว็บหลักเห็นเสมอ."""
+            self._touch_extension()
+            reason = str(body.get("reason") or "คิวสร้างคลิปหยุดทำงาน")[:500]
+            action = str(body.get("action") or "เปิดหน้า Flow ให้เห็นข้อมูล แล้วกดลองใหม่")[:500]
+            self._flow_blocker = {"reason": reason, "action": action, "at": int(time.time())}
+            self.ws.broadcast_sync({"type": "flow_blocked", "reason": reason, "action": action})
+            self.emit_log(f"[FLOW] หยุดคิว: {reason} · {action}", level="warn", source="FLOW")
+            return {"ok": True}
+
+        @app.post("/api/flow/blocker/clear")
+        async def clear_flow_blocker():
+            self._flow_blocker = None
+            return {"ok": True}
 
         @app.post("/api/flow/progress")
         async def flow_progress(body: dict):
@@ -2103,11 +2123,12 @@ class WebServer:
         @app.post("/api/queue/push")
         async def queue_push(body: dict):
             """วางงานลงคิวบน DB (payload อิสระ). รอบนี้ยังไม่บังคับ extension ใช้."""
-            self._touch_extension()
             if not self.db:
                 return {"ok": False, "error": "db not ready"}
             payload = body.get("payload") if isinstance(body.get("payload"), dict) else body
             qid = self.db.queue_push(payload or {}, int(body.get("priority", 0) or 0))
+            if payload.get("type") == "flow_start":
+                self.db.mark_products_status([p.get("product_id") for p in (payload.get("products") or []) if isinstance(p, dict)], "queued")
             return {"ok": True, "id": qid}
 
         # ── ยกเลิกการสร้างคลิปที่กำลังรันอยู่ ──────────────────────────────

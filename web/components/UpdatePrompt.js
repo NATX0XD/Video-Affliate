@@ -16,6 +16,8 @@ export function UpdatePrompt() {
 
   useEffect(() => {
     let alive = true
+    const dismissFromSidebar = () => setInfo(null)
+    window.addEventListener('vgap:update-dismiss', dismissFromSidebar)
     const check = () => {
       // ผู้ใช้กด "ไว้ก่อน" ไปแล้ว → เงียบ 24 ชม. (เว้นแต่มี commit ใหม่กว่าที่เคยเลื่อน)
       let snooze = null
@@ -30,7 +32,7 @@ export function UpdatePrompt() {
     }
     const t = setTimeout(check, 4000)            // ให้แอปโหลดเสร็จก่อน
     const id = setInterval(check, 60 * 60 * 1000) // เช็กซ้ำทุกชั่วโมง
-    return () => { alive = false; clearTimeout(t); clearInterval(id) }
+    return () => { alive = false; clearTimeout(t); clearInterval(id); window.removeEventListener('vgap:update-dismiss', dismissFromSidebar) }
   }, [])
 
   if (!info) return null

@@ -66,6 +66,31 @@ export default function AppLayout({ children }) {
     else                                 toast.error(`โพสต์ ${who} ไม่สำเร็จ${where} — ${r.detail || 'ดูรายละเอียดที่หน้างาน'}`)
   }, [state.postResult, toast])
 
+  const lastFlowBlock = useRef(0)
+  useEffect(() => {
+    const b = state.flowBlocker
+    if (!b || b.at === lastFlowBlock.current) return
+    lastFlowBlock.current = b.at
+    toast.error(`${b.reason} — ${b.action}`, { duration: 12000, dedupeKey: `flow-block:${b.at}` })
+  }, [state.flowBlocker, toast])
+
+  // งานที่ค้าง pending นานเกินหนึ่งนาทีมักหมายถึงส่วนขยายไม่ได้ต่ออยู่ — บอกผู้ใช้ทันที
+  const warnedQueue = useRef(new Set())
+  useEffect(() => {
+    let alive = true
+    const check = () => api.queueNext().then(d => {
+      if (!alive || !d?.item || d.item.status !== 'pending') return
+      const age = Date.now() / 1000 - Number(d.item.created_ts || 0)
+      if (age > 60 && !warnedQueue.current.has(d.item.id)) {
+        warnedQueue.current.add(d.item.id)
+        toast.warning('งานสร้างคลิปค้างเกิน 1 นาที — ส่วนขยายอาจยังไม่ได้เชื่อมต่อ ให้เปิด Chrome แล้วกด reload ที่ chrome://extensions', { duration: 12000, dedupeKey: `queue-pending:${d.item.id}` })
+      }
+    }).catch(() => {})
+    check()
+    const id = setInterval(check, 10000)
+    return () => { alive = false; clearInterval(id) }
+  }, [toast])
+
   // gate 1: license check (disabled ระหว่าง dev — เปิดก่อน release)
   const [license, setLicense] = useState({ checked: true, ok: true })
 

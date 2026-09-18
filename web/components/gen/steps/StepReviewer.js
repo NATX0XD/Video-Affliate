@@ -8,7 +8,7 @@ import { ImageSlot } from '@/components/gen/ImageSlot'
 import { Topic } from '@/components/gen/CustomField'
 import { ModelPreview } from '@/components/gen/ModelPreview'
 
-export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap, onNotify, onError }) {
+export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap, onNotify, onError, products }) {
   const char = GEN_CHARS.find(c => c.id === o.charId) || GEN_CHARS[0]
   const prompts = o.prompts || {}
   const onPrompts = p => set({ prompts: p })
@@ -40,6 +40,7 @@ export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap,
       </div>
 
       <Topic label="ตัวละคร" fieldKey="char" prompts={prompts} onPrompts={onPrompts}
+        products={products} presets={o}
         hint="เลือกตัวละครสำเร็จรูป หรือใช้รูปตัวเอง">
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -87,6 +88,7 @@ export function StepReviewer({ o, set, selfPhoto, onSelfPhoto, modelRef, onSnap,
       <div className="h-px bg-line" />
 
       <Topic label="ขายให้ใคร" fieldKey="aud" prompts={prompts} onPrompts={onPrompts}
+        products={products} presets={o}
         hint="เลือกกลุ่มสำเร็จรูป หรือเขียนกลุ่มเป้าหมายเอง">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {GEN_AUDS.map(a => (

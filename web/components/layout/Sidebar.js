@@ -1,12 +1,14 @@
 'use client'
+import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard,
+  CheckCircle2, Download, LayoutDashboard, Loader2,
   ListOrdered, Settings, Film, X, CheckSquare, MonitorSmartphone, ShieldAlert, GitBranch, Package, ScrollText,
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { api } from '@/lib/api'
 
 const NAV = [
   { group: 'ภาพรวม', items: [
@@ -31,6 +33,31 @@ const NAV = [
 
 export function Sidebar({ wsConnected, open = false, onClose }) {
   const path = usePathname()
+  const [update, setUpdate] = useState(null)
+  const [checking, setChecking] = useState(false)
+
+  const checkUpdate = async () => {
+    // ถ้ากล่องแจ้งเตือนอัตโนมัติเปิดอยู่ ให้ใช้แผงนี้เป็นจุดเดียว ไม่เด้งซ้อนกัน
+    try { window.dispatchEvent(new CustomEvent('vgap:update-dismiss')) } catch {}
+    setChecking(true)
+    try {
+      const d = await api.appUpdateCheck()
+      if (!d?.supported) setUpdate({ kind: 'unsupported', text: d?.reason || 'รุ่นนี้ต้องโหลดตัวติดตั้งใหม่' })
+      else if (!d?.ok) setUpdate({ kind: 'error', text: d?.error || 'เช็กเวอร์ชันไม่ได้ — ลองใหม่เมื่อมีอินเทอร์เน็ต' })
+      else if (!d.update_available) setUpdate({ kind: 'current', text: `ล่าสุดแล้ว (${d.current})` })
+      else setUpdate({ kind: 'available', text: `มีเวอร์ชันใหม่ ${d.current} → ${d.latest}`, current: d })
+    } catch { setUpdate({ kind: 'error', text: 'เช็กอัปเดตไม่ได้ — เช็คอินเทอร์เน็ต' }) }
+    finally { setChecking(false) }
+  }
+
+  const runUpdate = async () => {
+    setUpdate({ kind: 'updating', text: 'กำลังอัปเดต…' })
+    try {
+      const d = await api.appUpdate()
+      if (!d?.ok) setUpdate({ kind: 'error', text: d?.error || 'อัปเดตไม่สำเร็จ' })
+      else setUpdate({ kind: 'restart', text: `อัปเดตเป็น ${d.version || 'เวอร์ชันใหม่'} แล้ว — ปิดเปิดโปรแกรมใหม่`, warning: d.warning })
+    } catch { setUpdate({ kind: 'error', text: 'อัปเดตไม่สำเร็จ — เช็คอินเทอร์เน็ต' }) }
+  }
 
   return (
     <>
@@ -97,6 +124,18 @@ export function Sidebar({ wsConnected, open = false, onClose }) {
                 {wsConnected ? 'เชื่อมต่อแล้ว' : 'กำลังเชื่อมต่อ…'}
               </p>
             </div>
+          </div>
+          <div className="rounded-lg border border-border/70 px-3 py-2">
+            <button type="button" onClick={update?.kind === 'available' ? runUpdate : checkUpdate}
+              disabled={checking || update?.kind === 'updating'}
+              className="w-full flex items-center gap-2 text-left text-xs font-semibold text-foreground hover:text-accent disabled:opacity-60">
+              {checking || update?.kind === 'updating' ? <Loader2 size={14} className="animate-spin" />
+                : update?.kind === 'current' ? <CheckCircle2 size={14} className="text-success" /> : <Download size={14} />}
+              <span className="truncate">{update?.kind === 'available' ? 'อัปเดตโปรแกรม' : 'อัปเดตโปรแกรม'}</span>
+            </button>
+            {update && <p className={`text-[11px] leading-relaxed mt-1 ${update.kind === 'error' ? 'text-danger' : update.kind === 'current' || update.kind === 'restart' ? 'text-success' : 'text-muted-foreground'}`}>{update.text}</p>}
+            {update?.warning && <p className="text-[11px] leading-relaxed mt-1 text-amber-500">คำเตือน: {update.warning}</p>}
+            {update?.kind === 'unsupported' && <p className="text-[11px] leading-relaxed mt-1 text-muted-foreground">ต้องโหลดตัวติดตั้งใหม่จากผู้พัฒนา</p>}
           </div>
           <ThemeToggle />
         </div>

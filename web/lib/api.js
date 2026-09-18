@@ -29,6 +29,44 @@ async function req(method, path, body) {
   return res.json()
 }
 
+// Gemini proxy ใช้ token ที่ desktop สร้างใหม่ทุกครั้งที่เปิดโปรแกรม
+// จึงต้องดึง config สดทุกครั้ง ไม่เก็บ token ข้ามการรีสตาร์ตไว้ใน browser
+async function geminiReq(prompt, generationConfig) {
+  let cfg
+  try {
+    const cr = await fetch(`${BASE}/api/flow/config`)
+    cfg = await cr.json()
+    if (!cr.ok || !cfg?.token) throw new Error('อ่าน token ของโปรแกรมหลักไม่ได้')
+  } catch (e) {
+    notifyError({ kind: 'network', method: 'POST', path: '/api/ai/gemini', error: e?.message })
+    throw new Error('เชื่อมต่อโปรแกรมหลักไม่ได้ — เปิด VDO Gen Auto Pilot ไว้ก่อน')
+  }
+  let res
+  try {
+    res = await fetch(`${BASE}/api/ai/gemini`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-vgap-token': cfg.token },
+      body: JSON.stringify({ prompt, ...(generationConfig ? { generationConfig } : {}) }),
+    })
+  } catch (e) {
+    notifyError({ kind: 'network', method: 'POST', path: '/api/ai/gemini', error: e?.message })
+    throw new Error('เชื่อมต่อ Gemini ไม่ได้ — เช็คอินเทอร์เน็ตแล้วลองใหม่')
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const raw = data?.error?.message || ''
+    if (res.status === 400 && /api key|key/i.test(raw)) {
+      throw new Error('ยังไม่มี Google API key — ไปที่หน้า ตั้งค่า แล้วใส่ Google API key ก่อน')
+    }
+    if (res.status === 429) throw new Error('Gemini ใช้งานเกินโควตาชั่วคราว — รอสักครู่แล้วลองใหม่')
+    if (res.status === 503 || /high demand|ขัดข้องชั่วคราว/i.test(raw)) {
+      throw new Error('Gemini กำลังมีผู้ใช้งานหนาแน่น — รอสักครู่แล้วกดขอใหม่')
+    }
+    throw new Error(raw || `Gemini ตอบกลับรหัส ${res.status}`)
+  }
+  return data
+}
+
 export const api = {
   status:          ()         => req('GET',  '/api/status'),
   scan:            ()         => req('POST', '/api/scan'),
@@ -117,6 +155,7 @@ export const api = {
   // อัปเดตตัวโปรแกรม (โฟลเดอร์ติดตั้งเป็น git clone → เทียบ commit กับ main)
   appUpdateCheck:  ()         => req('GET',  '/api/app/update-check'),
   appUpdate:       ()         => req('POST', '/api/app/update'),   // ดึง extension ล่าสุด + ให้มัน reload เอง
+  gemini:           (prompt, generationConfig) => geminiReq(prompt, generationConfig),
   // สถานะ Flow/ส่วนขยาย — {ok, queued, ext_online} ใช้เช็กก่อนสั่งสร้างคลิป
   flowStatus:        ()       => req('GET', '/api/flow/status'),
   // บัญชี Google Flow ที่ให้ระบบหมุนเวลาเครดิตหมด (เก็บแค่อีเมล ไม่เก็บรหัสผ่าน)

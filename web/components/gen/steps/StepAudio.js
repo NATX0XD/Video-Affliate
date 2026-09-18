@@ -4,7 +4,7 @@ import { GEN_SOUNDS, GEN_VOICES, GEN_LANGS, GEN_MUSICS } from '@/lib/gen-options
 import { PillRow } from '@/components/gen/PickCard'
 import { Topic, PromptBox } from '@/components/gen/CustomField'
 
-export function StepAudio({ o, set }) {
+export function StepAudio({ o, set, products }) {
   const prompts = o.prompts || {}
   const onPrompts = p => set({ prompts: p })
   const mute = o.sound === 'mute'
@@ -24,7 +24,7 @@ export function StepAudio({ o, set }) {
 
       {!mute && (
         <>
-          <Topic label="น้ำเสียง" fieldKey="voice" prompts={prompts} onPrompts={onPrompts}>
+          <Topic label="น้ำเสียง" fieldKey="voice" prompts={prompts} onPrompts={onPrompts} products={products} presets={o}>
             <PillRow items={GEN_VOICES} value={o.voice} onPick={id => set({ voice: id })} />
           </Topic>
 
@@ -35,14 +35,14 @@ export function StepAudio({ o, set }) {
         </>
       )}
 
-      <Topic label="เพลงประกอบ" fieldKey="music" prompts={prompts} onPrompts={onPrompts}>
+      <Topic label="เพลงประกอบ" fieldKey="music" prompts={prompts} onPrompts={onPrompts} products={products} presets={o}>
         <PillRow items={GEN_MUSICS} value={o.music} onPick={id => set({ music: id })} />
       </Topic>
 
       {!mute && (
         <>
           <div className="h-px bg-line" />
-          <PromptBox fieldKey="script" prompts={prompts} onPrompts={onPrompts} rows={3} />
+          <PromptBox fieldKey="script" prompts={prompts} onPrompts={onPrompts} rows={3} products={products} presets={o} />
         </>
       )}
     </div>

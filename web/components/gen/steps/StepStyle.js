@@ -4,7 +4,7 @@ import { GEN_STYLES, GEN_LENS, GEN_ENGINES } from '@/lib/gen-options'
 import { PickCard } from '@/components/gen/PickCard'
 import { PromptBox } from '@/components/gen/CustomField'
 
-export function StepStyle({ o, set }) {
+export function StepStyle({ o, set, products }) {
   const prompts = o.prompts || {}
   const onPrompts = p => set({ prompts: p })
   return (
@@ -45,7 +45,7 @@ export function StepStyle({ o, set }) {
       </section>
 
       <div className="h-px bg-line" />
-      <PromptBox fieldKey="action" prompts={prompts} onPrompts={onPrompts} rows={2} />
+      <PromptBox fieldKey="action" prompts={prompts} onPrompts={onPrompts} rows={2} products={products} presets={o} />
     </div>
   )
 }

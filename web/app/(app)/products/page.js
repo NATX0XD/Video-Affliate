@@ -29,8 +29,8 @@ const STATUS_FILTERS = [
 ]
 
 const statusOf = p => {
-  const s = p.status || p.video_status
-  if (s === 'done' || p.posted_at) return 'done'
+  const s = p.video_status || p.status
+  if (s === 'done' || s === 'generated' || s === 'posted' || p.posted_at || p.video_posted_at) return 'done'
   if (s === 'queued') return 'queued'
   return 'new'
 }
@@ -191,8 +191,8 @@ export default function ProductsPage() {
     })
   }, [products, query, cat, filter])
 
-  const withCart = visible.filter(hasCart)
-  const noCart   = visible.filter(p => !hasCart(p))
+  const notCreated = visible.filter(p => statusOf(p) !== 'done')
+  const created = visible.filter(p => statusOf(p) === 'done')
 
   const toggle = uid => setSelected(prev => {
     const n = new Set(prev)
@@ -251,6 +251,15 @@ export default function ProductsPage() {
       </p>
       <Grid items={items} />
     </div>
+  )
+
+  const TableSection = ({ title, items }) => items.length === 0 ? null : (
+    <section className="flex flex-col gap-2">
+      <p className="text-muted-foreground text-xs font-bold flex items-center gap-1.5">
+        {title} <span className="nums">({items.length})</span>
+      </p>
+      <Table items={items} />
+    </section>
   )
 
   const allVisibleSelected = visible.length > 0 && visible.every(p => selected.has(productUid(p)))
@@ -373,11 +382,15 @@ export default function ProductsPage() {
       ) : (
         <div className="flex flex-col gap-6 pb-24">
           {view === 'table' ? (
-            <Table items={visible} />
+            <div className="flex flex-col gap-6">
+              <TableSection title="ยังไม่ได้สร้าง" items={notCreated} />
+              <TableSection title="สร้างคลิปแล้ว" items={created} />
+            </div>
           ) : (
             <>
-              <Section title="พร้อมโพสต์ · มีตะกร้า" items={withCart} />
-              <Section title="ยังไม่มีตะกร้า" items={noCart} />
+              <Section title={`ยังไม่ได้สร้าง · มีตะกร้า (${notCreated.filter(hasCart).length})`} items={notCreated.filter(hasCart)} />
+              <Section title={`ยังไม่ได้สร้าง · ยังไม่มีตะกร้า (${notCreated.filter(p => !hasCart(p)).length})`} items={notCreated.filter(p => !hasCart(p))} />
+              <Section title="สร้างคลิปแล้ว" items={created} />
             </>
           )}
         </div>

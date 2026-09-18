@@ -13,6 +13,7 @@ const DEFAULT = {
   genProgress: null,
   extension: { connected: false, last_ping_ts: 0 },   // สัญญาณส่วนเสริม (P2.1) — onboarding เช็ค "เชื่อมแล้ว"
   postResult: null,   // ผลโพสต์ล่าสุด {job_id,name,outcome,serial,platforms,detail,ts} — layout เอาไปเด้งแจ้ง
+  flowBlocker: null,
 }
 
 export function useStatus() {
@@ -51,6 +52,10 @@ export function useStatus() {
           stage: msg.stage, detail: msg.detail, pct: msg.pct ?? null,
           error: msg.stage === 'error' ? msg.detail : null, ts: Date.now(),
         }})
+        break
+
+      case 'flow_blocked':
+        patch({ flowBlocker: { reason: msg.reason, action: msg.action, at: Date.now() } })
         break
 
       // คลิปโพสต์จบแล้ว — ts ทำให้ทุกครั้งเป็นค่าใหม่เสมอ (โพสต์คลิปเดิมซ้ำก็ยังเด้ง)
@@ -95,6 +100,7 @@ export function useStatus() {
       jobs: d.jobs || DEFAULT.jobs,
       budget: d.budget ?? null,
       extension: d.extension || DEFAULT.extension,
+      flowBlocker: d.flow_blocker || null,
     })
   }).catch(() => {}), [patch])
 
