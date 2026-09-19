@@ -3188,6 +3188,14 @@ if (window._flowAutomatorLoaded) {
       catch (e) { out.modeOptions[k] = "ERR:" + e.message; }
     }
     try { out.credits = await readFlowCredits(); } catch (e) { out.credits = "ERR:" + e.message; }
+    // log ของ runQueue อยู่ใน storage เท่านั้น — ถ้าไม่ดึงออกมาจะมองไม่เห็นว่าคิวไปหยุดตรงไหน
+    try {
+      const d = await chrome.storage.local.get(["flow_run_log", "flow_queue_state", "flow_jobs"]);
+      out.runLog = (Array.isArray(d.flow_run_log) ? d.flow_run_log : []).slice(-25)
+        .map((x) => `${new Date(x.at).toLocaleTimeString("th-TH")} ${x.msg}`);
+      out.queueState = d.flow_queue_state || null;
+      out.jobsLeft = Array.isArray(d.flow_jobs) ? d.flow_jobs.length : null;
+    } catch (e) { out.runLog = "ERR:" + e.message; }
     try { out.email = await currentActiveEmail(); } catch (e) { out.email = "ERR:" + e.message; }
     return out;
   }
