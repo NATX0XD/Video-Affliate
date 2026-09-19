@@ -2953,9 +2953,12 @@ if (window._flowAutomatorLoaded) {
         // อย่ารับรูปอ้างอิงที่ Flow โหลดช้าหลัง snapshot เป็นผลลัพธ์เด็ดขาด
         const refSrcs = new Set(uploads.map((u) => u && u.refSrc).filter(Boolean));
         const refIds = new Set(uploads.map((u) => u && u.refId).filter(Boolean));
-        // รูปแนวตั้งที่เพิ่งโผล่หลังส่ง = ผลลัพธ์แน่นอน ไม่ว่าการเทียบ src จะจับได้หรือไม่
+        // ★ รูปแนวตั้ง 9:16 ที่เพิ่งโผล่หลังกดส่ง = ผลลัพธ์แน่นอน — คืนทันที ไม่ต้องผ่านตัวกรองรูปอ้างอิง
+        //   รูปอ้างอิงเป็น 9:16 ไม่ได้ (สินค้า Shopee = จัตุรัส · รูปคนที่อัป ~4:5) จึงไม่มีทางปนกัน
+        //   ก่อนหน้านี้ผลลัพธ์ถูกตัดทิ้งที่ตัวกรองนี้ แล้วระบบก็นั่งรอรูปที่อยู่บนจอแล้วจนหมดเวลา
         const newPortrait = portraitSrcs().filter((s) => !beforePortrait.has(s));
-        return [...new Set([...detected, ...fresh, ...newPortrait])].filter((s) => {
+        if (newPortrait.length) return newPortrait;
+        return [...new Set([...detected, ...fresh])].filter((s) => {
           const id = mediaUuid(s);
           return !refSrcs.has(s) && (!id || !refIds.has(id));
         });
@@ -3012,7 +3015,9 @@ if (window._flowAutomatorLoaded) {
         if (pass === 0 && nanoLimitHit()) return { limit: true };
         const n = resultImgs();
         return n.length ? { images: n } : null;
-      }, 6 * 60 * 1000, 3000);
+      }, 3 * 60 * 1000, 2500);
+      // ต่อเวลาเฉพาะตอนที่ "ยังเรนเดอร์อยู่จริง" เท่านั้น — ถ้าไม่มีตัวโหลดแล้วยังจับไม่ได้
+      // แปลว่าเป็นปัญหาการตรวจจับ ไม่ใช่ความช้า นั่งรอต่อก็ไม่ช่วย มีแต่ทำให้ดูเหมือนแฮงก์
       if (!res && busyReason()) {
         log(`หมดเวลาแต่ Flow ยังเรนเดอร์อยู่ (${busyReason()}) — ต่อเวลาอีก 3 นาที`);
         res = await waitFor(() => { const n = resultImgs(); return n.length ? { images: n } : null; }, 3 * 60 * 1000, 3000);
@@ -3318,7 +3323,14 @@ if (window._flowAutomatorLoaded) {
     const dry = opts.dry !== false;   // ★ default = dry (ไม่กดส่ง) กันเผลอเสีย 15 เครดิต
     if (!startUrl) return { ok: false, error: "ต้องมี startUrl", steps };
     let name = opts.name; try { const d = await chrome.storage.local.get("products"); name = name || ((d.products || [])[0]?.basic_info?.name); } catch {}
-    await ensureChatPage(log);
+    // ★ ห้ามเรียก ensureChatPage ตรงนี้ — มันสร้างโปรเจกต์ใหม่/เปลี่ยนหน้าได้เมื่อจังหวะนั้นยังไม่เห็นช่องแชต
+    //   เราเพิ่งสร้างรูปเสร็จในโปรเจกต์นี้ ถ้าเปลี่ยนหน้าคือทิ้งรูปแล้วเริ่มใหม่ทั้งรอบ (วนไม่จบ + เสียเครดิต)
+    //   ตรงนี้ต้องการแค่ "ช่องพิมพ์กลับมาใช้ได้" เท่านั้น — รอมันเฉย ๆ ไม่ต้องไปไหน
+    if (!hasChatBox()) {
+      log("ช่องพิมพ์ยังไม่พร้อมหลังสร้างรูป — รอให้กลับมา (ไม่เปิดโปรเจกต์ใหม่)");
+      const back = await waitFor(() => (hasChatBox() ? true : null), 45000, 1500);
+      if (!back) log(`⚠ รอ 45 วิแล้วยังไม่เห็นช่องพิมพ์ — ลองไปต่อ | แถบพิมพ์: ${dumpComposer().slice(0, 200)}`);
+    }
     // ★ รอรูปเรนเดอร์ให้ครบ 100% ก่อนสลับโหมด (คลิปที่ 2+ มักพังเพราะรูปยัง 99% → ปุ่มโหมดตาย กดไม่ติด)
     if (isGenerating()) {
       log(`รอรูปเรนเดอร์ให้เสร็จ 100% ก่อนสลับโหมดวิดีโอ… (ยัง busy: ${busyReason()})`);
@@ -3328,6 +3340,7 @@ if (window._flowAutomatorLoaded) {
       if (!done) log(`⚠ รอ 30 วิแล้วหน้ายังบอกว่ากำลังสร้าง (${busyReason()}) — ไปต่อเลย ไม่รอแล้ว`);
       await sleep(1200);
     }
+    reportProgress("submit", `เข้าโหมดวิดีโอ (${name || "คลิป"})`, opts.productId);
     log(`ตรวจโหมดก่อนทำวิดีโอ: ${modeSummary()}`);                      // เช็คก่อน (จับข้าม/เลือกผิด)
     const fmOk = await setMode("วิดีโอ", "เฟรม", "x1", log);            // วิดีโอ + เฟรม + บังคับ 9:16 + x1
     if (!fmOk) { const _d = dumpBtns(log, "frames-mode"); return { ok: false, error: `[v${EXT_VER}] เข้าโหมดเฟรม (frames-to-video) ไม่สำเร็จ (ตรวจได้: ${modeSummary()}) — ปุ่มเริ่ม/สิ้นสุดไม่ขึ้น | ปุ่มโหมด: ${modeBtnInfo()} | แถบ prompt: ${dumpComposer()} | ขั้นตอนสลับโหมด: ${_modeTrace || "(ไม่มี)"} | ไล่กดปุ่ม: ${_probeLog || "(ไม่ได้ไล่)"} | ป๊อปอัป: ` + (_modePopupDump || "(ไม่เปิด)") + " | ปุ่มบนจอ: " + _d, steps }; }
