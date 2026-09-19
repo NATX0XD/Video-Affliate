@@ -555,15 +555,23 @@ if (window._flowAutomatorLoaded) {
       if (addBtn) {
         await trustedClickEl(addBtn, log);
         await human();
-        input = (await waitFor(findFileInput, 1500, 250)) || findFileInput();
+        input = (await waitFor(findFileInput, 2500, 250)) || findFileInput();
         if (!input) {
-          const uploadItem = findByText(["อัปโหลด", "upload", "จากอุปกรณ์", "จากคอมพิวเตอร์"]);
-          if (uploadItem) { await trustedClickEl(uploadItem, log); await human(); }
+          // ชื่อรายการในเมนูเพิ่มสื่อเปลี่ยนไปตามรุ่นของ Flow — รับให้กว้าง แล้วลองทีละตัวจนกว่า input จะโผล่
+          const wantItem = /อัปโหลด|upload|อุปกรณ์|คอมพิวเตอร์|เครื่องของฉัน|ไฟล์|file|browse|เลือกรูป|รูปภาพ|image/i;
+          const items = allClickable().filter((el) =>
+            wantItem.test(txt(el) + " " + (el.getAttribute("aria-label") || "")));
+          for (const it of items.slice(0, 4)) {
+            await trustedClickEl(it, log);
+            await sleep(700);
+            input = findFileInput();
+            if (input) { log(`เปิดตัวเลือกไฟล์ด้วยรายการ "${txt(it).slice(0, 24)}"`); break; }
+          }
         }
       }
-      input = (await waitFor(findFileInput, 5000)) || findFileInput();
+      input = input || (await waitFor(findFileInput, 5000)) || findFileInput();
     }
-    if (!input) return { ok: false, error: 'ไม่พบ file input สำหรับอัปโหลดหลายรูป' };
+    if (!input) return { ok: false, error: `ไม่พบ file input สำหรับอัปโหลดหลายรูป | ปุ่มเพิ่มสื่อ: ${findAddMediaButton() ? "เจอ" : "ไม่เจอ"} | เมนูที่เปิดอยู่: ${dumpPopup().slice(0, 400)}` };
     const files = [];
     for (let i = 0; i < dataUrls.length; i++) {
       const res = await fetch(dataUrls[i]);
