@@ -2934,6 +2934,14 @@ if (window._flowAutomatorLoaded) {
       const beforeImgs = new Set(genImgSrcs());
       const beforeTiles = new Set(tileImgs());
       const beforeTileSrcs = new Set(tileImgs().map((im) => im.currentSrc || im.src || "").filter(Boolean));
+      // ★ สัญญาณสำรองที่ไม่พึ่งการเทียบ src: รูปที่เราสั่งสร้างถูกบังคับเป็น 9:16 เสมอ
+      //   ส่วนรูปอ้างอิง (สินค้าจัตุรัส · ใบหน้า 4:5) ไม่ใช่ — นับจำนวนไว้ก่อนส่ง แล้วดูว่าเพิ่มไหม
+      //   การเทียบ src อย่างเดียวพังได้หลายทาง: Flow ใช้ URL เดิมซ้ำ · โหลดช้ากว่า snapshot · หน้ารีเฟรช
+      const portraitSrcs = () => genImgInfo()
+        .filter((x) => x.src && x.height > 0 && x.width / x.height < 0.75)
+        .map((x) => x.src);
+      const beforePortrait = new Set(portraitSrcs());
+      log(`ก่อนส่ง: รูปบนหน้า ${beforeImgs.size} ใบ (แนวตั้ง 9:16 ${beforePortrait.size} ใบ)`);
       // บางรุ่น Flow reuse <img> เดิมของการ์ด แล้วเปลี่ยน src ภายหลัง โดยไม่ติด label generated
       // จึงต้องจำทั้ง element และ URL ก่อนส่ง ไม่ใช้ genImgSrcs() อย่างเดียว
       const resultImgs = () => {
@@ -2945,7 +2953,9 @@ if (window._flowAutomatorLoaded) {
         // อย่ารับรูปอ้างอิงที่ Flow โหลดช้าหลัง snapshot เป็นผลลัพธ์เด็ดขาด
         const refSrcs = new Set(uploads.map((u) => u && u.refSrc).filter(Boolean));
         const refIds = new Set(uploads.map((u) => u && u.refId).filter(Boolean));
-        return [...new Set([...detected, ...fresh])].filter((s) => {
+        // รูปแนวตั้งที่เพิ่งโผล่หลังส่ง = ผลลัพธ์แน่นอน ไม่ว่าการเทียบ src จะจับได้หรือไม่
+        const newPortrait = portraitSrcs().filter((s) => !beforePortrait.has(s));
+        return [...new Set([...detected, ...fresh, ...newPortrait])].filter((s) => {
           const id = mediaUuid(s);
           return !refSrcs.has(s) && (!id || !refIds.has(id));
         });
@@ -2992,9 +3002,17 @@ if (window._flowAutomatorLoaded) {
         return n.length ? { images: n } : null;
       }, 2 * 60 * 1000, 3000);
       if (!res) {
-        const state = `โหมด=${modeSummary()} · ตัวโหลด=${busyReason() || "ไม่พบ"} · รูปที่จับได้=${genImgSrcs().length} · ภาพบนจอ: ${genImgSnapshot()}`;
-        log(`รอรูปผลลัพธ์นานเกินไป — ${state}`);
-        return { ok: false, error: `รอรูปผลลัพธ์นานเกินไป (timeout) | ${state}`, uploads };
+        const state = `[v${EXT_VER}] โหมด=${modeSummary()} · ตัวโหลด=${busyReason() || "ไม่พบ"} · ` +
+          `รูปก่อนส่ง=${beforeImgs.size} · รูปตอนนี้=${genImgSrcs().length} · แนวตั้งก่อนส่ง=${beforePortrait.size} · แนวตั้งตอนนี้=${portraitSrcs().length} · ` +
+          `ภาพบนจอ: ${genImgSnapshot()}`;
+        // แยก 2 อาการที่ต้องแก้คนละทางให้ชัด แทนที่จะเรียกว่า "timeout" เหมือนกันหมด
+        const neverStarted = !busyReason() && portraitSrcs().length <= beforePortrait.size
+          && genImgSrcs().length <= beforeImgs.size;
+        const headline = neverStarted
+          ? "Flow ไม่ได้เริ่มสร้างรูปเลย — คำสั่งส่งไปไม่ถึงหน้าเว็บ (มักเป็นกล่องเลือกไฟล์ของ Windows/macOS เด้งค้างบังอยู่ → ปิดกล่องนั้นแล้วสั่งใหม่)"
+          : "Flow เริ่มสร้างแล้วแต่รูปไม่ออกภายในเวลา";
+        log(`${headline} — ${state}`);
+        return { ok: false, error: `${headline} | ${state}`, uploads };
       }
       if (res.limit) {
         if (!switched) {
