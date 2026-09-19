@@ -3214,20 +3214,37 @@ if (window._flowAutomatorLoaded) {
         if (target) P(`เจอรูปที่เพิ่งสร้างใน picker ตรงตัว: ${thumbSrc(target).slice(-42)}`);
       }
       if (!target && list.length) {
-        // (ข) ตัดรูปอ้างอิงของรอบนี้ออกด้วย id/src จริงที่บันทึกไว้ตอนอัป (แม่นกว่าเดาจากรูปแบบ URL)
+        // (ข) ตัดรูปอ้างอิงของรอบนี้ออกด้วย id/src จริงที่บันทึกไว้ตอนอัป
         const isOurRef = (o) => {
           const src = thumbSrc(o); const id = mediaUuid(src);
           return (!!src && _refMedia.srcs.has(src)) || (!!id && _refMedia.ids.has(id));
         };
-        // (ค) สำรอง: รูปที่เราอัปมักมาพร้อม nature= ส่วนรูปที่ Flow สร้างไม่มี
+        // (ค) ★ สัญญาณที่แยกได้จริง: รูปที่เราสั่ง Flow สร้างถูกบังคับเป็น 9:16 แนวตั้งเสมอ
+        //     ส่วนรูปสินค้าจาก Shopee เกือบทั้งหมดเป็นจัตุรัส และรูปใบหน้าที่ผู้ใช้อัปเป็นอะไรก็ได้
+        //     เดิมใช้ "ตัวแรกในรายการ" ซึ่งเดาจากลำดับ แล้วไปได้รูปสินค้าเปล่า ๆ มาเป็นเฟรมเริ่ม
+        const ratioOf = (o) => {
+          const im = o.querySelector("img");
+          const w = (im && (im.naturalWidth || im.width)) || 0;
+          const h = (im && (im.naturalHeight || im.height)) || 0;
+          return w > 0 && h > 0 ? w / h : null;
+        };
+        const isPortrait916 = (o) => { const r = ratioOf(o); return r != null && r < 0.75; };
         const looksRef = (o) => /[?&/]nature=/i.test(thumbSrc(o)) || /avatar|profile|logo|icon/i.test(thumbSrc(o));
-        const made = list.filter((o) => thumbSrc(o) && !isOurRef(o) && !looksRef(o));
-        const pool = made.length ? made : list.filter((o) => thumbSrc(o) && !isOurRef(o));
+        const usable = list.filter((o) => thumbSrc(o) && !isOurRef(o));
+        const portrait = usable.filter(isPortrait916);
+        const notRefLike = usable.filter((o) => !looksRef(o));
+        // แปะรายการที่เห็นทั้งหมดไว้เสมอ — รอบหน้าถ้าเลือกผิดจะรู้ทันทีว่าเพราะอะไร
+        P(`ตัวเลือกในคลัง: ${list.map((o) => { const r = ratioOf(o); return `${(mediaUuid(thumbSrc(o)) || "?").slice(0, 8)}${r ? `(${r.toFixed(2)})` : ""}${isOurRef(o) ? "[ของเรา]" : ""}`; }).join(" · ").slice(0, 300)}`);
+        const pool = portrait.length ? portrait : (notRefLike.length ? notRefLike : usable);
         if (!pool.length) {
           P(`ตัวเลือกทั้ง ${list.length} ตัวเป็นรูปอ้างอิงที่เราอัปเองทั้งหมด — ไม่เลือก เพราะจะได้เฟรมผิดตัว`);
         } else {
-          target = pool[0];   // picker เรียงใหม่สุดไว้ตัวแรก และเราเพิ่งสร้างรูปเสร็จก่อนเปิด picker
-          P(`เลือกรูปที่ Flow เพิ่งสร้างใหม่สุด (ตัดรูปอ้างอิงออก ${list.length - pool.length} ใบ จาก ${list.length}): ${thumbSrc(target).slice(-42)}`);
+          // เฟรมจบก็เป็น 9:16 เหมือนกัน และถูกสร้าง "หลัง" เฟรมเริ่ม — คลังเรียงใหม่สุดไว้ตัวแรก
+          // เอาตัวแรกดื้อ ๆ จะได้เฟรมจบ (คนชี้ตะกร้า) มาใส่ช่องเริ่มแทนเฟรมเริ่ม
+          const wantStart = /เริ่ม/.test(btnLabel);
+          const idx = (wantStart && pool.length >= 2) ? 1 : 0;
+          target = pool[idx];
+          P(`เลือกเฟรม "${btnLabel}": ${portrait.length ? `แนวตั้ง 9:16 ${portrait.length} ใบ` : notRefLike.length ? "ไม่ใช่รูปอ้างอิง" : "ตัวเลือกที่เหลือ"} → ลำดับที่ ${idx + 1} (ใหม่สุด=เฟรมจบ) → ${thumbSrc(target).slice(-42)}`);
         }
       }
       if (!target) {
