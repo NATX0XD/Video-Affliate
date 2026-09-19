@@ -963,20 +963,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     const watch = (id, onInterrupt) => {
       let handled = false;
+      // ★ Chrome ไม่แจ้งอะไรเลยเวลาการโหลด "นิ่งค้าง" — ไม่ interrupted ไม่ complete
+      //   ของเดิมจึงรอตลอดกาลเวลาค้างที่ 90% ต้องเฝ้าเองว่าไบต์ยังเดินอยู่ไหม
+      let lastBytes = -1, lastMove = Date.now();
+      const stall = setInterval(() => {
+        chrome.downloads.search({ id }, (items) => {
+          const it = (items && items[0]) || null;
+          if (!it || handled) return;
+          const got = it.bytesReceived || 0;
+          if (got !== lastBytes) { lastBytes = got; lastMove = Date.now(); return; }
+          if (Date.now() - lastMove > 120000) {   // ไม่ขยับ 2 นาที = ค้างจริง
+            console.log(`[flow_download] ค้างที่ ${Math.round(got / 1048576)} MB มา 2 นาที → ยกเลิกแล้วลองใหม่`);
+            finish(() => { try { chrome.downloads.cancel(id, () => void chrome.runtime.lastError); } catch {} retryLater('ค้างกลางคัน ไม่มีความคืบหน้า 2 นาที'); });
+          }
+        });
+      }, 15000);
       const finish = (fn) => {
         if (handled) return;
         handled = true;
+        clearInterval(stall);
         chrome.downloads.onChanged.removeListener(onChange);
         fn();
       };
+      // ★ เคยส่งข้อความรายงานทุกครั้งที่ได้ไบต์ใหม่ ซึ่ง Chrome ยิง event นี้ถี่มากระหว่างโหลด
+      //   การกระจายข้อความรัว ๆ ไปแย่งงานกับตัวโหลดเอง ทำให้ช้าลงและค้างกลางคัน (เจอจริงที่ ~90%)
+      //   เหลือแค่เขียน console อย่างมากทุก 10 วินาที ไม่กระจายข้อความออกไปไหน
+      let lastTick = 0;
       const onChange = (delta) => {
         if (delta.id !== id) return;
-        // มีความคืบหน้าอยู่ = ยังโหลดได้ ไม่ใช่ค้าง — บอกให้เห็นด้วย ไม่งั้นดูเหมือนแฮงก์
-        if (delta.bytesReceived && !delta.state) {
-          notifyPages({ action: 'flow_log', msg: `[ดาวน์โหลด] ${Math.round((delta.bytesReceived.current || 0) / 1048576)} MB` });
+        if (!delta.state) {
+          if (delta.bytesReceived && Date.now() - lastTick > 10000) {
+            lastTick = Date.now();
+            console.log(`[flow_download] ${Math.round((delta.bytesReceived.current || 0) / 1048576)} MB`);
+          }
           return;
         }
-        if (!delta.state) return;
         if (delta.state.current === 'complete') finish(() => finishOk(id));
         else if (delta.state.current === 'interrupted') finish(() => onInterrupt(id));
       };
