@@ -1422,7 +1422,8 @@ if (window._flowAutomatorLoaded) {
       if (cancelled()) { log(`⛔ ยกเลิกแล้ว — หยุดที่ ${done}/${total} ชิ้น (งานที่เหลือยังอยู่ในคิว)`); break; }
       n++;
       const product = jobs[0];
-      const curName = (product?.basic_info?.name || product?.product_id || "?").slice(0, 40);
+      const rawName = product?.basic_info?.name || product?.name || product?.product_name || product?.product_id || "?";
+      const curName = String(rawName).slice(0, 40);
       qstate(true, curName);
       log(`── งานที่ ${n}/${total} ──`);
       // เช็กเครดิตก่อนสร้าง → ไม่พอก็สลับบัญชี (ไม่เช็กตอน dry — ไม่เปลืองเครดิต)
