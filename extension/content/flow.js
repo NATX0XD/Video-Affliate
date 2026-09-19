@@ -276,6 +276,27 @@ if (window._flowAutomatorLoaded) {
     return cands.slice().sort((a, b) =>
       Math.abs(a.getBoundingClientRect().top - er.top) - Math.abs(b.getBoundingClientRect().top - er.top))[0] || null;
   }
+
+  // แนบไฟล์เข้าช่อง prompt โดยไม่เปิด native file chooser ก่อน
+  // Flow รุ่นใหม่รับ paste ของ File ผ่าน composer ได้ แม้ไม่มี input[type=file] ให้เห็น
+  async function pasteFilesIntoPrompt(files, log) {
+    const ed = findEditable();
+    if (!ed || !files?.length) return null;
+    const before = new Set(tileImgs());
+    const dt = new DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    try { ed.focus(); } catch {}
+    try {
+      ed.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }));
+    } catch { return null; }
+    const got = await waitFor(() => {
+      const f = tileImgs().filter((im) => !before.has(im));
+      return f.length >= files.length ? f : null;
+    }, 15000, 700);
+    if (!got) return null;
+    log && log(`แนบรูปเบื้องหลังสำเร็จ ${files.length} ใบ (ไม่เปิดหน้าต่างเลือกไฟล์) ✓`);
+    return got.slice(-files.length);
+  }
   // ธง "ผู้ใช้กดยกเลิก" — ประกาศไว้บนสุดเพราะ waitFor ข้างล่างใช้ (ดู startCancelWatch)
   let _stopFlow = false;
   async function waitFor(fn, timeout = 20000, step = 500) {
@@ -549,10 +570,23 @@ if (window._flowAutomatorLoaded) {
 
   async function uploadImage(dataUrl, log, opts = {}) {
     await closeAccountPanel(log);
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const file = new File([blob], "product.jpg", { type: blob.type || "image/jpeg" });
+    // วิธีหลัก: paste เข้า composer โดยตรง ไม่เปิด OS file picker
+    const pasted = await pasteFilesIntoPrompt([file], log);
+    if (pasted?.length) {
+      const refSrc = pasted[pasted.length - 1].currentSrc || pasted[pasted.length - 1].src || "";
+      const refId = mediaUuid(refSrc);
+      return { ok: true, addedToPrompt: "paste", refSrc, refId };
+    }
     let input = findFileInput();
+    let stopChooser = () => {};
     if (!input) {
       const addBtn = findAddMediaButton();
       if (addBtn) {
+        // ต้องดักก่อนคลิกปุ่มเพิ่มสื่อ เพราะ Flow บางรุ่นเปิด chooser ทันทีจากปุ่มนี้
+        stopChooser = interceptNativeFileChooser(log);
         try { log && log(`เปิดเมนูแนบรูป: ${addBtn.getAttribute("aria-label") || txt(addBtn)}`); } catch {}
         await trustedClickEl(addBtn, log);
         await human();
@@ -562,26 +596,21 @@ if (window._flowAutomatorLoaded) {
         if (!input) {
           const uploadItem = findByText(["อัปโหลด", "upload", "จากอุปกรณ์", "จากคอมพิวเตอร์"]);
           if (uploadItem) {
-            const stopChooser = interceptNativeFileChooser(log);
-            try {
-              await trustedClickEl(uploadItem, log);
-              await human();
-              input = (await waitFor(findFileInput, 5000, 250)) || findFileInput();
-            } finally { stopChooser(); }
+            await trustedClickEl(uploadItem, log);
+            await human();
+            input = (await waitFor(findFileInput, 5000, 250)) || findFileInput();
           }
         }
       }
       input = (await waitFor(findFileInput, 5000)) || findFileInput();
     }
-    if (!input) return { ok: false, error: 'ไม่พบ file input — กด "เพิ่มสื่อ" เองก่อน' };
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    const file = new File([blob], "product.jpg", { type: blob.type || "image/jpeg" });
+    if (!input) { stopChooser(); return { ok: false, error: 'ไม่พบ file input — ระบบลองแนบเบื้องหลังแล้ว แต่ Flow ไม่รับไฟล์' }; }
     const dt = new DataTransfer();
     dt.items.add(file);
     const before = new Set(tileImgs());   // จำ element รูปเดิมไว้ → หา "รูปใหม่" ที่เพิ่งโผล่ (กันคว้าผิดตัว)
     input.files = dt.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    stopChooser();
     await sleep(rand(1500, 2500));
     // จับ "รูปที่เพิ่งอัป" ไว้ด้วย — ตอนเก็บผลลัพธ์จะได้ตัดรูปอ้างอิงของเราออกได้ชัด ๆ
     // เคยเจอ: ไทล์รูปอ้างอิงโผล่ช้ากว่าตอน snapshot ก่อนกดส่ง เลยถูกนับเป็น "รูปใหม่ที่ Flow สร้าง"
@@ -603,10 +632,26 @@ if (window._flowAutomatorLoaded) {
 
   async function uploadImages(dataUrls, log) {
     await closeAccountPanel(log);
+    const files = [];
+    for (let i = 0; i < dataUrls.length; i++) {
+      const res = await fetch(dataUrls[i]);
+      const blob = await res.blob();
+      files.push(new File([blob], `reference-${i + 1}.jpg`, { type: blob.type || "image/jpeg" }));
+    }
+    // วิธีหลัก: แนบชุดรูปเข้า composer โดยตรง ป้องกัน native chooser เด้งบน Windows
+    const pasted = await pasteFilesIntoPrompt(files, log);
+    if (pasted?.length) return { ok: true, uploads: pasted.map((im) => {
+      const refSrc = im.currentSrc || im.src || "";
+      return { ok: true, addedToPrompt: "paste", refSrc, refId: mediaUuid(refSrc) };
+    }) };
+
     let input = findFileInput();
+    let stopChooser = () => {};
     if (!input) {
       const addBtn = findAddMediaButton();
       if (addBtn) {
+        // ติดตั้ง hook ก่อนทุกการคลิกที่เกี่ยวกับ upload (ไม่ใช่เฉพาะรายการย่อย)
+        stopChooser = interceptNativeFileChooser(log);
         await trustedClickEl(addBtn, log);
         await human();
         input = (await waitFor(findFileInput, 2500, 250)) || findFileInput();
@@ -615,48 +660,19 @@ if (window._flowAutomatorLoaded) {
           const wantItem = /อัปโหลด|upload|อุปกรณ์|คอมพิวเตอร์|เครื่องของฉัน|ไฟล์|file|browse|เลือกรูป|รูปภาพ|image/i;
           const items = allClickable().filter((el) =>
             wantItem.test(txt(el) + " " + (el.getAttribute("aria-label") || "")));
-          const stopChooser = interceptNativeFileChooser(log);
-          try {
-            for (const it of items.slice(0, 4)) {
-              await trustedClickEl(it, log);
-              await sleep(700);
-              input = findFileInput();
-              if (input) { log(`เปิดตัวเลือกไฟล์ด้วยรายการ "${txt(it).slice(0, 24)}"`); break; }
-            }
-          } finally { stopChooser(); }
+          for (const it of items.slice(0, 4)) {
+            await trustedClickEl(it, log);
+            await sleep(700);
+            input = findFileInput();
+            if (input) { log(`เตรียม input อัปโหลดเบื้องหลังจากรายการ "${txt(it).slice(0, 24)}"`); break; }
+          }
         }
       }
       input = input || (await waitFor(findFileInput, 5000)) || findFileInput();
     }
-    const files = [];
-    for (let i = 0; i < dataUrls.length; i++) {
-      const res = await fetch(dataUrls[i]);
-      const blob = await res.blob();
-      files.push(new File([blob], `reference-${i + 1}.jpg`, { type: blob.type || "image/jpeg" }));
-    }
     // ไม่มีตัวเลือกไฟล์ → ลองวางไฟล์ลงช่องพิมพ์ตรง ๆ (หน้าเขียนเองว่า "เริ่มสร้างหรือวางสื่อ")
     if (!input) {
-      const ed = findEditable();
-      if (ed) {
-        log("ไม่เจอตัวเลือกไฟล์ → ลองวางรูปลงช่องพิมพ์แทน");
-        const before = new Set(tileImgs());
-        const dtp = new DataTransfer();
-        files.forEach((f) => dtp.items.add(f));
-        try { ed.focus(); } catch {}
-        ed.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dtp }));
-        const got = await waitFor(() => {
-          const f = tileImgs().filter((im) => !before.has(im));
-          return f.length >= files.length ? f : null;
-        }, 15000, 700);
-        if (got) {
-          log(`วางรูปสำเร็จ ${got.length} ใบ`);
-          return { ok: true, uploads: got.slice(-files.length).map((im) => {
-            const s = im.currentSrc || im.src || "";
-            return { ok: true, addedToPrompt: "paste", refSrc: s, refId: mediaUuid(s) };
-          }) };
-        }
-        log("วางรูปไม่ติด");
-      }
+      stopChooser();
       return { ok: false, error: `ไม่พบ file input สำหรับอัปโหลดหลายรูป | ปุ่มเพิ่มสื่อ: ${findAddMediaButton() ? "เจอ" : "ไม่เจอ"} | ช่องพิมพ์: ${findEditable() ? "เจอ" : "ไม่เจอ"} | เมนูที่เปิดอยู่: ${dumpPopup().slice(0, 350)}` };
     }
     const before = new Set(tileImgs());
@@ -665,6 +681,7 @@ if (window._flowAutomatorLoaded) {
     try { input.multiple = true; } catch {}
     input.files = dt.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    stopChooser();
     const fresh = await waitFor(() => {
       const f = tileImgs().filter((im) => !before.has(im));
       return f.length >= dataUrls.length ? f : null;
@@ -2843,6 +2860,8 @@ if (window._flowAutomatorLoaded) {
       const beforeImgs = new Set(genImgSrcs());
       const beforeTiles = new Set(tileImgs());
       const beforeTileSrcs = new Set(tileImgs().map((im) => im.currentSrc || im.src || "").filter(Boolean));
+      // บางรุ่น Flow reuse <img> เดิมของการ์ด แล้วเปลี่ยน src ภายหลัง โดยไม่ติด label generated
+      // จึงต้องจำทั้ง element และ URL ก่อนส่ง ไม่ใช้ genImgSrcs() อย่างเดียว
       const resultImgs = () => {
         const detected = genImgSrcs().filter((s) => !beforeImgs.has(s));
         const fresh = tileImgs()
