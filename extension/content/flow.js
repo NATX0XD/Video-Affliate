@@ -1205,8 +1205,7 @@ if (window._flowAutomatorLoaded) {
     log("ส่งแล้ว — รอ agent เสนอ action…");
 
     // จำ src วิดีโอทั้งหมด "ก่อน" สร้าง → หลังสร้างจะหยิบเฉพาะตัวใหม่ (กันได้ไฟล์เดิมซ้ำ)
-    const srcOf = (v) => v.src || v.querySelector("source")?.src || "";
-    const beforeSrcs = new Set([...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter(Boolean));
+    const beforeSrcs = new Set(videoSrcs());
 
     // Agent อาจขออนุมัติก่อนสร้าง → กด Approve
     // ★ ปุ่ม Approve ของ Flow เป็น <div> ไม่มี role → allClickable หาไม่เจอ
@@ -1231,10 +1230,10 @@ if (window._flowAutomatorLoaded) {
 
     log("รอ Veo สร้างวิดีโอ…");
     startRenderTicker(productId);   // เข้าสู่เฟสเรนเดอร์ → เริ่มจับเวลา ส่ง % ให้หน้าเว็บ
-    const newSrcs = () => [...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter((s) => s && !beforeSrcs.has(s));
+    const newSrcs = () => videoSrcs().filter((s) => !beforeSrcs.has(s));
     // รอ src ใหม่ตัวแรกโผล่ (สูงสุด 6 นาที)
     const first = await waitFor(() => (newSrcs().length ? newSrcs() : null), 6 * 60 * 1000, 4000);
-    if (!first) { stopRenderTicker(); return { ok: false, error: "รอวิดีโอนานเกินไป (timeout)" }; }
+    if (!first) { stopRenderTicker(); return { ok: false, error: `รอวิดีโอนานเกินไป (timeout) | ตัวโหลด=${busyReason() || "ไม่พบ"} · วิดีโอบนจอ: ${videoSnapshot()}` }; }
 
     // settle: เก็บทุกคลิปที่ agent สร้าง (กี่ตัวก็ได้) — หยุดเมื่อ agent เสร็จจริง + ไม่มีคลิปใหม่
     const collected = new Set(first);
@@ -2233,14 +2232,26 @@ if (window._flowAutomatorLoaded) {
   function findFrameSlot(label) {
     const want = norm(label);
     const wants = FRAME_ALT[want] || [want];
+    // ช่องเฟรมอยู่ติดช่องพิมพ์เสมอ — จำกัดขอบเขตไว้แถวนั้น ไม่งั้นรอบ "มีคำนี้อยู่"
+    // จะไปคว้าปุ่มส่งที่เขียนว่า "เริ่มสร้าง" มาเป็นช่อง "เริ่ม" แล้ว pickFrame จะกดมัน = ส่งงานจริงเสีย 15 เครดิต
+    const ed = findEditable();
+    const er = ed ? ed.getBoundingClientRect() : null;
     const cands = deepAll('div,span,button,[role="button"]')
       .filter(isVisible)
-      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 220 && r.height > 8 && r.height <= 220; });
-    // ตรงเป๊ะก่อน แล้วค่อยยอมรับแบบ "มีคำนั้นอยู่ในข้อความสั้น ๆ" (กันไปโดนย่อหน้ายาว)
-    return cands.find((el) => wants.includes(norm(el.innerText || el.textContent)))
-      || cands.find((el) => {
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 220 && r.height > 8 && r.height <= 220; })
+      .filter((el) => { if (!er) return true; const r = el.getBoundingClientRect(); return r.top >= er.top - 60 && r.top <= er.bottom + 160; });
+    const isSendish = (el) => {
+      const t = norm(el.innerText || el.textContent);
+      const a = `${el.getAttribute?.("aria-label") || ""} ${el.getAttribute?.("data-testid") || ""}`;
+      return /สร้าง|create|generate|arrow_forward|ส่ง|submit|add_2|อัปโหลด|เพิ่มสื่อ/i.test(`${t} ${a}`)
+        || (el.getAttribute?.("type") || "") === "submit";
+    };
+    const usable = cands.filter((el) => !isSendish(el));
+    // ตรงเป๊ะก่อน แล้วค่อยยอมรับแบบ "มีคำนั้นอยู่" แต่บีบให้สั้นมาก (ช่องเฟรมเขียนสั้น: เริ่ม / สิ้นสุด / Start)
+    return usable.find((el) => wants.includes(norm(el.innerText || el.textContent)))
+      || usable.find((el) => {
         const t = norm(el.innerText || el.textContent);
-        return t.length > 0 && t.length <= 24 && wants.some((w) => t.includes(w));
+        return t.length > 0 && t.length <= 12 && wants.some((w) => t.includes(w));
       }) || null;
   }
   // โหมด "เฟรม" พร้อม = มีช่องสลอต "เริ่ม/Start" โผล่ที่แถบ prompt
@@ -2335,6 +2346,15 @@ if (window._flowAutomatorLoaded) {
 
   // ปุ่มทุกตัวใน "แถบเครื่องมือใต้ช่องพิมพ์" — ตัวเปิดเมนูโหมดอยู่ในแถวนี้แน่นอน
   // findModeBtn เดาจากข้อความ ซึ่งพลาดได้ถ้า Flow เปลี่ยนชิป (เคยได้ชิปเลือกรุ่นแทนตัวเปิดเมนู)
+  // ปุ่มส่งงานของแถบพิมพ์ — Flow รุ่นใหม่เป็นไอคอน arrow_forward ไม่มีคำว่า "สร้าง"
+  function findSendBtn() {
+    return allClickable().filter((el) => {
+      const t = txt(el);
+      const a = `${el.getAttribute?.("aria-label") || ""} ${el.getAttribute?.("data-testid") || ""}`;
+      return (/สร้าง|เริ่มสร้าง|create|generate|arrow_forward|ส่ง|send/i.test(`${t} ${a}`))
+        && !/add_2|เพิ่มสื่อ|อัปโหลด|moodboard|โลโก้|ระดมความคิด|แสดงวิธีคิด/i.test(`${t} ${a}`);
+    }).sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)[0] || null;
+  }
   function composerButtons() {
     const ed = findEditable();
     if (!ed) return [];
@@ -2598,6 +2618,26 @@ if (window._flowAutomatorLoaded) {
     .filter((x) => /รูปภาพที่สร้าง|การ์ดแสดงรูปภาพ|การ์ดแสดงวิดีโอ|generated|generation|ผลลัพธ์|result|output/i.test(x.label)
       || /googleusercontent|storage\.googleapis|media|(?:name|resource[_-]?key)=[0-9A-Za-z_-]{16,}/i.test(x.src))
     .map((x) => x.src).filter(Boolean);
+  // คู่ขนานกับ genImgInfo แต่ฝั่งวิดีโอ — ฝั่งนี้เคยอ่านแค่ document.querySelectorAll("video") + v.src
+  // ซึ่งพลาดได้ 3 ทาง: การ์ดอยู่ใน shadow root · Flow โชว์ poster ก่อนแล้วค่อยใส่ src · เล่นผ่าน MSE (blob:)
+  // ทุกทางให้ผลเดียวกันคือ "รอวิดีโอนานเกินไป" ทั้งที่คลิปเสร็จอยู่บนจอและหักเครดิตไปแล้ว
+  const videoInfo = () => deepAll("video").filter(isVisible).map((v) => {
+    const parts = [v.getAttribute("aria-label"), v.getAttribute("title")];
+    let node = v.parentElement;
+    for (let i = 0; i < 4 && node; i++, node = node.parentElement) {
+      parts.push(node.getAttribute?.("aria-label"), node.getAttribute?.("data-testid"), node.getAttribute?.("data-test-id"));
+    }
+    const src = v.currentSrc || v.src || v.getAttribute("src") ||
+      (v.querySelector("source") && (v.querySelector("source").src || v.querySelector("source").getAttribute("src"))) || "";
+    const r = v.getBoundingClientRect();
+    return { src, poster: v.getAttribute("poster") || "", width: Math.round(r.width), height: Math.round(r.height),
+             label: parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim() };
+  });
+  // src ที่ "ใช้ดาวน์โหลดได้จริง" — blob:/MSE ดาวน์โหลดตรงไม่ได้ จึงไม่นับเป็นผลลัพธ์
+  const videoSrcs = () => videoInfo().map((x) => x.src).filter((s) => s && !/^blob:/i.test(s));
+  const videoSnapshot = () => videoInfo().slice(0, 10)
+    .map((x) => `${x.width}x${x.height} ${x.label.slice(0, 32) || "(ไม่มี label)"} ${(x.src || x.poster || "").slice(-28) || "(ไม่มี src)"}`)
+    .join(" | ") || "ไม่พบ <video> บนจอเลย";
   const genImgSnapshot = () => genImgInfo().slice(0, 12)
     .map((x) => `${x.width}x${x.height} ${x.label.slice(0, 42) || "(ไม่มี label)"} ${x.src.slice(-28)}`)
     .join(" | ") || "ไม่พบ img ขนาดผลลัพธ์บนจอ";
@@ -3062,7 +3102,9 @@ if (window._flowAutomatorLoaded) {
       if (looksLikeMediaId(v)) return v;
     }
     // ไม่มีพารามิเตอร์ที่ใช้ได้ → ลองส่วนท้ายของ path (บาง URL เก็บ id ไว้ตรงนั้น)
-    const seg = (s.split(/[?#]/)[0] || "").split("/").filter(Boolean).pop() || "";
+    // ส่วนท้าย path มักมีตัวต่อขนาดของ Google ห้อยอยู่ (…/AB-nOUbl…=s1024-c) — ตัดทิ้งก่อนตรวจ
+    // ไม่ตัด ตัว "=" จะทำให้ไม่ผ่านเกณฑ์ id แล้วคืน null ทั้งที่ id อยู่ตรงนั้น
+    const seg = ((s.split(/[?#]/)[0] || "").split("/").filter(Boolean).pop() || "").split("=")[0];
     return looksLikeMediaId(seg) ? seg : null;
   };
   const defaultMotionPrompt = (name) =>
@@ -3082,47 +3124,48 @@ if (window._flowAutomatorLoaded) {
     const P = (m) => { _pickTrace += `${_pickTrace ? " · " : ""}${m}`; try { log(m); } catch {} };
     const uuid = mediaUuid(imageUrl);
     if (!uuid) P(`อ่าน uuid จากรูปเฟรมเริ่มไม่ได้ (url: ${String(imageUrl).slice(0, 60)})`);
-    const pickerOpen = () => document.querySelectorAll('[role="option"]').length > 0;
+    // ป๊อปอัปของ Flow อยู่ใน shadow root — querySelector ธรรมดามองไม่เห็น (ที่อื่นในไฟล์ใช้ deepAll หมดแล้ว)
+    // เหลือ picker เฟรมที่ยังใช้ document อยู่ จึงนับตัวเลือกได้ 0 ตลอดแล้วสรุปว่าเลือกเฟรมไม่สำเร็จ
+    const pickerOptions = () => {
+      const a = deepAll('[role="option"]').filter(isVisible);
+      return a.length ? a : deepAll('[role="gridcell"],[role="listitem"],[data-testid*="media"]').filter(isVisible);
+    };
+    const pickerOpen = () => pickerOptions().length > 0;
     const isSet = () => !pickerOpen() || !findFrameSlot(btnLabel);   // สำเร็จ = picker ปิดหลังคลิก (เหมือนกรณีที่ติด) หรือช่องไม่เหลือ label
+    let sawSlot = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
       const slot = findFrameSlot(btnLabel);
-      if (!slot) { log(`ช่อง "${btnLabel}" ตั้งรูปไว้แล้ว ✓`); return true; }
+      if (!slot) {
+        // ช่องหายมี 2 ความหมายคนละขั้ว: ตั้งรูปสำเร็จแล้ว (เคยเห็นช่องมาก่อน)
+        // กับไม่เคยมีช่องเลยเพราะยังไม่ได้เข้าโหมดเฟรม เดิมนับเป็น "สำเร็จ" ทั้งคู่
+        // แล้วไหลไปกดส่ง ได้คลิปที่ไม่มีเฟรมเริ่มและเสีย 15 เครดิตโดยไม่มีใครรู้
+        if (sawSlot) { log(`ช่อง "${btnLabel}" ตั้งรูปไว้แล้ว ✓`); return true; }
+        P(`ไม่เคยเห็นช่อง "${btnLabel}" เลย — ยังไม่ได้เข้าโหมดเฟรมจริง | ช่องที่เห็นบนแถบพิมพ์: ${frameSlotsInfo()}`);
+        return false;
+      }
+      sawSlot = true;
       await trustedClickEl(slot, log); await sleep(1200);
-      const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => /รูปภาพ|image/i.test(t.innerText || ""));
+      const tab = deepAll('[role="tab"]').filter(isVisible).find((t) => /รูปภาพ|image/i.test(t.innerText || ""));
       if (tab) { await trustedClickEl(tab, log); await sleep(800); }   // แท็บ "รูปภาพ" (รูปที่ Flow สร้าง)
-      await waitFor(() => (document.querySelectorAll('[role="option"]').length ? true : null), 8000, 400);
-      const list = [...document.querySelectorAll('[role="option"]')];
+      await waitFor(() => (pickerOptions().length ? true : null), 8000, 400);
+      const list = pickerOptions();
+      // thumbnail โหลดช้ากว่าตัว option — ถ้าอ่าน src ตอนยังว่าง จะแยกรูปอ้างอิงกับรูปที่สร้างไม่ออก
+      await waitFor(() => (list.filter((o) => { const im = o.querySelector("img"); return im && (im.currentSrc || im.src); }).length >= Math.min(3, list.length) ? true : null), 6000, 500);
+      await sleep(800);
       P(`picker "${btnLabel}" รอบ${attempt}: ${list.length} ตัวเลือก หา uuid ${uuid ? uuid.slice(0, 8) : "?"}`);
       if (!list.length) P(`picker ไม่มีรายการเลย (แท็บ "รูปภาพ" ${tab ? "กดแล้ว" : "หาไม่เจอ"})`);
-      let target = uuid ? list.find((o) => { const im = o.querySelector("img"); return (((im && (im.currentSrc || im.src)) || "")).includes(uuid); }) : null;
-      // ภาพที่เพิ่งสร้างจาก /asb/... ไม่มี uuid ให้เทียบตรง ๆ ใน thumbnail
-      // จาก DOM จริงของ Flow: ภาพใหม่อยู่เป็นตัวเลือกที่ไม่มี nature= ส่วนรูปอ้างอิงมี nature=...
-      // เลือกได้เฉพาะกรณีที่มีผู้สมัครชัดเจนหนึ่งตัว เพื่อไม่สุ่มหยิบรูปอ้างอิงมาเป็นเฟรม
-      if (!target && !uuid) {
-        const fresh = list.filter((o) => {
-          const im = o.querySelector("img");
-          const src = (im && (im.currentSrc || im.src)) || "";
-          return src && !/[?&]nature=/i.test(src) && !/avatar|profile|logo|icon/i.test(src);
-        });
-        if (fresh.length === 1) {
-          target = fresh[0];
-          const im = target.querySelector("img");
-          P(`ไม่มี uuid ใน URL ภาพใหม่ → เลือกตัวเลือกสดจาก DOM (${((im && (im.currentSrc || im.src)) || "").slice(-42)})`);
-        } else if (fresh.length > 1) {
-          P(`ไม่มี uuid ใน URL และมีตัวเลือกสด ${fresh.length} ตัว — ไม่สุ่มเลือก`);
-        }
-      }
-      // Flow รุ่นที่ใช้จริงอาจ rewrite thumbnail ของภาพใหม่เป็น nature=... เหมือนรูปเก่า
-      // ทั้งหมด ทำให้แยกด้วย query ไม่ได้ จาก dump ล่าสุด picker เรียงภาพล่าสุดไว้ตัวแรก
-      // และภาพที่เพิ่งสร้างเสร็จถูกเปิด picker ทันที จึงใช้ตัวแรกเฉพาะกรณีนี้เท่านั้น
-      if (!target && !uuid && list.length && list.every((o) => {
-        const im = o.querySelector("img");
-        const src = (im && (im.currentSrc || im.src)) || "";
-        return /(?:[?&]|\/|^)nature=/i.test(src);
-      })) {
-        target = list[0];
-        const im = target.querySelector("img");
-        P(`URL เฟรมใหม่ไม่มี uuid และ picker ใช้ nature ทุกตัว → เลือก thumbnail ล่าสุดตัวแรก (${((im && (im.currentSrc || im.src)) || "").slice(-42)})`);
+      const thumbSrc = (o) => { const im = o.querySelector("img"); return (im && (im.currentSrc || im.src)) || ""; };
+      let target = uuid ? list.find((o) => thumbSrc(o).includes(uuid)) : null;
+      // ★ id ของรูปที่ Flow เพิ่งสร้าง (จาก /asb/…) ไม่ปรากฏใน thumbnail ของ picker เลย —
+      //   ยืนยันจากหน้าจริง: เฟรมเริ่มคือ AB-nOUbl… แต่ thumbnail ทั้ง 6 ใบเป็นคนละชุด id
+      //   การจับคู่ด้วย id จึงไม่มีวันสำเร็จ ต้องใช้หลักฐานอื่นแทน
+      if (!target && list.length) {
+        // รูปอ้างอิงที่เราอัปเองมี nature= ส่วนรูปที่ Flow สร้างไม่มี — เลือกจากกลุ่มที่ไม่มี nature ก่อน
+        const isRef = (o) => /[?&/]nature=/i.test(thumbSrc(o)) || /avatar|profile|logo|icon/i.test(thumbSrc(o));
+        const made = list.filter((o) => thumbSrc(o) && !isRef(o));
+        const pool = made.length ? made : list;
+        target = pool[0];   // picker เรียงใหม่สุดไว้ตัวแรก และเราเพิ่งสร้างรูปเสร็จก่อนเปิด picker
+        P(`เทียบ id ไม่ได้ (Flow ใช้คนละชุด) → เลือก${made.length ? `รูปที่ Flow สร้าง` : "ตัวเลือก"}ใหม่สุด ${made.length || list.length} ตัว: ${thumbSrc(target).slice(-42)}`);
       }
       if (!target) {
         const srcs = list.slice(0, 5).map((o) => { const im = o.querySelector("img"); return ((im && (im.currentSrc || im.src)) || "(no img)").slice(-34); });
@@ -3202,22 +3245,29 @@ if (window._flowAutomatorLoaded) {
     // guard: ยืนยันยังอยู่โหมดวิดีโอก่อนกดส่ง 15 เครดิต (สมมาตรกับ genImage)
     if (!isVideoMode()) return { ok: false, error: `ยกเลิกก่อนส่ง — ไม่ได้อยู่โหมดวิดีโอ (ปุ่มโหมด: "${modeBtnText().replace(/\s+/g, " ").slice(0, 30)}")`, steps };
     // ── ส่งจริง (15 เครดิต) ── จำคลิปเดิม "ก่อน" ส่ง เพื่อหยิบเฉพาะคลิปใหม่
-    const srcOf = (v) => v.src || v.querySelector("source")?.src || "";
-    const beforeSrcs = new Set([...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter(Boolean));
+    const beforeSrcs = new Set(videoSrcs());
     await sleep(rand(2000, 5000));   // หยุดเหมือนคนก่อนกดสร้างจริง (15 เครดิต) — ลดจังหวะหุ่นยนต์
     const before2 = boxText(box);
     await trustedClickEl(realEditable(box), log); await sleep(300);
     await sendTrusted({ action: "flow_trusted_key" }); await sleep(1500);
-    if (boxText(box) === before2) {
-      const sendBtn = allClickable().filter((el) => { const t = txt(el); return t.includes("สร้าง") && !t.includes("add_2") && !t.includes("เพิ่มสื่อ"); }).sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)[0];
-      if (sendBtn) { await trustedClickEl(sendBtn, log); await sleep(1500); }
+    // ฝั่งรูปเรียนไปแล้วว่า Flow รุ่นใหม่ใช้ไอคอน arrow_forward ไม่มีคำว่า "สร้าง" ใน textContent
+    // ฝั่งวิดีโอยังหาแบบเก่า จึงไม่เคยเจอปุ่ม แล้วล็อกว่า "ส่งแล้ว" ทั้งที่ยังไม่ได้ส่ง → รอ 6 นาทีฟรี
+    const afterEnter2 = boxText(box);
+    const sendBtn = findSendBtn();
+    log(`ตรวจการส่ง (วิดีโอ): Enter=${afterEnter2 !== before2 ? "เปลี่ยน" : "ไม่เปลี่ยน"} · ปุ่มส่ง=${sendBtn ? "พบ" : "ไม่พบ"}`);
+    const started2 = afterEnter2 !== before2 && isGenerating();
+    if (sendBtn && !started2) { await trustedClickEl(sendBtn, log); await sleep(1800); }
+    if (!isGenerating()) {
+      const ok2 = await waitFor(() => (isGenerating() ? true : null), 15000, 1500);
+      if (!ok2) return { ok: false, steps,
+        error: `กดส่งแล้วแต่ Flow ไม่เริ่มเรนเดอร์ | ปุ่มส่ง=${sendBtn ? "พบ" : "ไม่พบ"} · แถบพิมพ์: ${dumpComposer().slice(0, 300)}` };
     }
     log("ส่งสร้างคลิปแล้ว (15 เครดิต) — รอ Veo สร้างวิดีโอ…");
     startRenderTicker(opts.productId);   // ★ i2v ก็ต้องรายงาน "กำลังเรนเดอร์" ให้ step tracker ขยับ (เดิมมีแต่ agent)
     // ── รอ Veo + ดาวน์โหลด (reuse logic จาก runGenerate) ──
-    const newSrcs = () => [...document.querySelectorAll(getSelector("video", "video"))].map(srcOf).filter((s) => s && !beforeSrcs.has(s));
+    const newSrcs = () => videoSrcs().filter((s) => !beforeSrcs.has(s));
     const first = await waitFor(() => (newSrcs().length ? newSrcs() : null), 6 * 60 * 1000, 4000);
-    if (!first) return { ok: false, error: "รอวิดีโอนานเกินไป (timeout)", steps };
+    if (!first) return { ok: false, error: `รอวิดีโอนานเกินไป (timeout) | ตัวโหลด=${busyReason() || "ไม่พบ"} · วิดีโอบนจอ: ${videoSnapshot()}`, steps };
     const collected = new Set(first);
     let lastChange = Date.now(); const settleStart = Date.now();
     while (true) {
