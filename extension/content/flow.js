@@ -2933,7 +2933,13 @@ if (window._flowAutomatorLoaded) {
   window._flowComposePair = composePair;   // เทส: _flowComposePair()
 
   // ── Part B: frames-to-video — เอาเฟรมเริ่ม/จบ (จาก composePair) ไปสร้างคลิป (15 เครดิต) ──
-  const mediaUuid = (u) => (String(u).match(/name=([0-9a-f-]+)/i) || [])[1] || null;
+  // Flow รุ่นปัจจุบันใช้ URL ภาพที่สร้างแบบ /asb/... โดยไม่มี name= แล้ว
+  // แต่รายการใน frame picker ใช้รหัสใน query string ของ thumbnail แทน
+  const mediaUuid = (u) => {
+    const s = String(u || "");
+    const m = s.match(/(?:name|nature|media[_-]?id|resource[_-]?key)=([^&#]+)/i);
+    return m ? decodeURIComponent(m[1]) : null;
+  };
   const defaultMotionPrompt = (name) =>
     `แอนิเมชันนุ่มนวลต่อเนื่องจากเฟรมเริ่ม ~8-10 วิ: บุคคลพูดแนะนำ${name || "สินค้า"}อย่างมั่นใจ ยิ้มแย้ม ` +
     `ขยับเล็กน้อยเป็นธรรมชาติ (กระพริบตา ขยับมือถือสินค้าเบา ๆ) แล้วปิดท้ายด้วยการชี้นิ้วลงล่างชวนกดปุ่มตะกร้า — ` +
@@ -2963,7 +2969,24 @@ if (window._flowAutomatorLoaded) {
       const list = [...document.querySelectorAll('[role="option"]')];
       P(`picker "${btnLabel}" รอบ${attempt}: ${list.length} ตัวเลือก หา uuid ${uuid ? uuid.slice(0, 8) : "?"}`);
       if (!list.length) P(`picker ไม่มีรายการเลย (แท็บ "รูปภาพ" ${tab ? "กดแล้ว" : "หาไม่เจอ"})`);
-      const target = uuid ? list.find((o) => { const im = o.querySelector("img"); return (((im && (im.currentSrc || im.src)) || "")).includes(uuid); }) : null;
+      let target = uuid ? list.find((o) => { const im = o.querySelector("img"); return (((im && (im.currentSrc || im.src)) || "")).includes(uuid); }) : null;
+      // ภาพที่เพิ่งสร้างจาก /asb/... ไม่มี uuid ให้เทียบตรง ๆ ใน thumbnail
+      // จาก DOM จริงของ Flow: ภาพใหม่อยู่เป็นตัวเลือกที่ไม่มี nature= ส่วนรูปอ้างอิงมี nature=...
+      // เลือกได้เฉพาะกรณีที่มีผู้สมัครชัดเจนหนึ่งตัว เพื่อไม่สุ่มหยิบรูปอ้างอิงมาเป็นเฟรม
+      if (!target && !uuid) {
+        const fresh = list.filter((o) => {
+          const im = o.querySelector("img");
+          const src = (im && (im.currentSrc || im.src)) || "";
+          return src && !/[?&]nature=/i.test(src) && !/avatar|profile|logo|icon/i.test(src);
+        });
+        if (fresh.length === 1) {
+          target = fresh[0];
+          const im = target.querySelector("img");
+          P(`ไม่มี uuid ใน URL ภาพใหม่ → เลือกตัวเลือกสดจาก DOM (${((im && (im.currentSrc || im.src)) || "").slice(-42)})`);
+        } else if (fresh.length > 1) {
+          P(`ไม่มี uuid ใน URL และมีตัวเลือกสด ${fresh.length} ตัว — ไม่สุ่มเลือก`);
+        }
+      }
       if (!target) {
         const srcs = list.slice(0, 5).map((o) => { const im = o.querySelector("img"); return ((im && (im.currentSrc || im.src)) || "(no img)").slice(-34); });
         P(`ไม่เจอ uuid ตรงในรายการ — 5 ตัวแรกลงท้ายด้วย: ${JSON.stringify(srcs)}`);
