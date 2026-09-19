@@ -102,6 +102,9 @@ jobs:
           Copy-Item "web/out/*"     "$P/web/out/" -Recurse -Force      # หน้าเว็บ prebuilt
           Copy-Item "electron/bin/*" "$P/bin/"    -Recurse -Force      # adb + scrcpy v4.0 + ffmpeg
           Copy-Item "portable/*"    "$P/"         -Recurse -Force      # ตัวเปิด/ปิด + อ่านก่อน
+          # เครื่องผู้ใช้ไม่มี .git: เก็บ commit ที่ payload นี้ build จากไว้ให้ update-check เทียบกับ main ได้
+          $sha = (git rev-parse HEAD).Trim()
+          Set-Content -Path "$P/.vgap-version" -Value $sha -NoNewline -Encoding utf8
           Write-Host "=== โฟลเดอร์พกพา ==="
           Get-ChildItem $P
 

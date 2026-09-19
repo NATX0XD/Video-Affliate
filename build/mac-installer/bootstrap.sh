@@ -152,6 +152,16 @@ if ! curl -fL --retry 3 --connect-timeout 20 "$TARBALL" | tar xz --strip-compone
        "เน็ตอาจหลุดกลางคัน — ต่อเน็ตให้เสถียรแล้วดับเบิลคลิกตัวติดตั้งใหม่ (รันซ้ำได้ ปลอดภัย)"
 fi
 ok "ได้โค้ดล่าสุดแล้ว → $APP_DIR"
+# โฟลเดอร์ที่แตกจาก tarball ไม่มี .git: บันทึก commit ของ main ที่เพิ่งดาวน์โหลด
+# ไม่เช่นนั้น /api/app/update-check จะมองว่าเวอร์ชันปัจจุบันไม่ทราบและแจ้งอัปเดตทุกครั้ง
+STAMP="$(curl -fsSL --connect-timeout 20 "https://api.github.com/repos/NATX0XD/Video-Affliate/commits/main" 2>/dev/null \
+  | awk -F'"' '/"sha"[[:space:]]*:/ {print $4; exit}')"
+if [ -n "$STAMP" ]; then
+  printf '%s' "$STAMP" > "$APP_DIR/.vgap-version"
+  ok "ตราเวอร์ชัน ${STAMP:0:7}"
+else
+  warn "อ่านตราเวอร์ชันจาก GitHub ไม่ได้ — โปรแกรมยังใช้งานได้ แต่อาจถามอัปเดตครั้งแรก"
+fi
 
 # ---- [3/4] ปลดล็อก quarantine + ตั้งสิทธิ์รัน ----
 say "[3/4] ปลดล็อกไฟล์ (quarantine) + ตั้งให้รันได้"
