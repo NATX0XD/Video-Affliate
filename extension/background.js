@@ -1308,6 +1308,10 @@ async function pollQueue() {
   if (p && p.type === 'ext_reload') {
     try {
       const base = await apiBase();
+      // content script ที่ฉีดอยู่ในแท็บเดิมจะไม่เปลี่ยนตามการ reload extension
+      // ต้อง reload หน้า Flow ก่อน เพื่อให้แท็บใช้โค้ดจากดิสก์ชุดเดียวกับ background
+      const flowTabs = await chrome.tabs.query({ url: ['https://flow.google.com/*', 'https://labs.google/*'] }).catch(() => []);
+      await Promise.all(flowTabs.map((tab) => tab.id == null ? Promise.resolve() : chrome.tabs.reload(tab.id, { bypassCache: true }).catch(() => {})));
       await fetch(`${base}/api/queue/done`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id }),
       }).catch(() => {});
