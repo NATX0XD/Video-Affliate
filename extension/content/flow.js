@@ -3019,6 +3019,18 @@ if (window._flowAutomatorLoaded) {
           P(`ไม่มี uuid ใน URL และมีตัวเลือกสด ${fresh.length} ตัว — ไม่สุ่มเลือก`);
         }
       }
+      // Flow รุ่นที่ใช้จริงอาจ rewrite thumbnail ของภาพใหม่เป็น nature=... เหมือนรูปเก่า
+      // ทั้งหมด ทำให้แยกด้วย query ไม่ได้ จาก dump ล่าสุด picker เรียงภาพล่าสุดไว้ตัวแรก
+      // และภาพที่เพิ่งสร้างเสร็จถูกเปิด picker ทันที จึงใช้ตัวแรกเฉพาะกรณีนี้เท่านั้น
+      if (!target && !uuid && list.length && list.every((o) => {
+        const im = o.querySelector("img");
+        const src = (im && (im.currentSrc || im.src)) || "";
+        return /(?:[?&]|\/|^)nature=/i.test(src);
+      })) {
+        target = list[0];
+        const im = target.querySelector("img");
+        P(`URL เฟรมใหม่ไม่มี uuid และ picker ใช้ nature ทุกตัว → เลือก thumbnail ล่าสุดตัวแรก (${((im && (im.currentSrc || im.src)) || "").slice(-42)})`);
+      }
       if (!target) {
         const srcs = list.slice(0, 5).map((o) => { const im = o.querySelector("img"); return ((im && (im.currentSrc || im.src)) || "(no img)").slice(-34); });
         P(`ไม่เจอ uuid ตรงในรายการ — 5 ตัวแรกลงท้ายด้วย: ${JSON.stringify(srcs)}`);
