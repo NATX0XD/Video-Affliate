@@ -22,7 +22,7 @@ import { getFace } from '@/lib/gen-faces'
 import { Dialog } from '@/components/ui/Dialog'
 
 const STEPS = [
-  { label: 'แนวทางคลิป' }, { label: 'ผู้รีวิว' }, { label: 'สไตล์' },
+  { label: 'รูปแบบคลิป' }, { label: 'ผู้รีวิว' }, { label: 'สไตล์' },
   { label: 'ลุคภาพ' }, { label: 'เสียง & บท' }, { label: 'สรุป' },
 ]
 
@@ -138,32 +138,42 @@ function CreateInner() {
   const last = step === STEPS.length - 1
 
   return (
-    <div className="max-w-4xl mx-auto pb-28">
-      {/* หัวหน้า */}
-      <div className="flex items-center gap-3 mb-4">
-        <button type="button" onClick={() => step > 0 ? go(step - 1) : setExitOpen(true)} className="flex items-center gap-1.5 t-body text-ink-dim hover:text-ink">
-          <ChevronLeft size={16} /> {step > 0 ? 'ย้อนกลับ' : 'ออกจากการสร้าง'}
-        </button>
-      </div>
-
-      <div className="mb-5 flex items-center gap-3 rounded-2xl border border-line bg-surface/60 px-3 py-2.5 overflow-x-auto">
-        <div className="shrink-0"><p className="t-badge text-ink">สินค้าที่จะสร้าง</p><p className="t-cap">{products.length} รายการ</p></div>
-        <div className="h-8 w-px bg-line shrink-0" />
-        {products.map(p => (
-          <div key={productUid(p)} className="flex items-center gap-2 shrink-0 max-w-[220px] rounded-xl bg-elevated/60 px-2 py-1.5">
-            {p.image_url || p.images?.[0]
-              ? <img src={p.image_url || p.images?.[0]} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
-              : <div className="w-9 h-9 rounded-lg bg-elevated grid place-items-center shrink-0"><Package size={14} /></div>}
-            <span className="text-xs text-ink truncate">{productName(p) || 'ไม่มีชื่อสินค้า'}</span>
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 pb-28">
+      <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start">
+        {/* สินค้าที่เลือกอยู่ข้างขั้นตอนบนจอใหญ่ ไม่เบียด stepper */}
+        <aside className="order-2 lg:order-1 lg:sticky lg:top-6 rounded-2xl border border-line bg-surface/70 p-3.5">
+          <div className="flex items-start justify-between gap-3 border-b border-line pb-3">
+            <div><p className="t-badge text-ink">สินค้าที่จะสร้าง</p><p className="t-cap mt-0.5">{products.length} รายการ</p></div>
+            <Package size={17} className="text-accent shrink-0" />
           </div>
-        ))}
-      </div>
+          <div className="mt-3 flex max-h-[42vh] flex-col gap-2 overflow-y-auto pr-1">
+            {products.map(p => (
+              <div key={productUid(p)} className="flex items-center gap-2 rounded-xl bg-elevated/65 p-2">
+                {p.image_url || p.images?.[0]
+                  ? <img src={p.image_url || p.images?.[0]} alt={productName(p) || 'รูปสินค้า'} className="h-10 w-10 rounded-lg object-cover shrink-0" />
+                  : <div className="h-10 w-10 rounded-lg bg-surface grid place-items-center shrink-0"><Package size={14} /></div>}
+                <span className="text-xs leading-snug text-ink line-clamp-2">{productName(p) || 'ไม่มีชื่อสินค้า'}</span>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={() => setExitOpen(true)} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 t-cap font-semibold text-ink-dim hover:bg-elevated hover:text-ink">
+            <ArrowLeft size={13} /> กลับไปเลือกสินค้า
+          </button>
+        </aside>
 
-      <div className="mb-6">
-        <StepRail steps={STEPS} step={step} maxStep={maxStep} onGo={go} />
-      </div>
+        <main className="order-1 lg:order-2 min-w-0">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <button type="button" onClick={() => step > 0 ? go(step - 1) : setExitOpen(true)} className="flex items-center gap-1.5 t-body text-ink-dim hover:text-ink">
+              <ChevronLeft size={16} /> {step > 0 ? 'ย้อนกลับขั้นก่อน' : 'ออกจากการสร้าง'}
+            </button>
+            <span className="t-cap text-ink-mute">ขั้นที่ {step + 1} จาก {STEPS.length}</span>
+          </div>
 
-      <div className="rounded-2xl border border-line bg-surface/60 p-5 sm:p-6">
+          <div className="mb-6 overflow-x-auto pb-1">
+            <StepRail steps={STEPS} step={step} maxStep={maxStep} onGo={go} />
+          </div>
+
+          <div className="rounded-2xl border border-line bg-surface/60 p-5 sm:p-6">
         {step === 0 && (
           <StepTemplate o={o} picked={tplPick} onPick={pickTemplate} onUse={useTemplate}
             onFresh={() => { setTplPick(''); }} onNotify={m => toast.success(m)} />
@@ -180,6 +190,8 @@ function CreateInner() {
           <StepReview o={o} set={set} products={products}
             onNotify={m => toast.success(m)} onError={m => toast.error(m)} />
         )}
+          </div>
+        </main>
       </div>
 
       {/* แถบล่างติดหน้าจอ */}

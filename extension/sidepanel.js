@@ -66,14 +66,6 @@ function openShopee() {
   });
 }
 
-function showTab(which) {
-  const scrape = which === 'scrape'
-  $('scrapePanel').hidden = !scrape
-  $('filterPanel').hidden = scrape
-  $('tabScrape').classList.toggle('active', scrape)
-  $('tabFilter').classList.toggle('active', !scrape)
-}
-
 function openFilter(filter) {
   const url = `${appBase()}/products?filter=${encodeURIComponent(filter)}`
   chrome.tabs.create({ url })
@@ -104,8 +96,6 @@ function scrapeNow() {
 $('openApp').addEventListener('click', openApp);
 $('openShopee').addEventListener('click', openShopee);
 $('scrapeNow').addEventListener('click', scrapeNow);
-$('tabScrape').addEventListener('click', () => showTab('scrape'));
-$('tabFilter').addEventListener('click', () => showTab('filter'));
 document.querySelectorAll('[data-filter]').forEach(el => el.addEventListener('click', () => openFilter(el.dataset.filter)));
 
 // อัปเดต hint เมื่อ background แจ้งว่ามีสินค้าใหม่เข้าคลัง
