@@ -1246,7 +1246,9 @@ if (window._flowAutomatorLoaded) {
     if (!url) return "";
     // CDN alias down-bs-th มีใบรับรองไม่ครอบคลุม hostname บางเครื่อง ทำให้
     // fetch ใน service worker ถูกบล็อกทั้งที่ URL ใช้ได้ใน curl -k
-    return url.replace(/^https:\/\/down-bs-([a-z-]+)\.img\.susercontent\.com/i, "https://down-$1.img.susercontent.com")
+    return url
+      .replace(/^https:\/\/down-bs\.([a-z-]+)\.img\.susercontent\.com/i, "https://down.$1.img.susercontent.com")
+      .replace(/^https:\/\/down-bs-([a-z-]+)\.img\.susercontent\.com/i, "https://down-$1.img.susercontent.com")
       .replace(/@resize_[^/?#]*/i, "").replace(/_tn(?=$|[?#.])/i, "");
   }
 
