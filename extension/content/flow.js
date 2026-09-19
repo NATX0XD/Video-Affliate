@@ -2835,7 +2835,28 @@ if (window._flowAutomatorLoaded) {
         }
         if (!(await typePrompt(box, prompt, log))) return { ok: false, error: "พิมพ์ prompt ใหม่ไม่สำเร็จหลังสลับรุ่น", uploads };
       }
-      const beforeImgs = new Set(genImgSrcs());                 // จำรูปก่อนส่งรอบนี้
+      // Flow รุ่นปัจจุบันติดป้ายทั้งรูปอ้างอิงและรูปที่สร้างว่า
+      // "การ์ดแสดงรูปภาพผู้ใช้" และ URL บางบัญชีไม่มีคำว่า generated/media
+      // จึงหาผลลัพธ์ด้วย URL อย่างเดียวไม่ได้ แม้ภาพสร้างเสร็จอยู่บนจอแล้ว
+      // เก็บทั้ง element และ src ก่อนส่ง: การ์ด/URL ที่เพิ่งเกิดหลังจากนั้นคือ
+      // ผลลัพธ์ของคำสั่งนี้ (รูปอ้างอิงถูกแนบครบก่อน snapshot นี้แล้ว)
+      const beforeImgs = new Set(genImgSrcs());
+      const beforeTiles = new Set(tileImgs());
+      const beforeTileSrcs = new Set(tileImgs().map((im) => im.currentSrc || im.src || "").filter(Boolean));
+      const resultImgs = () => {
+        const detected = genImgSrcs().filter((s) => !beforeImgs.has(s));
+        const fresh = tileImgs()
+          .filter((im) => !beforeTiles.has(im) || !beforeTileSrcs.has(im.currentSrc || im.src || ""))
+          .map((im) => im.currentSrc || im.src || "")
+          .filter(Boolean);
+        // อย่ารับรูปอ้างอิงที่ Flow โหลดช้าหลัง snapshot เป็นผลลัพธ์เด็ดขาด
+        const refSrcs = new Set(uploads.map((u) => u && u.refSrc).filter(Boolean));
+        const refIds = new Set(uploads.map((u) => u && u.refId).filter(Boolean));
+        return [...new Set([...detected, ...fresh])].filter((s) => {
+          const id = mediaUuid(s);
+          return !refSrcs.has(s) && (!id || !refIds.has(id));
+        });
+      };
       await sleep(rand(900, 2500));                             // หยุดเหมือนคนทบทวนก่อนกดส่ง
       const before2 = boxText(box);
       await trustedClickEl(editor, log); await sleep(300);
@@ -2859,7 +2880,7 @@ if (window._flowAutomatorLoaded) {
       // เช็กลิมิตเฉพาะรอบแรก — รอบสลับรุ่นรอแค่ "รูปใหม่" (กัน false-positive จากข้อความ error เก่าที่ค้างใน DOM)
       const res = await waitFor(() => {
         if (pass === 0 && nanoLimitHit()) return { limit: true };
-        const n = genImgSrcs().filter((s) => !beforeImgs.has(s));
+        const n = resultImgs();
         return n.length ? { images: n } : null;
       }, 2 * 60 * 1000, 3000);
       if (!res) {
@@ -2881,12 +2902,12 @@ if (window._flowAutomatorLoaded) {
       await waitFor(() => !isGenerating() ? true : null, 90000, 1500);     // จนไม่มี spinner/progress
       let prevCount = -1, stable = 0;
       await waitFor(() => {                                                 // จำนวนรูปใหม่ "นิ่ง" 2 รอบติด = เจนจบ ไม่ทยอยออกแล้ว
-        const c = genImgSrcs().filter((s) => !beforeImgs.has(s)).length;
+        const c = resultImgs().length;
         if (c > 0 && c === prevCount) stable++; else { stable = 0; prevCount = c; }
         return stable >= 2 ? true : null;
       }, 30000, 1500);
       await sleep(2500);                                                   // settle ให้รูปพร้อมในคลัง/picker ก่อนไปเลือกเฟรม
-      const finalImgs = genImgSrcs().filter((s) => !beforeImgs.has(s));
+      const finalImgs = resultImgs();
       let imgs = finalImgs.length ? finalImgs : res.images;
       // ★ ตัด "รูปอ้างอิงที่เราอัปเอง" ออกให้ชัด ไม่พึ่ง snapshot ก่อนกดส่งอย่างเดียว
       //   ไทล์รูปอ้างอิงโผล่ช้ากว่า snapshot ได้ → หลุดมาเป็นผลลัพธ์ แล้วรูปหน้าคนไปเป็นเฟรมเริ่ม
