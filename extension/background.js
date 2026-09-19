@@ -933,14 +933,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const url = msg.url;
     const MAX_TRIES = 6;
     let tries = 0, settled = false;
-    const done = (r) => { if (!settled) { settled = true; sendResponse(r); } };
+    // ★ service worker ของ MV3 ถูก Chrome ฆ่าทิ้งเมื่อว่างราว 30 วินาที
+    //   ระหว่างรอคลิปโหลด (ไฟล์หลายสิบ MB) มันจึงตายกลางทาง พา listener กับ sendResponse ไปด้วย
+    //   ฝั่งที่รออยู่เลยได้ค่าว่าง แล้วสรุปว่า "โหลดไม่เสร็จ" ทั้งที่ไฟล์กำลังมาปกติ
+    //   เรียก chrome API เป็นจังหวะระหว่างโหลด = ต่ออายุ worker ไปได้เรื่อย ๆ
+    const keepAlive = setInterval(() => { try { chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError); } catch {} }, 20000);
+    const done = (r) => { if (!settled) { settled = true; clearInterval(keepAlive); sendResponse(r); } };
 
     const retryLater = (why) => {
       if (tries >= MAX_TRIES) {
         reportError('download', `${filename} ล้มเหลวหลังลอง ${tries} ครั้ง (${why})`);
         return done({ ok: false, error: `download ล้มเหลวหลังลอง ${tries} ครั้ง (${why}) — เน็ตอาจหลุดนานเกินไป` });
       }
-      const wait = 4000 * tries;            // 4s, 8s, 12s, …
+      const wait = Math.min(30000, 4000 * tries);   // 4s, 8s, 12s, … สูงสุด 30s
       console.log(`[flow_download] ${why} → retry #${tries + 1} ใน ${wait}ms`);
       setTimeout(attempt, wait);
     };
@@ -965,7 +970,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         fn();
       };
       const onChange = (delta) => {
-        if (delta.id !== id || !delta.state) return;
+        if (delta.id !== id) return;
+        // มีความคืบหน้าอยู่ = ยังโหลดได้ ไม่ใช่ค้าง — บอกให้เห็นด้วย ไม่งั้นดูเหมือนแฮงก์
+        if (delta.bytesReceived && !delta.state) {
+          notifyPages({ action: 'flow_log', msg: `[ดาวน์โหลด] ${Math.round((delta.bytesReceived.current || 0) / 1048576)} MB` });
+          return;
+        }
+        if (!delta.state) return;
         if (delta.state.current === 'complete') finish(() => finishOk(id));
         else if (delta.state.current === 'interrupted') finish(() => onInterrupt(id));
       };
