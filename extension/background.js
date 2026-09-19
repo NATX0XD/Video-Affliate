@@ -220,6 +220,22 @@ setInterval(checkSelfUpdate, 6000);         // ระหว่าง SW ยั�
 chrome.runtime.onStartup?.addListener(checkSelfUpdate);
 chrome.runtime.onInstalled?.addListener(checkSelfUpdate);
 
+// ★ โหลดส่วนขยายใหม่ไม่ได้เปลี่ยนโค้ดในแท็บที่เปิดค้างอยู่ — content script ตัวเก่ายังทำงานต่อ
+//   ผู้ใช้จึงเห็นเลขเวอร์ชันใหม่แต่พฤติกรรม (และข้อความ error) ยังเป็นของเก่า ไล่บั๊กผิดทางไปหลายรอบ
+//   รีโหลดแท็บ Flow ทุกครั้งที่ส่วนขยายเริ่มใหม่ เพื่อให้โค้ดในแท็บตรงกับที่อยู่บนดิสก์เสมอ
+async function refreshFlowTabs(why) {
+  try {
+    const tabs = (await chrome.tabs.query({})).filter((t) => {
+      try { const u = new URL(t.url || ''); return u.hostname === 'flow.google.com' || (u.hostname === 'labs.google' && u.pathname.startsWith('/fx')); }
+      catch { return false; }
+    });
+    for (const t of tabs) { try { await chrome.tabs.reload(t.id, { bypassCache: true }); } catch {} }
+    if (tabs.length) console.log(`[VGAP] reloaded ${tabs.length} Flow tab(s) after ${why}`);
+  } catch (e) { console.warn('[VGAP] refreshFlowTabs failed', e); }
+}
+chrome.runtime.onInstalled?.addListener(() => refreshFlowTabs('install/update'));
+chrome.runtime.onStartup?.addListener(() => refreshFlowTabs('browser start'));
+
 // ── mirror สินค้าไป desktop (G3) — additive อย่างเดียว ─────────────────────
 // แปลง product ทรงซ้อน (basic_info/commission/links/images) จาก scraper → flat dict
 // ที่ตาราง products ใน SQLite รับ (name/price/commission/image_url/cart_link/source).
@@ -1322,6 +1338,7 @@ async function pollQueue() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id }),
       }).catch(() => {});
       await chrome.storage.local.remove('vgap_queue_lock').catch(() => {});
+      await refreshFlowTabs('ext_reload');   // ต้องทำก่อน reload — โค้ดหลัง reload ไม่ได้รัน
       chrome.runtime.reload();   // ★ ตัดจบตรงนี้ โค้ดหลังบรรทัดนี้ไม่ได้รัน
     } catch (e) { console.warn('[VGAP] ext_reload failed', e); }
     return;
