@@ -1234,7 +1234,10 @@ if (window._flowAutomatorLoaded) {
   // อัปรูป Shopee → ความละเอียดเต็ม (ตัด suffix thumbnail ออก)
   function hiResImage(url) {
     if (!url) return "";
-    return url.replace(/@resize_[^/?#]*/i, "").replace(/_tn(?=$|[?#.])/i, "");
+    // CDN alias down-bs-th มีใบรับรองไม่ครอบคลุม hostname บางเครื่อง ทำให้
+    // fetch ใน service worker ถูกบล็อกทั้งที่ URL ใช้ได้ใน curl -k
+    return url.replace(/^https:\/\/down-bs-([a-z-]+)\.img\.susercontent\.com/i, "https://down-$1.img.susercontent.com")
+      .replace(/@resize_[^/?#]*/i, "").replace(/_tn(?=$|[?#.])/i, "");
   }
 
   // ขอ prompt จาก background (extension เขียนเอง: template ด้วย JS / AI เรียก Gemini)
