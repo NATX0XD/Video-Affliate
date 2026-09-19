@@ -239,11 +239,17 @@ if (window._flowAutomatorLoaded) {
         /^(add|เพิ่มสื่อ|เพิ่มรูป|upload)$/.test(t);
     });
     const ed = findEditable();
-    if (!ed) return cands[0] || null;
+    // ต้องเป็นปุ่ม add "ของช่องพิมพ์" เท่านั้น — หน้าคลังสื่อมีปุ่มชื่อเดียวกันที่มุมขวาบน
+    // กดผิดตัวจะได้เมนูของคลังสื่อซึ่งไม่มีตัวเลือกไฟล์ แล้วสรุปว่า "ไม่พบ file input"
+    if (!ed) return null;
     const er = ed.getBoundingClientRect();
-    return cands
+    const near = cands
       .filter((el) => { const r = el.getBoundingClientRect(); return r.top >= er.top - 50 && r.top <= er.bottom + 100; })
-      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0] || cands[0] || null;
+      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0];
+    if (near) return near;
+    // ไม่มีตัวไหนอยู่แถวช่องพิมพ์ → เอาตัวที่ใกล้ช่องพิมพ์ในแนวตั้งที่สุด ดีกว่าหยิบตัวแรกที่เจอ
+    return cands.slice().sort((a, b) =>
+      Math.abs(a.getBoundingClientRect().top - er.top) - Math.abs(b.getBoundingClientRect().top - er.top))[0] || null;
   }
   // ธง "ผู้ใช้กดยกเลิก" — ประกาศไว้บนสุดเพราะ waitFor ข้างล่างใช้ (ดู startCancelWatch)
   let _stopFlow = false;
@@ -571,12 +577,36 @@ if (window._flowAutomatorLoaded) {
       }
       input = input || (await waitFor(findFileInput, 5000)) || findFileInput();
     }
-    if (!input) return { ok: false, error: `ไม่พบ file input สำหรับอัปโหลดหลายรูป | ปุ่มเพิ่มสื่อ: ${findAddMediaButton() ? "เจอ" : "ไม่เจอ"} | เมนูที่เปิดอยู่: ${dumpPopup().slice(0, 400)}` };
     const files = [];
     for (let i = 0; i < dataUrls.length; i++) {
       const res = await fetch(dataUrls[i]);
       const blob = await res.blob();
       files.push(new File([blob], `reference-${i + 1}.jpg`, { type: blob.type || "image/jpeg" }));
+    }
+    // ไม่มีตัวเลือกไฟล์ → ลองวางไฟล์ลงช่องพิมพ์ตรง ๆ (หน้าเขียนเองว่า "เริ่มสร้างหรือวางสื่อ")
+    if (!input) {
+      const ed = findEditable();
+      if (ed) {
+        log("ไม่เจอตัวเลือกไฟล์ → ลองวางรูปลงช่องพิมพ์แทน");
+        const before = new Set(tileImgs());
+        const dtp = new DataTransfer();
+        files.forEach((f) => dtp.items.add(f));
+        try { ed.focus(); } catch {}
+        ed.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dtp }));
+        const got = await waitFor(() => {
+          const f = tileImgs().filter((im) => !before.has(im));
+          return f.length >= files.length ? f : null;
+        }, 15000, 700);
+        if (got) {
+          log(`วางรูปสำเร็จ ${got.length} ใบ`);
+          return { ok: true, uploads: got.slice(-files.length).map((im) => {
+            const s = im.currentSrc || im.src || "";
+            return { ok: true, addedToPrompt: "paste", refSrc: s, refId: mediaUuid(s) };
+          }) };
+        }
+        log("วางรูปไม่ติด");
+      }
+      return { ok: false, error: `ไม่พบ file input สำหรับอัปโหลดหลายรูป | ปุ่มเพิ่มสื่อ: ${findAddMediaButton() ? "เจอ" : "ไม่เจอ"} | ช่องพิมพ์: ${findEditable() ? "เจอ" : "ไม่เจอ"} | เมนูที่เปิดอยู่: ${dumpPopup().slice(0, 350)}` };
     }
     const before = new Set(tileImgs());
     const dt = new DataTransfer();
