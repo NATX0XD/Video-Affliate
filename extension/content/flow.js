@@ -1259,12 +1259,19 @@ if (window._flowAutomatorLoaded) {
   // product = รูปแบบดิบจาก scraper (basic_info/commission/links/images)
   async function runForProduct(product, prompt, log, dry, engine) {
     const p = product || {};
+    // สินค้ามาได้ 2 โครง: จาก scraper = {basic_info:{name}, images:[...]}
+    // จากคิวของเว็บแอป = {name, image} — ตัวหลังมาทีหลังและไม่เคยถูกอ่านให้ถูก
+    // ผลคือทุกงานที่สั่งจากหน้าเว็บมองไม่เห็นรูปสินค้า แล้วตายที่ "ไม่มีรูปสินค้า" ทันที
     const bi = p.basic_info || {};
-    const name = bi.name || p.product_id || "?";
-    log(`สินค้า: ${String(name).slice(0, 40)}`);
+    const name = bi.name || p.name || p.title || p.product_id || "?";
+    const productImgs = [
+      ...(Array.isArray(p.images) ? p.images : []),
+      p.image, p.image_url, p.thumbnail, bi.image,
+    ].filter((s) => typeof s === "string" && s.trim());
+    log(`สินค้า: ${String(name).slice(0, 40)} · รูปที่มี ${productImgs.length} ใบ`);
     // เตรียมรูป hi-res
     let imageDataUrl = null;
-    const url = hiResImage((p.images && p.images[0]) || "");
+    const url = hiResImage(productImgs[0] || "");
     if (url) { imageDataUrl = await fetchImageDataUrl(url); log(imageDataUrl ? "โหลดรูป hi-res แล้ว" : "โหลดรูปไม่ได้"); }
     if (!imageDataUrl && p.images_b64 && p.images_b64[0]) imageDataUrl = p.images_b64[0];
 
@@ -2843,7 +2850,8 @@ if (window._flowAutomatorLoaded) {
       if (bgImg === undefined) bgImg = d.flow_bg_img || null;   // รูปฉากหลังที่ผู้ใช้อัปในหน้าเว็บ
       if (moodImg === undefined) moodImg = d.flow_mood_img || null;   // รูปอ้างอิงโทนสี/อารมณ์
       const p = (d.products || [])[0];
-      if (!productUrl) productUrl = (p && ((p.images_b64 || [])[0] || (p.images || [])[0])) || null;
+      // รับโครงจากคิวของเว็บแอปด้วย (image เดี่ยว) ไม่ใช่เฉพาะโครงของ scraper
+      if (!productUrl) productUrl = (p && ((p.images_b64 || [])[0] || (p.images || [])[0] || p.image || p.image_url)) || null;
       if (!name) name = p && p.basic_info && p.basic_info.name;
       const g = d.flow_gen || {};
       if (!bg) bg = (g.bgPrompt || g.bgName || "").trim();   // ฉากที่เลือกใน modal → ใส่ลงเฟรม
