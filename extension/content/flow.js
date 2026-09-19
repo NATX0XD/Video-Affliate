@@ -3209,6 +3209,31 @@ if (window._flowAutomatorLoaded) {
   let _pickTrace = "";     // เหตุผลที่เลือกเฟรมไม่ผ่าน — แนบไปกับ error (ไม่งั้นเห็นแต่ "ไม่สำเร็จ")
   // รูปอ้างอิงที่อัปในรอบล่าสุด + id ของรูปที่ Flow สร้าง — ใช้ตอนเลือกเฟรมเริ่ม
   let _refMedia = { ids: new Set(), srcs: new Set(), made: new Set() };
+  // สั่งคลังรูปใน picker ให้เรียงแบบ "ใหม่ที่สุด" ก่อนเลือกเฟรม
+  async function setPickerSortNewest(P) {
+    const SORTS = ["ล่าสุด", "ใช้มากที่สุด", "ใหม่ที่สุด", "เก่าที่สุด", "รายการโปรด",
+                   "recent", "most used", "newest", "oldest", "favorites"];
+    const short = (el) => norm(el.innerText || el.textContent).length <= 16;
+    try {
+      // ถ้าเรียงเป็น "ใหม่ที่สุด" อยู่แล้ว ไม่ต้องทำอะไร
+      const current = deepAll('button,[role="button"],[role="combobox"],div,span')
+        .filter(isVisible).filter(short)
+        .find((el) => SORTS.includes(norm(el.innerText || el.textContent)));
+      if (!current) { P && P("ไม่เจอตัวเรียงลำดับในคลังรูป — ใช้ลำดับที่หน้าให้มา"); return false; }
+      const now = norm(current.innerText || current.textContent);
+      if (/ใหม่ที่สุด|newest/i.test(now)) { P && P("คลังรูปเรียงแบบใหม่ที่สุดอยู่แล้ว ✓"); return true; }
+      await trustedClickEl(current, null);
+      await sleep(600);
+      const opt = deepAll('[role="option"],[role="menuitem"],button,div,span')
+        .filter(isVisible).filter(short)
+        .find((el) => /^(ใหม่ที่สุด|newest)$/i.test(norm(el.innerText || el.textContent)));
+      if (!opt) { P && P(`เปิดเมนูเรียงลำดับแล้วแต่ไม่เจอ "ใหม่ที่สุด" (ตอนนี้: ${now})`); return false; }
+      await trustedClickEl(opt, null);
+      await sleep(900);
+      P && P(`เปลี่ยนการเรียงคลังรูป: ${now} → ใหม่ที่สุด ✓`);
+      return true;
+    } catch (e) { P && P(`ตั้งการเรียงคลังรูปไม่สำเร็จ: ${(e && e.message) || e}`); return false; }
+  }
   async function pickFrame(btnLabel, imageUrl, log) {
     _pickTrace = "";
     const P = (m) => { _pickTrace += `${_pickTrace ? " · " : ""}${m}`; try { log(m); } catch {} };
@@ -3238,6 +3263,9 @@ if (window._flowAutomatorLoaded) {
       const tab = deepAll('[role="tab"]').filter(isVisible).find((t) => /รูปภาพ|image/i.test(t.innerText || ""));
       if (tab) { await trustedClickEl(tab, log); await sleep(800); }   // แท็บ "รูปภาพ" (รูปที่ Flow สร้าง)
       await waitFor(() => (pickerOptions().length ? true : null), 8000, 400);
+      // ★ ตัวเรียงลำดับในคลังตั้งไว้ที่ "ล่าสุด" ซึ่งไม่ใช่ "ใหม่ที่สุด" (ล่าสุด = เพิ่งใช้ล่าสุด)
+      //   ถ้าไม่สั่งเปลี่ยน ตัวแรกในรายการไม่ใช่รูปที่เพิ่งสร้าง แล้วเราจะหยิบรูปผิดใบ
+      await setPickerSortNewest(P);
       const list = pickerOptions();
       // thumbnail โหลดช้ากว่าตัว option — ถ้าอ่าน src ตอนยังว่าง จะแยกรูปอ้างอิงกับรูปที่สร้างไม่ออก
       await waitFor(() => (list.filter((o) => { const im = o.querySelector("img"); return im && (im.currentSrc || im.src); }).length >= Math.min(3, list.length) ? true : null), 6000, 500);
@@ -3282,12 +3310,9 @@ if (window._flowAutomatorLoaded) {
         if (!pool.length) {
           P(`ตัวเลือกทั้ง ${list.length} ตัวเป็นรูปอ้างอิงที่เราอัปเองทั้งหมด — ไม่เลือก เพราะจะได้เฟรมผิดตัว`);
         } else {
-          // เฟรมจบก็เป็น 9:16 เหมือนกัน และถูกสร้าง "หลัง" เฟรมเริ่ม — คลังเรียงใหม่สุดไว้ตัวแรก
-          // เอาตัวแรกดื้อ ๆ จะได้เฟรมจบ (คนชี้ตะกร้า) มาใส่ช่องเริ่มแทนเฟรมเริ่ม
-          const wantStart = /เริ่ม/.test(btnLabel);
-          const idx = (wantStart && pool.length >= 2) ? 1 : 0;
-          target = pool[idx];
-          P(`เลือกเฟรม "${btnLabel}": ${portrait.length ? `แนวตั้ง 9:16 ${portrait.length} ใบ` : notRefLike.length ? "ไม่ใช่รูปอ้างอิง" : "ตัวเลือกที่เหลือ"} → ลำดับที่ ${idx + 1} (ใหม่สุด=เฟรมจบ) → ${thumbSrc(target).slice(-42)}`);
+          // รอบนี้สร้างรูปเดียว (เฟรมเริ่ม) และสั่งคลังเรียงแบบ "ใหม่ที่สุด" แล้ว → ตัวแรกคือรูปที่เพิ่งสร้าง
+          target = pool[0];
+          P(`เลือกเฟรม "${btnLabel}": ${portrait.length ? `แนวตั้ง 9:16 ${portrait.length} ใบ` : notRefLike.length ? "ไม่ใช่รูปอ้างอิง" : "ตัวเลือกที่เหลือ"} → ตัวใหม่ที่สุด → ${thumbSrc(target).slice(-42)}`);
         }
       }
       if (!target) {
@@ -3572,6 +3597,30 @@ if (window._flowAutomatorLoaded) {
 
   // ── message router ───────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    // ทดสอบจริงบนหน้า Flow: สั่งสร้างรูป 1 ใบ (โหมดรูป = 0 เครดิต) แล้วรายงานว่าตัวตรวจจับเห็นไหม
+    // มีไว้เพื่อยืนยันเส้นทาง "สร้างรูป -> ตรวจเจอ" ได้โดยไม่ต้องรอผู้ใช้ลองแล้วส่ง error กลับมา
+    if (msg.action === "flow_selftest") {
+      (async () => {
+        const out = { at: Date.now(), ext: EXT_VER, steps: [] };
+        const L = (m) => { out.steps.push(String(m).slice(0, 180)); try { chrome.runtime.sendMessage({ action: "flow_log", msg: "[selftest] " + m }); } catch {} };
+        try {
+          const d = await chrome.storage.local.get(["flow_char_img", "products"]);
+          const face = d.flow_char_img || null;
+          const p = (d.products || [])[0] || {};
+          const prod = (p.images_b64 || [])[0] || (p.images || [])[0] || p.image || p.image_url || null;
+          const refs = [face, prod].filter(Boolean);
+          out.refsFound = refs.length;
+          if (!refs.length) { out.ok = false; out.error = "ไม่มีรูปอ้างอิงใน storage (ยังไม่ได้ตั้งค่าตัวละคร/สินค้า)"; sendResponse({ ok: true, result: out }); return; }
+          const r = await genImage({ refs, prompt: msg.prompt || "ภาพบุคคลถือสินค้า พื้นหลังสตูดิโอสว่าง แนวตั้ง", count: "x1", log: L });
+          out.ok = !!r.ok;
+          out.error = r.error || null;
+          out.images = (r.images || []).length;
+          out.sample = (r.images || []).slice(-1).map((x) => String(x).slice(-40));
+        } catch (e) { out.ok = false; out.error = "ระเบิด: " + ((e && e.message) || e); }
+        sendResponse({ ok: true, result: out });
+      })();
+      return true;
+    }
     if (msg.action === "flow_dump") { flowDump().then((d) => sendResponse({ ok: true, dump: d }), (e) => sendResponse({ ok: false, error: String(e && e.message || e) })); return true; }
     if (msg.action === "flow_probe") { sendResponse({ ok: true, probe: probe() }); return true; }
     if (msg.action === "flow_generate") { runGenerate(msg).then(sendResponse); return true; }

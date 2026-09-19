@@ -1361,6 +1361,25 @@ async function pollQueue() {
     } catch (e) { console.warn('[VGAP] ext_reload failed', e); }
     return;
   }
+  // สั่งทดสอบการสร้างรูปจริงบนแท็บ Flow แล้วส่งผลกลับ desktop
+  if (p && p.type === 'flow_selftest') {
+    try {
+      const base = await apiBase();
+      const tabs = (await chrome.tabs.query({})).filter((t) => {
+        try { const u = new URL(t.url || ''); return u.hostname === 'flow.google.com' || (u.hostname === 'labs.google' && u.pathname.startsWith('/fx')); }
+        catch { return false; }
+      });
+      let result = { error: 'ไม่พบแท็บ Flow' };
+      if (tabs.length) {
+        result = await new Promise((r) => chrome.tabs.sendMessage(tabs[0].id, { action: 'flow_selftest', prompt: p.prompt }, (res) =>
+          r(chrome.runtime.lastError ? { error: chrome.runtime.lastError.message } : (res && res.result) || { error: 'ไม่มีคำตอบ' })));
+      }
+      await fetch(`${base}/api/flow/dump`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ selftest: result }) }).catch(() => {});
+      await fetch(`${base}/api/queue/done`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id }) }).catch(() => {});
+    } catch (e) { console.warn('[VGAP] selftest failed', e); }
+    await chrome.storage.local.remove('vgap_queue_lock').catch(() => {});
+    return;
+  }
   if (p && p.type === 'flow_dump') {
     try {
       const base = await apiBase();
