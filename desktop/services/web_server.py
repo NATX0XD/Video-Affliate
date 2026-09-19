@@ -1322,6 +1322,27 @@ class WebServer:
                     "method": "git" if (root / ".git").exists() else "download",
                     "message": msg}
 
+        @app.post("/api/app/restart")
+        def app_restart():
+            """เริ่มโปรแกรมใหม่ในตัวเอง — โค้ดที่เพิ่งอัปเดตจะมีผลก็ต่อเมื่อรันใหม่
+
+            เดิมบอกผู้ใช้ว่า "ปิดแล้วเปิดใหม่" เฉย ๆ แล้วปล่อยให้ไปหาวิธีเอง
+            หลายคนจึงใช้โค้ดเก่าต่อโดยไม่รู้ตัว แล้วรายงานว่าแก้แล้วยังไม่หาย
+            """
+            import os
+            import sys
+
+            def _go():
+                time.sleep(0.6)   # ให้ตอบ HTTP กลับไปก่อน ไม่งั้นหน้าเว็บค้างรอ
+                try:
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                except Exception:
+                    os._exit(0)   # execv ไม่ได้ → อย่างน้อยปิดให้ ผู้ใช้เปิดเองได้
+
+            self.emit_log("[UPDATE] กำลังเริ่มโปรแกรมใหม่เพื่อใช้เวอร์ชันที่เพิ่งอัปเดต")
+            threading.Thread(target=_go, daemon=True).start()
+            return {"ok": True, "restarting": True}
+
         @app.post("/api/app/update")
         def app_update():
             """ดึงโค้ดล่าสุดจาก main — ต้องปิดเปิดโปรแกรมเองหลังอัปเดต"""

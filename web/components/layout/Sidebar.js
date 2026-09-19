@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import {
-  CheckCircle2, Download, LayoutDashboard, Loader2,
+  CheckCircle2, Download, LayoutDashboard, Loader2, RotateCw,
   ListOrdered, Settings, Film, X, CheckSquare, MonitorSmartphone, ShieldAlert, GitBranch, Package, ScrollText,
 } from 'lucide-react'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -55,8 +55,23 @@ export function Sidebar({ wsConnected, open = false, onClose }) {
     try {
       const d = await api.appUpdate()
       if (!d?.ok) setUpdate({ kind: 'error', text: d?.error || 'อัปเดตไม่สำเร็จ' })
-      else setUpdate({ kind: 'restart', text: `อัปเดตเป็น ${d.version || 'เวอร์ชันใหม่'} แล้ว — ปิดเปิดโปรแกรมใหม่`, warning: d.warning })
+      else setUpdate({ kind: 'restart', text: `อัปเดตเป็น ${d.version || 'เวอร์ชันใหม่'} แล้ว — กดเริ่มโปรแกรมใหม่เพื่อใช้งาน`, warning: d.warning })
     } catch { setUpdate({ kind: 'error', text: 'อัปเดตไม่สำเร็จ — เช็คอินเทอร์เน็ต' }) }
+  }
+
+  // โค้ดใหม่ที่เพิ่งโหลดมาจะมีผลก็ต่อเมื่อโปรแกรมรันใหม่ — เดิมบอกให้ "ปิดเปิดเอง"
+  // แล้วหลายคนไม่ได้ทำ เลยยังใช้เวอร์ชันเก่าอยู่โดยไม่รู้ตัว
+  const restartApp = async () => {
+    setUpdate({ kind: 'restarting', text: 'กำลังเริ่มโปรแกรมใหม่… หน้าเว็บจะกลับมาเองใน ~15 วินาที' })
+    try { await api.extReload() } catch {}        // ให้ส่วนขยายโหลดตัวใหม่ด้วย ไม่ต้องไปกดที่ chrome://extensions
+    try { await api.appRestart() } catch {}       // ตัวเซิร์ฟเวอร์ตัดการเชื่อมต่อระหว่างรีสตาร์ต เป็นเรื่องปกติ
+    const t0 = Date.now()
+    const tick = async () => {
+      if (Date.now() - t0 > 60000) { setUpdate({ kind: 'error', text: 'เริ่มใหม่ไม่สำเร็จ — เปิดโปรแกรมเองอีกครั้ง' }); return }
+      try { await api.status(); window.location.reload() }
+      catch { setTimeout(tick, 2000) }
+    }
+    setTimeout(tick, 4000)
   }
 
   return (
@@ -126,12 +141,22 @@ export function Sidebar({ wsConnected, open = false, onClose }) {
             </div>
           </div>
           <div className="rounded-lg border border-border/70 px-3 py-2">
-            <button type="button" onClick={update?.kind === 'available' ? runUpdate : checkUpdate}
-              disabled={checking || update?.kind === 'updating'}
+            {/* ป้ายปุ่มต้องบอกว่ากดแล้วจะเกิดอะไร — เดิมเขียน "อัปเดตโปรแกรม" เหมือนกันทุกสถานะ
+                ทำให้ไม่รู้ว่ากดครั้งแรกคือแค่ "เช็ก" และต้องกดอีกครั้งถึงจะอัปเดตจริง */}
+            <button type="button"
+              onClick={update?.kind === 'restart' ? restartApp : update?.kind === 'available' ? runUpdate : checkUpdate}
+              disabled={checking || update?.kind === 'updating' || update?.kind === 'restarting'}
               className="w-full flex items-center gap-2 text-left text-xs font-semibold text-foreground hover:text-accent disabled:opacity-60">
-              {checking || update?.kind === 'updating' ? <Loader2 size={14} className="animate-spin" />
-                : update?.kind === 'current' ? <CheckCircle2 size={14} className="text-success" /> : <Download size={14} />}
-              <span className="truncate">{update?.kind === 'available' ? 'อัปเดตโปรแกรม' : 'อัปเดตโปรแกรม'}</span>
+              {checking || update?.kind === 'updating' || update?.kind === 'restarting' ? <Loader2 size={14} className="animate-spin" />
+                : update?.kind === 'current' ? <CheckCircle2 size={14} className="text-success" />
+                : update?.kind === 'restart' ? <RotateCw size={14} className="text-success" /> : <Download size={14} />}
+              <span className="truncate">
+                {update?.kind === 'restart'   ? 'เริ่มโปรแกรมใหม่เลย'
+                 : update?.kind === 'restarting' ? 'กำลังเริ่มใหม่…'
+                 : update?.kind === 'updating' ? 'กำลังอัปเดต…'
+                 : update?.kind === 'available' ? 'ดาวน์โหลดเวอร์ชันใหม่'
+                 : checking ? 'กำลังเช็ก…' : 'เช็กอัปเดตโปรแกรม'}
+              </span>
             </button>
             {update && <p className={`text-[11px] leading-relaxed mt-1 ${update.kind === 'error' ? 'text-danger' : update.kind === 'current' || update.kind === 'restart' ? 'text-success' : 'text-muted-foreground'}`}>{update.text}</p>}
             {update?.warning && <p className="text-[11px] leading-relaxed mt-1 text-amber-500">คำเตือน: {update.warning}</p>}

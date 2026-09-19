@@ -155,6 +155,8 @@ export const api = {
   // อัปเดตตัวโปรแกรม (โฟลเดอร์ติดตั้งเป็น git clone → เทียบ commit กับ main)
   appUpdateCheck:  ()         => req('GET',  '/api/app/update-check'),
   appUpdate:       ()         => req('POST', '/api/app/update'),   // ดึง extension ล่าสุด + ให้มัน reload เอง
+  appRestart:      ()         => req('POST', '/api/app/restart'),  // เริ่มโปรแกรมใหม่ในตัวเอง (โค้ดใหม่มีผลต่อเมื่อรันใหม่)
+  extReload:       ()         => req('POST', '/api/ext/reload'),   // สั่งส่วนขยายโหลดตัวเองใหม่จากดิสก์
   gemini:           (prompt, generationConfig) => geminiReq(prompt, generationConfig),
   // สถานะ Flow/ส่วนขยาย — {ok, queued, ext_online} ใช้เช็กก่อนสั่งสร้างคลิป
   flowStatus:        ()       => req('GET', '/api/flow/status'),
