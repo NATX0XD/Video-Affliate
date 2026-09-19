@@ -165,6 +165,11 @@ export const api = {
   saveFlowAccounts:  (accounts) => req('POST', '/api/flow/accounts', { accounts }),
   // ตัวเชื่อม Google Flow (adapter override layer) — โชว์เวอร์ชัน + อัปเดตเมื่อ Flow เปลี่ยนหน้าตา
   flowAdapter:       ()       => req('GET', '/api/flow/adapter'),
+  useapiStatus:      ()       => req('GET', '/api/useapi/status'),
+  useapiAccounts:    ()       => req('GET', '/api/useapi/accounts'),
+  useapiAccount:     (email)  => req('GET', `/api/useapi/accounts/${encodeURIComponent(email)}`),
+  useapiDryRun:      (body)   => req('POST', '/api/useapi/dry-run', body),
+  useapiGenerate:    (body)   => req('POST', '/api/useapi/generate', body),
   // อ่าน body เอง (แม้ status ไม่ 200) เพื่อเอา error ภาษาไทย + version มาโชว์ toast เองที่หน้า
   updateFlowAdapter: (url)    => fetch(`${BASE}/api/flow/adapter/update`, {
                                    method: 'POST',

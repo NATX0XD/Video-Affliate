@@ -93,11 +93,13 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [platforms, setPlatforms] = useState([])
   const [apiKey, setApiKey] = useState('')
+  const [useapiToken, setUseapiToken] = useState('')
   const [adapterVer, setAdapterVer]   = useState('')
   const [adapterBusy, setAdapterBusy] = useState(false)
   const [extBusy, setExtBusy]         = useState(false)
   const [extVer, setExtVer]           = useState('')
   const keySet = cfg.google_api_key === '********'   // public_load ส่ง mask มาถ้าตั้ง key แล้ว
+  const useapiTokenSet = cfg.useapi_token === '********'
 
   const [pilot, setPilot] = useState(null)   // สถานะลูปโพสต์จริงจากเซิร์ฟเวอร์
 
@@ -170,6 +172,7 @@ export default function SettingsPage() {
   const save = async () => {
     const payload = { ...cfg }
     if (apiKey.trim()) payload.google_api_key = apiKey.trim()   // ส่งเฉพาะตอนกรอกใหม่ (ไม่ทับด้วย mask)
+    if (useapiToken.trim()) payload.useapi_token = useapiToken.trim()
     try {
       await api.saveSettings(payload)
       setApiKey('')
@@ -214,6 +217,30 @@ export default function SettingsPage() {
                    info={termHint('google_api_key')}
                    value={apiKey} onChange={setApiKey}
                    placeholder={keySet ? 'ตั้งไว้แล้ว ✓ — กรอกใหม่เพื่อเปลี่ยน' : 'วางคีย์ที่นี่ (ขึ้นต้น AIza…)'} />
+          </Row>
+
+          {/* ══ backend สำรอง (useapi) ═══════════════════ */}
+          <Section title="Backend สร้างวิดีโอ" subtitle="ค่าเริ่มต้นเป็น Chrome เหมือนเดิม — useapi ใช้เป็นทางสำรองเมื่อเจ้าของตั้ง token แล้ว" />
+          <Row icon={Zap} delay={32}
+               title="ตัวสร้างวิดีโอสำรอง"
+               info="useapi เป็น API สำรองที่ต้องใช้ token ของเจ้าของเอง ระบบจะไม่เปลี่ยนจาก Chrome อัตโนมัติจนกว่าจะเลือก useapi"
+               desc="ห้ามใส่รหัสผ่านหรือ Google cookie ที่นี่ — ใส่เฉพาะ useapi API token และระบบจะเก็บไว้ในเครื่อง">
+            <div className="flex flex-col gap-4">
+              <label className="flex items-center justify-between gap-4 text-sm">
+                <span className="text-muted-foreground">Backend หลัก</span>
+                <select value={cfg.flow_backend || 'chrome'} onChange={e => set('flow_backend')(e.target.value)}
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
+                  <option value="chrome">Chrome / Google Flow (เดิม)</option>
+                  <option value="useapi">useapi (สำรอง)</option>
+                </select>
+              </label>
+              <Field label="useapi API token" type="password"
+                     value={useapiToken} onChange={setUseapiToken}
+                     placeholder={useapiTokenSet ? 'ตั้งไว้แล้ว ✓ — กรอกใหม่เพื่อเปลี่ยน' : 'ใส่ token เมื่อสมัคร useapi แล้ว'} />
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                ยังไม่ตั้ง token หรือ API ล้มเหลว ระบบจะแจ้ง fallback กลับไปใช้ Chrome ไม่หยุดเงียบ
+              </p>
+            </div>
           </Row>
 
           {/* ══ บัญชี Google Flow ═════════════════════ */}

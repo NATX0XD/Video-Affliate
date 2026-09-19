@@ -1,4 +1,5 @@
 """API (FastAPI TestClient) — setup/settings/ai proxy/flow config/products/queue/adapter."""
+import json
 import os
 
 
@@ -53,6 +54,40 @@ def test_settings_drops_foreign_key(web):
     assert got["shop_name"] == "Shoppy"
     assert got["duration"] == 12
     assert "__evil__" not in got
+
+
+def test_useapi_settings_are_masked_and_chrome_is_default(web):
+    client, ws, db = web
+    assert client.get("/api/useapi/status").json() == {
+        "ok": True, "backend": "chrome", "token_set": False,
+        "default_backend": "chrome",
+    }
+    r = client.post("/api/settings", json={
+        "flow_backend": "useapi",
+        "useapi_token": "secret-useapi-token",
+    })
+    assert r.status_code == 200
+    got = client.get("/api/settings").json()
+    assert got["flow_backend"] == "useapi"
+    assert got["useapi_token"] == "********"
+    assert "secret-useapi-token" not in json.dumps(got)
+    assert client.get("/api/useapi/status").json()["token_set"] is True
+
+
+def test_useapi_dry_run_has_required_payloads(web):
+    client, ws, db = web
+    r = client.post("/api/useapi/dry-run", json={
+        "prompt": "product motion",
+        "references": ["face-ref", "product-ref"],
+        "start_image": "start-ref",
+        "end_image": "end-ref",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["dry_run"] is True
+    assert body["payloads"]["image"]["aspectRatio"] == "9:16"
+    assert body["payloads"]["video"]["aspectRatio"] == "portrait"
+    assert body["payloads"]["video"]["async"] is True
 
 
 # ── /api/ai/gemini proxy ─────────────────────────────────────────────────────
