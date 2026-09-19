@@ -810,7 +810,16 @@ class WebServer:
             if self.db:
                 self.db.set_config("shop_name", shop)
                 if "flow_email" in body:
+                    email = (s.get("flow_email", "") or "").strip().lower()
                     self.db.set_config("flow_email", s.get("flow_email", ""))
+                    # อีเมลที่กรอกตอนตั้งค่าครั้งแรกต้องเข้ารายการหมุนบัญชีด้วย
+                    # ไม่งั้นมันไปนอนอยู่คนละคีย์กับที่ตัวหมุนเครดิตอ่าน (flow_accounts)
+                    # ผู้ใช้กรอกแล้วเห็นเหมือนไม่ได้กรอก แล้วต้องไปกรอกซ้ำที่หน้าตั้งค่า
+                    if email and "@" in email:
+                        accts = _flow_accounts()
+                        if not any((a.get("email") or "").strip().lower() == email for a in accts):
+                            accts.append({"email": email, "label": "", "paused": False})
+                            self.db.set_config("flow_accounts", json.dumps(accts, ensure_ascii=False))
                 self.db.set_config("setup_done", "1")
 
             self.emit_log(f"[SETUP] ตั้งค่าร้าน '{shop}' เรียบร้อย")

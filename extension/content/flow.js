@@ -2223,7 +2223,7 @@ if (window._flowAutomatorLoaded) {
       const out = deepAll('div,span,button,[role="button"]')
         .filter(isVisible)
         .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 260 && r.height > 8 && r.height <= 260; })
-        .filter((el) => !er || (el.getBoundingClientRect().top >= er.top - 40 && el.getBoundingClientRect().top <= er.bottom + 200))
+        .filter((el) => !er || (el.getBoundingClientRect().top >= er.top - 260 && el.getBoundingClientRect().top <= er.bottom + 200))
         .map((el) => norm(el.innerText || el.textContent))
         .filter((t) => t && t.length <= 24);
       return [...new Set(out)].slice(0, 12).join(" · ") || "(ไม่เจอช่องไหนเลย)";
@@ -2239,7 +2239,9 @@ if (window._flowAutomatorLoaded) {
     const cands = deepAll('div,span,button,[role="button"]')
       .filter(isVisible)
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 220 && r.height > 8 && r.height <= 220; })
-      .filter((el) => { if (!er) return true; const r = el.getBoundingClientRect(); return r.top >= er.top - 60 && r.top <= er.bottom + 160; });
+      // แถว "เริ่ม ⇄ สิ้นสุด" อยู่ "เหนือ" ช่องพิมพ์ราว 100-140px (วัดจากหน้าจริง: ช่องเฟรม y=481 · ช่องพิมพ์ y=593)
+      // กรอบเดิมมองขึ้นไปแค่ 60px จึงกรองช่องเฟรมทิ้งทั้งที่มันอยู่บนจอ
+      .filter((el) => { if (!er) return true; const r = el.getBoundingClientRect(); return r.top >= er.top - 260 && r.top <= er.bottom + 200; });
     const isSendish = (el) => {
       const t = norm(el.innerText || el.textContent);
       const a = `${el.getAttribute?.("aria-label") || ""} ${el.getAttribute?.("data-testid") || ""}`;
