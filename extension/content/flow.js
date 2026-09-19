@@ -2648,7 +2648,9 @@ if (window._flowAutomatorLoaded) {
   // คู่ขนานกับ genImgInfo แต่ฝั่งวิดีโอ — ฝั่งนี้เคยอ่านแค่ document.querySelectorAll("video") + v.src
   // ซึ่งพลาดได้ 3 ทาง: การ์ดอยู่ใน shadow root · Flow โชว์ poster ก่อนแล้วค่อยใส่ src · เล่นผ่าน MSE (blob:)
   // ทุกทางให้ผลเดียวกันคือ "รอวิดีโอนานเกินไป" ทั้งที่คลิปเสร็จอยู่บนจอและหักเครดิตไปแล้ว
-  const videoInfo = () => deepAll("video").filter(isVisible).map((v) => {
+  // ★ ห้ามกรองด้วย isVisible — การ์ดคลิปของ Flow ซ่อน <video> ไว้จนกว่าจะเลื่อนไปถึง/กดเล่น
+  //   ของเดิมกวาด <video> ทั้งหน้าโดยไม่สนว่ามองเห็นไหม แล้วดาวน์โหลดได้ปกติ
+  const videoInfo = () => deepAll("video").map((v) => {
     const parts = [v.getAttribute("aria-label"), v.getAttribute("title")];
     let node = v.parentElement;
     for (let i = 0; i < 4 && node; i++, node = node.parentElement) {
@@ -2660,8 +2662,13 @@ if (window._flowAutomatorLoaded) {
     return { src, poster: v.getAttribute("poster") || "", width: Math.round(r.width), height: Math.round(r.height),
              label: parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim() };
   });
-  // src ที่ "ใช้ดาวน์โหลดได้จริง" — blob:/MSE ดาวน์โหลดตรงไม่ได้ จึงไม่นับเป็นผลลัพธ์
-  const videoSrcs = () => videoInfo().map((x) => x.src).filter((s) => s && !/^blob:/i.test(s));
+  // ★ ห้ามทิ้ง blob: ออกจากการ "ตรวจเจอ" — ของเดิมรับทุก src แล้วดาวน์โหลดผ่าน
+  //   ถ้าตัดทิ้งตั้งแต่ตรงนี้ คลิปที่เสร็จแล้วจะกลายเป็น "ไม่เจอวิดีโอ" แล้วไม่มีอะไรให้โหลดเลย
+  //   เรียง https ไว้ก่อน blob: เพื่อให้ตัวดาวน์โหลดได้ลิงก์ที่ดึงตรงได้ก่อนเสมอ
+  const videoSrcs = () => {
+    const all = videoInfo().map((x) => x.src).filter(Boolean);
+    return [...all.filter((s) => !/^blob:/i.test(s)), ...all.filter((s) => /^blob:/i.test(s))];
+  };
   const videoSnapshot = () => videoInfo().slice(0, 10)
     .map((x) => `${x.width}x${x.height} ${x.label.slice(0, 32) || "(ไม่มี label)"} ${(x.src || x.poster || "").slice(-28) || "(ไม่มี src)"}`)
     .join(" | ") || "ไม่พบ <video> บนจอเลย";
