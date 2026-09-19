@@ -2997,6 +2997,13 @@ if (window._flowAutomatorLoaded) {
       // บอกรุ่นที่ใช้จริงด้วย — Nano Banana 2 (รุ่นสำรองตอน Pro ชนลิมิต) คุมใบหน้าได้แย่กว่า Pro ชัดเจน
       // เวลาหน้าไม่ตรงรูปที่อัป จะได้แยกออกว่าเป็นเพราะรุ่น หรือเพราะรูปอ้างอิงไม่ติด
       log(`สร้างรูปเสร็จสมบูรณ์ ✓ ${imgs.length} รูป (ใช้ ${(mediaUuid(imgs[imgs.length - 1]) || "?").slice(0, 8)} · รุ่น: ${modeBtnText().replace(/\s+/g, " ").slice(0, 40)})`);
+      // จำ "รูปอ้างอิงที่เราอัปเอง" ของรอบนี้ไว้ให้ตัวเลือกเฟรมใช้กันพลาด
+      // เฟรมเริ่มต้องเป็นรูปที่ Flow เพิ่งสร้าง (ตัวละคร+สินค้าของเรา) ไม่ใช่รูปอ้างอิงที่แนบเข้าไป
+      _refMedia = {
+        ids: new Set(uploads.map((u) => u && u.refId).filter(Boolean)),
+        srcs: new Set(uploads.map((u) => u && u.refSrc).filter(Boolean)),
+        made: new Set(imgs.map((x) => mediaUuid(x)).filter(Boolean)),
+      };
       return { ok: true, images: imgs, uploads };
     }
   }
@@ -3121,6 +3128,8 @@ if (window._flowAutomatorLoaded) {
 
   // กดปุ่ม เริ่ม/สิ้นสุด → เปิด picker → คลิก option ที่ตรง uuid ของรูปเรา
   let _pickTrace = "";     // เหตุผลที่เลือกเฟรมไม่ผ่าน — แนบไปกับ error (ไม่งั้นเห็นแต่ "ไม่สำเร็จ")
+  // รูปอ้างอิงที่อัปในรอบล่าสุด + id ของรูปที่ Flow สร้าง — ใช้ตอนเลือกเฟรมเริ่ม
+  let _refMedia = { ids: new Set(), srcs: new Set(), made: new Set() };
   async function pickFrame(btnLabel, imageUrl, log) {
     _pickTrace = "";
     const P = (m) => { _pickTrace += `${_pickTrace ? " · " : ""}${m}`; try { log(m); } catch {} };
@@ -3161,13 +3170,29 @@ if (window._flowAutomatorLoaded) {
       // ★ id ของรูปที่ Flow เพิ่งสร้าง (จาก /asb/…) ไม่ปรากฏใน thumbnail ของ picker เลย —
       //   ยืนยันจากหน้าจริง: เฟรมเริ่มคือ AB-nOUbl… แต่ thumbnail ทั้ง 6 ใบเป็นคนละชุด id
       //   การจับคู่ด้วย id จึงไม่มีวันสำเร็จ ต้องใช้หลักฐานอื่นแทน
+      // เฟรมเริ่มต้อง "เป็นรูปที่เพิ่งสร้าง" คือคนของเราถือสินค้าของเรา
+      // ห้ามเป็นรูปใบหน้า/รูปสินค้าที่เราแนบเข้าไปเป็นรูปอ้างอิงเด็ดขาด
       if (!target && list.length) {
-        // รูปอ้างอิงที่เราอัปเองมี nature= ส่วนรูปที่ Flow สร้างไม่มี — เลือกจากกลุ่มที่ไม่มี nature ก่อน
-        const isRef = (o) => /[?&/]nature=/i.test(thumbSrc(o)) || /avatar|profile|logo|icon/i.test(thumbSrc(o));
-        const made = list.filter((o) => thumbSrc(o) && !isRef(o));
-        const pool = made.length ? made : list;
-        target = pool[0];   // picker เรียงใหม่สุดไว้ตัวแรก และเราเพิ่งสร้างรูปเสร็จก่อนเปิด picker
-        P(`เทียบ id ไม่ได้ (Flow ใช้คนละชุด) → เลือก${made.length ? `รูปที่ Flow สร้าง` : "ตัวเลือก"}ใหม่สุด ${made.length || list.length} ตัว: ${thumbSrc(target).slice(-42)}`);
+        // (ก) ถ้า id ของรูปที่ Flow สร้างในรอบนี้โผล่ใน thumbnail ตรง ๆ → ตรงตัวที่สุด
+        target = list.find((o) => { const id = mediaUuid(thumbSrc(o)); return id && _refMedia.made.has(id); }) || null;
+        if (target) P(`เจอรูปที่เพิ่งสร้างใน picker ตรงตัว: ${thumbSrc(target).slice(-42)}`);
+      }
+      if (!target && list.length) {
+        // (ข) ตัดรูปอ้างอิงของรอบนี้ออกด้วย id/src จริงที่บันทึกไว้ตอนอัป (แม่นกว่าเดาจากรูปแบบ URL)
+        const isOurRef = (o) => {
+          const src = thumbSrc(o); const id = mediaUuid(src);
+          return (!!src && _refMedia.srcs.has(src)) || (!!id && _refMedia.ids.has(id));
+        };
+        // (ค) สำรอง: รูปที่เราอัปมักมาพร้อม nature= ส่วนรูปที่ Flow สร้างไม่มี
+        const looksRef = (o) => /[?&/]nature=/i.test(thumbSrc(o)) || /avatar|profile|logo|icon/i.test(thumbSrc(o));
+        const made = list.filter((o) => thumbSrc(o) && !isOurRef(o) && !looksRef(o));
+        const pool = made.length ? made : list.filter((o) => thumbSrc(o) && !isOurRef(o));
+        if (!pool.length) {
+          P(`ตัวเลือกทั้ง ${list.length} ตัวเป็นรูปอ้างอิงที่เราอัปเองทั้งหมด — ไม่เลือก เพราะจะได้เฟรมผิดตัว`);
+        } else {
+          target = pool[0];   // picker เรียงใหม่สุดไว้ตัวแรก และเราเพิ่งสร้างรูปเสร็จก่อนเปิด picker
+          P(`เลือกรูปที่ Flow เพิ่งสร้างใหม่สุด (ตัดรูปอ้างอิงออก ${list.length - pool.length} ใบ จาก ${list.length}): ${thumbSrc(target).slice(-42)}`);
+        }
       }
       if (!target) {
         const srcs = list.slice(0, 5).map((o) => { const im = o.querySelector("img"); return ((im && (im.currentSrc || im.src)) || "(no img)").slice(-34); });
