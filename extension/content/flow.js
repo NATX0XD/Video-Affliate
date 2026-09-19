@@ -3006,11 +3006,21 @@ if (window._flowAutomatorLoaded) {
       }
       log("รอ Nano Banana สร้างรูป…");
       // เช็กลิมิตเฉพาะรอบแรก — รอบสลับรุ่นรอแค่ "รูปใหม่" (กัน false-positive จากข้อความ error เก่าที่ค้างใน DOM)
-      const res = await waitFor(() => {
+      // Nano Banana Pro กับรูปอ้างอิง 2 ใบที่ 9:16 ใช้เวลาเกิน 2 นาทีได้จริง
+      // เพดานเดิมตัดทิ้งทั้งที่กำลังเรนเดอร์อยู่ แล้วรายงานว่า "รูปไม่ออก" ทั้งที่อีกไม่กี่วินาทีก็เสร็จ
+      let res = await waitFor(() => {
         if (pass === 0 && nanoLimitHit()) return { limit: true };
         const n = resultImgs();
         return n.length ? { images: n } : null;
-      }, 2 * 60 * 1000, 3000);
+      }, 6 * 60 * 1000, 3000);
+      if (!res && busyReason()) {
+        log(`หมดเวลาแต่ Flow ยังเรนเดอร์อยู่ (${busyReason()}) — ต่อเวลาอีก 3 นาที`);
+        res = await waitFor(() => { const n = resultImgs(); return n.length ? { images: n } : null; }, 3 * 60 * 1000, 3000);
+      }
+      if (!res) {
+        log("ยังไม่เห็นรูป — ตรวจซ้ำอีก 20 วินาทีก่อนสรุป");
+        res = await waitFor(() => { const n = resultImgs(); return n.length ? { images: n } : null; }, 20000, 2500);
+      }
       if (!res) {
         const state = `[v${EXT_VER}] โหมด=${modeSummary()} · ตัวโหลด=${busyReason() || "ไม่พบ"} · ` +
           `รูปก่อนส่ง=${beforeImgs.size} · รูปตอนนี้=${genImgSrcs().length} · แนวตั้งก่อนส่ง=${beforePortrait.size} · แนวตั้งตอนนี้=${portraitSrcs().length} · ` +
