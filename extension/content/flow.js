@@ -498,6 +498,7 @@ if (window._flowAutomatorLoaded) {
   }
 
   async function uploadImage(dataUrl, log, opts = {}) {
+    await closeAccountPanel(log);
     let input = findFileInput();
     if (!input) {
       const addBtn = findAddMediaButton();
@@ -547,6 +548,7 @@ if (window._flowAutomatorLoaded) {
   }
 
   async function uploadImages(dataUrls, log) {
+    await closeAccountPanel(log);
     let input = findFileInput();
     if (!input) {
       const addBtn = findAddMediaButton();
