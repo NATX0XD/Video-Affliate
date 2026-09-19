@@ -3529,6 +3529,22 @@ if (window._flowAutomatorLoaded) {
       catch (e) { out.modeOptions[k] = "ERR:" + e.message; }
     }
     try { out.credits = await readFlowCredits(); } catch (e) { out.credits = "ERR:" + e.message; }
+    // ผ่าตัวกรองรูปให้ดูทีละใบ — เวลาบอกว่า "จับรูปไม่ได้" จะได้รู้ว่าใบไหนตกด่านไหน
+    try {
+      out.imageDiag = genImgInfo().slice(0, 12).map((x) => ({
+        id: (mediaUuid(x.src) || "?").slice(0, 10),
+        size: `${x.width}x${x.height}`,
+        ratio: x.height > 0 ? +(x.width / x.height).toFixed(2) : null,
+        portrait: x.height > 0 && x.width / x.height < 0.75,
+        label: (x.label || "").slice(0, 28),
+        tail: (x.src || "").slice(-16),
+      }));
+      out.refMedia = {
+        ids: [..._refMedia.ids].map((v) => String(v).slice(0, 10)),
+        made: [..._refMedia.made].map((v) => String(v).slice(0, 10)),
+        srcs: _refMedia.srcs.size,
+      };
+    } catch (e) { out.imageDiag = "ERR:" + e.message; }
     // log ของ runQueue อยู่ใน storage เท่านั้น — ถ้าไม่ดึงออกมาจะมองไม่เห็นว่าคิวไปหยุดตรงไหน
     try {
       const d = await chrome.storage.local.get(["flow_run_log", "flow_queue_state", "flow_jobs"]);

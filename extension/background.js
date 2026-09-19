@@ -155,7 +155,16 @@ async function openFlowAndRun(dry = false, authuserOverride = null) {
   // ★ เช็คว่า flow.js ยังตอบไหม (ping) — ถ้าไม่ (เช่นหลัง reload extension) ให้ reload แท็บ
   const live = await pingFlowInfo(tab.id);
   const expectedExt = chrome.runtime.getManifest().version;
-  if (!live || live.version !== expectedExt) {
+  // งานกำลังทำอยู่ = ห้ามรีโหลด/ฉีดซ้ำเด็ดขาด แม้เวอร์ชันจะไม่ตรง
+  // รีโหลดกลางคันทำให้สคริปต์ที่กำลังรอรูปตาย ตัวใหม่ไม่รู้ว่ารูปเสร็จแล้ว แล้วสั่งสร้างซ้ำวนไป
+  let queueBusy = false;
+  try {
+    const st = (await chrome.storage.local.get('flow_queue_state')).flow_queue_state;
+    queueBusy = !!(st && st.running && st.at && Date.now() - st.at < 15 * 60 * 1000);
+  } catch {}
+  if (queueBusy && live) {
+    traceFlow(`skip reload — queue busy (content v${live.version || "?"})`).catch(() => {});
+  } else if (!live || live.version !== expectedExt) {
     traceFlow(`content stale/missing live=${live && live.version || "none"} expected=${expectedExt}; reload/inject`).catch(() => {});
     await chrome.tabs.reload(tab.id);
     await new Promise((resolve) => {
@@ -224,6 +233,15 @@ chrome.runtime.onInstalled?.addListener(checkSelfUpdate);
 //   ผู้ใช้จึงเห็นเลขเวอร์ชันใหม่แต่พฤติกรรม (และข้อความ error) ยังเป็นของเก่า ไล่บั๊กผิดทางไปหลายรอบ
 //   รีโหลดแท็บ Flow ทุกครั้งที่ส่วนขยายเริ่มใหม่ เพื่อให้โค้ดในแท็บตรงกับที่อยู่บนดิสก์เสมอ
 async function refreshFlowTabs(why) {
+  try {
+    // ★ ห้ามรีโหลดขณะมีงานสร้างคลิปทำอยู่ — รีโหลดกลางคันจะฆ่า content script ที่กำลังรอรูป
+    //   พอสคริปต์เกิดใหม่ มันไม่รู้ว่ารูปสร้างเสร็จไปแล้ว เลยสั่งสร้างใหม่ วนไม่จบและกินเครดิตทุกรอบ
+    const st = (await chrome.storage.local.get('flow_queue_state')).flow_queue_state;
+    if (st && st.running && st.at && Date.now() - st.at < 15 * 60 * 1000) {
+      console.log(`[VGAP] skip reload (${why}) — คิวกำลังทำงานอยู่`);
+      return;
+    }
+  } catch {}
   try {
     const tabs = (await chrome.tabs.query({})).filter((t) => {
       try { const u = new URL(t.url || ''); return u.hostname === 'flow.google.com' || (u.hostname === 'labs.google' && u.pathname.startsWith('/fx')); }
