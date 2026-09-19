@@ -710,6 +710,21 @@ if (window._flowAutomatorLoaded) {
   }
   // ปิด modal/แบนเนอร์โปรโม (เช่น "Daily Bonus") ที่ลอยบังปุ่ม "โปรเจ็กต์ใหม่" บนหน้า home
   // → ถ้าไม่ปิด กด "โปรเจ็กต์ใหม่" ไม่ได้ = เข้าโปรเจกต์ไม่ได้ = ไม่มีปุ่มโหมด
+  // ปิดแผงบัญชี Google (แผงที่โชว์อีเมล/เครดิต) ถ้ายังเปิดค้าง
+  // ตัวอ่านเครดิตเป็นคนเปิดมันขึ้นมา ถ้าไม่ปิด มันลอยทับทั้งหน้าแล้วคลิกอะไรก็ไม่โดน
+  async function closeAccountPanel(log) {
+    try {
+      const btn = allClickable().find((el) => {
+        const a = (el.getAttribute("aria-label") || "") + " " + (el.getAttribute("title") || "");
+        return /ปิดแผงบัญชี|close account|ปิดแผง/i.test(a);
+      });
+      if (!btn) return false;
+      try { log && log("ปิดแผงบัญชีที่เปิดค้างอยู่ (บังปุ่มบนหน้า)"); } catch {}
+      await trustedClickEl(btn, log);
+      await sleep(600);
+      return true;
+    } catch { return false; }
+  }
   async function closePromoModal(log) {
     try {
       const closers = allClickable().filter((el) => {
@@ -846,6 +861,9 @@ if (window._flowAutomatorLoaded) {
       return true;
     }
     try { log && log("ยังไม่อยู่ในโปรเจกต์ → จะปิด popup + กดสร้างโปรเจกต์ใหม่"); } catch {}
+    // แผงบัญชี Google ที่เปิดไว้ตอนอ่านเครดิตเป็นแผงลอยทับทั้งหน้า ถ้าค้างอยู่จะบังปุ่ม
+    // "โปรเจ็กต์ใหม่" ทำให้กดไม่โดนแล้วติดอยู่หน้าแรกไม่จบ — ปิดก่อนเสมอ
+    await closeAccountPanel(log);
     // 0) หน้า Flow ขึ้น error → กู้บน "หน้าเดิม" ก่อน (กดลองอีกครั้ง/รีโหลด)
     //    ★ ต้องกู้ก่อน fallback ไปโปรเจ็คที่จำไว้ ไม่งั้นจะเด้งไปทำคลิปต่อใน "โปรเจ็คคลิปก่อน" = สร้างซ้ำ
     if (isFlowErrorPage() && Date.now() - _errReloadAt > 25000) {
