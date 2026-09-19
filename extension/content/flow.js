@@ -227,9 +227,34 @@ if (window._flowAutomatorLoaded) {
     const sorted = cands.slice().sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
     return sorted[0] || null;
   }
+  let _capturedFileInput = null;
   function findFileInput() {
     return deepAll(getSelector("fileInput", 'input[type="file"]')).find(isVisible) ||
-      deepAll(getSelector("fileInput", 'input[type="file"]'))[0] || null;
+      deepAll(getSelector("fileInput", 'input[type="file"]'))[0] ||
+      (_capturedFileInput && _capturedFileInput.type === "file" ? _capturedFileInput : null);
+  }
+  // Flow สร้าง input[type=file] แล้วเรียก click()/showPicker() ซึ่งเปิด native chooser
+  // ดักเฉพาะช่วงเลือกเมนูอัปโหลด แล้วแนบ File ผ่าน DataTransfer เบื้องหลังแทน
+  function interceptNativeFileChooser(log) {
+    const proto = HTMLInputElement.prototype;
+    const originalClick = proto.click;
+    const originalShowPicker = proto.showPicker;
+    const capture = function (fn, args) {
+      if (this && this.type === "file") {
+        _capturedFileInput = this;
+        try { log && log("ดัก native file chooser แล้ว — แนบไฟล์ผ่าน input เบื้องหลัง"); } catch {}
+        return undefined;
+      }
+      return fn.apply(this, args);
+    };
+    try { proto.click = function (...args) { return capture.call(this, originalClick, args); }; } catch {}
+    if (typeof originalShowPicker === "function") {
+      try { proto.showPicker = function (...args) { return capture.call(this, originalShowPicker, args); }; } catch {}
+    }
+    return () => {
+      try { proto.click = originalClick; } catch {}
+      if (typeof originalShowPicker === "function") { try { proto.showPicker = originalShowPicker; } catch {} }
+    };
   }
   function findAddMediaButton() {
     const cands = allClickable().filter((el) => {
@@ -433,6 +458,25 @@ if (window._flowAutomatorLoaded) {
     return { ok: false, got: boxText(el), how: "failed" };
   }
 
+  // Flow บางรุ่นไม่ยอมรับ CDP Input.insertText หลังแนบรูปหรือหลังเปลี่ยนโหมด
+  // จึงต้องมี fallback ที่อัปเดต Lexical state จริง ไม่ปล่อยให้กดส่ง prompt ว่าง
+  async function typePrompt(el, text, log) {
+    const mac = /Mac/i.test(navigator.platform);
+    const typedOk = () => match(boxText(el), text) && !placeholderVisible();
+    for (let attempt = 1; attempt <= 2 && !typedOk(); attempt++) {
+      await trustedClickEl(el, log); await sleep(350);
+      const had = boxText(el) && !placeholderVisible();
+      const tt = await sendTrusted({ action: "flow_trusted_type", text, clear: had, mac })
+        .catch((e) => ({ ok: false, error: String(e && e.message || e) }));
+      await sleep(700);
+      log && log(`พิมพ์ trusted ครั้งที่ ${attempt}: ${tt.ok ? "สำเร็จ" : (tt.error || "ไม่สำเร็จ")} · ในช่อง "${boxText(el).slice(0, 30)}"`);
+    }
+    if (typedOk()) return true;
+    log && log("trusted input ไม่ติด → ใช้ fallback Lexical-safe");
+    const fallback = await typeInto(el, text).catch((e) => ({ ok: false, error: String(e && e.message || e) }));
+    return !!(fallback && fallback.ok && typedOk());
+  }
+
   // ── image upload ─────────────────────────────────────────────────────
   // เพิ่ม "รูปล่าสุดที่อัป" เข้าไปยัง prompt — กดเมนู ⋮ บน tile รูป แล้วเลือก "เพิ่มไปยังพรอมต์"
   // (อัปเฉยๆ รูปจะลอยอยู่ใน library ไม่ผูกกับ prompt → ต้องกดเพิ่มเองรูปถึงเป็นภาพอ้างอิงตอน generate)
@@ -518,8 +562,12 @@ if (window._flowAutomatorLoaded) {
         if (!input) {
           const uploadItem = findByText(["อัปโหลด", "upload", "จากอุปกรณ์", "จากคอมพิวเตอร์"]);
           if (uploadItem) {
-            await trustedClickEl(uploadItem, log);
-            await human();
+            const stopChooser = interceptNativeFileChooser(log);
+            try {
+              await trustedClickEl(uploadItem, log);
+              await human();
+              input = (await waitFor(findFileInput, 5000, 250)) || findFileInput();
+            } finally { stopChooser(); }
           }
         }
       }
@@ -567,12 +615,15 @@ if (window._flowAutomatorLoaded) {
           const wantItem = /อัปโหลด|upload|อุปกรณ์|คอมพิวเตอร์|เครื่องของฉัน|ไฟล์|file|browse|เลือกรูป|รูปภาพ|image/i;
           const items = allClickable().filter((el) =>
             wantItem.test(txt(el) + " " + (el.getAttribute("aria-label") || "")));
-          for (const it of items.slice(0, 4)) {
-            await trustedClickEl(it, log);
-            await sleep(700);
-            input = findFileInput();
-            if (input) { log(`เปิดตัวเลือกไฟล์ด้วยรายการ "${txt(it).slice(0, 24)}"`); break; }
-          }
+          const stopChooser = interceptNativeFileChooser(log);
+          try {
+            for (const it of items.slice(0, 4)) {
+              await trustedClickEl(it, log);
+              await sleep(700);
+              input = findFileInput();
+              if (input) { log(`เปิดตัวเลือกไฟล์ด้วยรายการ "${txt(it).slice(0, 24)}"`); break; }
+            }
+          } finally { stopChooser(); }
         }
       }
       input = input || (await waitFor(findFileInput, 5000)) || findFileInput();
@@ -1058,20 +1109,8 @@ if (window._flowAutomatorLoaded) {
     log(`เลือกช่อง: <${box.tagName.toLowerCase()} role=${box.getAttribute("role")}> @${JSON.stringify([Math.round(box.getBoundingClientRect().left), Math.round(box.getBoundingClientRect().top)])}`);
     // พิมพ์ด้วย trusted Input.insertText (Lexical state ตรงกับ DOM → submit ไม่ crash)
     // ไม่ใช้ execCommand เด็ดขาด เพราะทำ state เพี้ยน → หน้า crash ตอน submit
-    const mac = /Mac/i.test(navigator.platform);
-    const typedOk = () => match(boxText(box), prompt) && !placeholderVisible();
-    let got = "";
-    for (let attempt = 1; attempt <= 2 && !typedOk(); attempt++) {
-      await trustedClickEl(box, log); // โฟกัสช่องด้วยเมาส์จริง (ซ่อน panel กันคลิกโดน panel)
-      await sleep(350);
-      const had = boxText(box) && !placeholderVisible();
-      const tt = await sendTrusted({ action: "flow_trusted_type", text: prompt, clear: had, mac });
-      await sleep(700);
-      got = boxText(box);
-      log(`พิมพ์ครั้งที่ ${attempt}: ok=${tt.ok} err=${tt.error || "-"} | ในช่อง: "${got.slice(0, 38)}" | placeholder=${placeholderVisible()}`);
-    }
-    if (!typedOk()) {
-      return { ok: false, error: `พิมพ์ trusted ไม่สำเร็จ — ในช่อง "${got.slice(0, 30)}" (ช่องอาจถูก panel บัง หรือ debugger ไม่ติด)` };
+    if (!(await typePrompt(box, prompt, log))) {
+      return { ok: false, error: `พิมพ์ prompt ไม่สำเร็จ — ในช่อง "${boxText(box).slice(0, 30)}" (ลอง fallback แล้ว)` };
     }
     log("พิมพ์ prompt ลงช่องแล้ว ✓ (trusted-insertText, Lexical state ตรง)");
 
@@ -2778,15 +2817,7 @@ if (window._flowAutomatorLoaded) {
         error: `รูปอ้างอิงเข้า Google Flow ไม่ครบ (${_refMissing || "ไม่ทราบสาเหตุ"}) — หยุดก่อนกดส่งเพื่อไม่ให้ได้คนหรือสินค้าผิดตัว | ช่องเลือกไฟล์: ${findFileInput() ? "เจอ" : "ไม่เจอ"} · ไทล์รูปบนหน้า: ${(() => { try { return tileImgs().length; } catch { return "?"; } })()} · ${dumpBtns(null, "attach")}`.slice(0, 700) };
     const box = await waitFor(findEditable, 15000);
     if (!box) return { ok: false, error: "ไม่พบช่องพิมพ์ prompt", uploads };
-    const mac = /Mac/i.test(navigator.platform);
-    const typedOk = () => match(boxText(box), prompt) && !placeholderVisible();
-    for (let attempt = 1; attempt <= 2 && !typedOk(); attempt++) {
-      await trustedClickEl(box, log); await sleep(350);
-      const had = boxText(box) && !placeholderVisible();
-      await sendTrusted({ action: "flow_trusted_type", text: prompt, clear: had, mac });
-      await sleep(700);
-    }
-    if (!typedOk()) return { ok: false, error: `พิมพ์ prompt ไม่สำเร็จ — ในช่อง "${boxText(box).slice(0, 30)}"`, uploads };
+    if (!(await typePrompt(box, prompt, log))) return { ok: false, error: `พิมพ์ prompt ไม่สำเร็จ — ในช่อง "${boxText(box).slice(0, 30)}"`, uploads };
     log("พิมพ์ prompt แล้ว ✓");
     // ★ guard #2: ยืนยันโหมดรูปภาพอีกรอบก่อน "กดส่ง" (เผื่อหลุดโหมดระหว่างแนบรูป) — กันเสีย 15 เครดิต
     if (!isImageMode()) return { ok: false, error: `ยกเลิกก่อนกดส่ง — หลุดจากโหมดรูปภาพ (ปุ่มโหมด: "${modeBtnText().slice(0, 30)}")`, uploads };
@@ -2802,8 +2833,7 @@ if (window._flowAutomatorLoaded) {
         if (!await attachRefs("หลังสลับรุ่น — แถบพิมพ์ถูกล้างตอนกดส่งรอบก่อน")) {
           return { ok: false, error: "รูปอ้างอิงหายหลังสลับรุ่น — หยุดก่อนกดส่งเพื่อไม่ให้ได้คนหรือสินค้าผิดตัว", uploads };
         }
-        for (let a = 1; a <= 2 && !typedOk(); a++) { await trustedClickEl(box, log); await sleep(350); const had = boxText(box) && !placeholderVisible(); await sendTrusted({ action: "flow_trusted_type", text: prompt, clear: had, mac: mac2 }); await sleep(700); }
-        if (!typedOk()) return { ok: false, error: "พิมพ์ prompt ใหม่ไม่สำเร็จหลังสลับรุ่น", uploads };
+        if (!(await typePrompt(box, prompt, log))) return { ok: false, error: "พิมพ์ prompt ใหม่ไม่สำเร็จหลังสลับรุ่น", uploads };
       }
       const beforeImgs = new Set(genImgSrcs());                 // จำรูปก่อนส่งรอบนี้
       await sleep(rand(900, 2500));                             // หยุดเหมือนคนทบทวนก่อนกดส่ง
@@ -3103,15 +3133,7 @@ if (window._flowAutomatorLoaded) {
     }
     const box = await waitFor(findEditable, 15000);
     if (!box) return { ok: false, error: "ไม่พบช่องพิมพ์ prompt", steps };
-    const mac = /Mac/i.test(navigator.platform);
-    const typedOk = () => match(boxText(box), motion) && !placeholderVisible();
-    for (let attempt = 1; attempt <= 2 && !typedOk(); attempt++) {
-      await trustedClickEl(box, log); await sleep(350);
-      const had = boxText(box) && !placeholderVisible();
-      await sendTrusted({ action: "flow_trusted_type", text: motion, clear: had, mac });
-      await sleep(700);
-    }
-    if (!typedOk()) return { ok: false, error: "พิมพ์ prompt ไม่สำเร็จ", steps };
+    if (!(await typePrompt(box, motion, log))) return { ok: false, error: "พิมพ์ prompt ไม่สำเร็จ (ลอง fallback แล้ว)", steps };
     log("ตั้งเฟรมเริ่ม + พิมพ์ prompt ครบ ✓");
     if (dry) { log("[dry] ไม่กดส่ง — ไม่เสีย 15 เครดิต · ตรวจหน้าจอว่าเฟรมเริ่มถูกไหม"); return { ok: true, dry: true, steps }; }
     // guard: ยืนยันยังอยู่โหมดวิดีโอก่อนกดส่ง 15 เครดิต (สมมาตรกับ genImage)

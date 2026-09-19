@@ -80,9 +80,14 @@ export default function AppLayout({ children }) {
   useEffect(() => {
     let alive = true
     const check = () => api.queueNext().then(d => {
-      if (!alive || !d?.item || d.item.status !== 'pending') return
+      if (!alive || !d?.item || d.item.status !== 'pending' || d.item.payload?.type !== 'flow_start') return
       const age = Date.now() / 1000 - Number(d.item.created_ts || 0)
-      if (age > 60 && !warnedQueue.current.has(d.item.id)) {
+      // pending อย่างเดียวไม่ได้แปลว่า extension หลุด: งานอาจกำลังรอคิว/กำลังเริ่ม Flow
+      // แจ้งวิธี reload เฉพาะเมื่อ heartbeat ล่าสุดบอกว่า extension offline จริง
+      // รอให้ /api/status ส่ง heartbeat ครั้งแรกก่อนตัดสิน offline
+      // (ค่าเริ่มต้น connected=false ชั่วครู่ทำให้ toast เด้งทันทีตอนเปิดหน้า)
+      const extensionKnown = Number(state.extension?.last_ping_ts || 0) > 0
+      if (age > 60 && extensionKnown && !state.extension?.connected && !warnedQueue.current.has(d.item.id)) {
         warnedQueue.current.add(d.item.id)
         toast.warning('งานสร้างคลิปค้างเกิน 1 นาที — ส่วนขยายอาจยังไม่ได้เชื่อมต่อ ให้เปิด Chrome แล้วกด reload ที่ chrome://extensions', { duration: 12000, dedupeKey: `queue-pending:${d.item.id}` })
       }
@@ -90,7 +95,7 @@ export default function AppLayout({ children }) {
     check()
     const id = setInterval(check, 10000)
     return () => { alive = false; clearInterval(id) }
-  }, [toast])
+  }, [toast, state.extension?.connected])
 
   // gate 1: license check (disabled ระหว่าง dev — เปิดก่อน release)
   const [license, setLicense] = useState({ checked: true, ok: true })

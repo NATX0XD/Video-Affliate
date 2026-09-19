@@ -6,8 +6,14 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => 
 function pingDesktop() {
   try { fetch('http://localhost:3001/api/flow/config', { signal: AbortSignal.timeout(4000) }).catch(() => {}); } catch {}
 }
+// Service worker หลับได้หลังไม่มี event จึงต้องมี alarm ปลุกให้ ping เป็นระยะ
+// ไม่เช่นนั้นหน้าเว็บจะเห็น extension เป็น offline ทั้งที่ติดตั้งและทำงานอยู่
+function heartbeatDesktop() { pingDesktop(); }
 chrome.runtime.onInstalled?.addListener(pingDesktop);
 chrome.runtime.onStartup?.addListener(pingDesktop);
+chrome.alarms?.create('vgap_heartbeat', { periodInMinutes: 0.5 });
+chrome.alarms?.onAlarm.addListener((a) => { if (a.name === 'vgap_heartbeat') heartbeatDesktop(); });
+pingDesktop();
 
 // ── หมุนบัญชี Flow (authuser) ─────────────────────────────────────────────
 // เติม/แทนที่ ?authuser=N ใน URL ของ labs.google เพื่อเปิด Flow ด้วยบัญชี Google ที่ระบุ
