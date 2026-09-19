@@ -2587,9 +2587,12 @@ if (window._flowAutomatorLoaded) {
     })
     // ไม่กรองตาม viewport: ผลลัพธ์อาจอยู่ในแกลเลอรีด้านล่างจอ แต่ยังอยู่ใน DOM แล้ว
     .filter((x) => x.width >= 96 && x.height >= 96 && x.src && !/avatar|profile|favicon|logo|icon/i.test(x.label));
+  // Flow ตัวใหม่ตั้งป้ายการ์ดผลลัพธ์ว่า "การ์ดแสดงรูปภาพผู้ใช้" ซึ่งไม่ตรงคำเดิมสักคำ
+  // และ id ในลิงก์เป็น base64url (มีตัวพิมพ์ใหญ่/ขีดล่าง) ไม่ใช่ hex อย่างที่เคยเทียบไว้
+  // สองอย่างนี้รวมกันทำให้ "เห็นรูปเต็มจอแต่จับได้ 0 ใบ"
   const genImgSrcs = () => genImgInfo()
-    .filter((x) => /รูปภาพที่สร้าง|generated|generation|ผลลัพธ์|result|output/i.test(x.label)
-      || /googleusercontent|storage\.googleapis|media|name=[0-9a-f-]{20,}/i.test(x.src))
+    .filter((x) => /รูปภาพที่สร้าง|การ์ดแสดงรูปภาพ|การ์ดแสดงวิดีโอ|generated|generation|ผลลัพธ์|result|output/i.test(x.label)
+      || /googleusercontent|storage\.googleapis|media|(?:name|resource[_-]?key)=[0-9A-Za-z_-]{16,}/i.test(x.src))
     .map((x) => x.src).filter(Boolean);
   const genImgSnapshot = () => genImgInfo().slice(0, 12)
     .map((x) => `${x.width}x${x.height} ${x.label.slice(0, 42) || "(ไม่มี label)"} ${x.src.slice(-28)}`)
@@ -3041,10 +3044,22 @@ if (window._flowAutomatorLoaded) {
   // ── Part B: frames-to-video — เอาเฟรมเริ่ม/จบ (จาก composePair) ไปสร้างคลิป (15 เครดิต) ──
   // Flow รุ่นปัจจุบันใช้ URL ภาพที่สร้างแบบ /asb/... โดยไม่มี name= แล้ว
   // แต่รายการใน frame picker ใช้รหัสใน query string ของ thumbnail แทน
+  // ค่าที่ Google ใส่มาเหมือนกันทุก URL — ไม่ใช่ id ของรูป ถ้าเผลอใช้เป็น id รูปทุกใบจะ "ซ้ำกันหมด"
+  const MEDIA_ID_CONST = /^(prod-cdn-key|prod|default|public|image|media|video)$/i;
+  // id ของสื่อใน Flow เป็น base64url ยาว ๆ (เช่น JxVtr1jV_-gcENryZ8SPWmru6xc) ไม่ใช่ hex ล้วน
+  const looksLikeMediaId = (v) => !!v && v.length >= 16 && /^[0-9A-Za-z_-]+$/.test(v) && !MEDIA_ID_CONST.test(v);
   const mediaUuid = (u) => {
     const s = String(u || "");
-    const m = s.match(/(?:name|nature|media[_-]?id|resource[_-]?key)=([^&#]+)/i);
-    return m ? decodeURIComponent(m[1]) : null;
+    // เดิมคว้า resource_key= มาใช้ ซึ่งเป็นค่าคงที่ "prod-cdn-key" เหมือนกันทุกรูป
+    // ผลคือรูปอ้างอิงกับรูปผลลัพธ์ได้ id ตรงกันหมด แล้วตัวกรอง "ตัดรูปอ้างอิงออก"
+    // เลยตัดรูปผลลัพธ์ทิ้งทุกใบ → หาผลลัพธ์ไม่เจอจนหมดเวลาเสมอ
+    for (const m of s.matchAll(/(?:name|nature|media[_-]?id|resource[_-]?key|id)=([^&#]+)/gi)) {
+      const v = decodeURIComponent(m[1] || "");
+      if (looksLikeMediaId(v)) return v;
+    }
+    // ไม่มีพารามิเตอร์ที่ใช้ได้ → ลองส่วนท้ายของ path (บาง URL เก็บ id ไว้ตรงนั้น)
+    const seg = (s.split(/[?#]/)[0] || "").split("/").filter(Boolean).pop() || "";
+    return looksLikeMediaId(seg) ? seg : null;
   };
   const defaultMotionPrompt = (name) =>
     `แอนิเมชันนุ่มนวลต่อเนื่องจากเฟรมเริ่ม ~8-10 วิ: บุคคลพูดแนะนำ${name || "สินค้า"}อย่างมั่นใจ ยิ้มแย้ม ` +
