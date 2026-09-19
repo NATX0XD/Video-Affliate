@@ -1024,7 +1024,13 @@ class WebServer:
             if not self.db:
                 return {"ok": False, "error": "db ไม่พร้อม"}
             serial = ((body or {}).get("serial") or "").strip()
-            ids = [i for i in ((body or {}).get("ids") or []) if isinstance(i, int)]
+            # รับ id ที่มาเป็นสตริงจากหน้าเว็บด้วย (เส้นทางทีละคลิปได้ FastAPI แปลงให้ แต่ทางนี้ไม่มี)
+            ids = []
+            for i in ((body or {}).get("ids") or []):
+                try:
+                    ids.append(int(i))
+                except (TypeError, ValueError):
+                    continue
             if not _known_serial(serial):
                 return {"ok": False, "error": f"ไม่รู้จักเครื่อง: {serial}"}
             if not ids:
@@ -2187,6 +2193,17 @@ class WebServer:
                 return {"ok": False}
             qid = self.db.queue_push({"type": "ext_reload"}, priority=20)
             self.emit_log("[EXT] สั่งส่วนขยายโหลดตัวเองใหม่", level="info", source="EXT")
+            return {"ok": True, "queue_id": qid}
+
+        @app.post("/api/flow/selftest")
+        async def flow_selftest(body: dict = None):
+            """สั่งทดสอบสร้างรูปจริงบนแท็บ Flow (โหมดรูป = 0 เครดิต) แล้วดูผลที่ /api/flow/dump."""
+            if not self.db:
+                return {"ok": False}
+            payload = {"type": "flow_selftest"}
+            if isinstance(body, dict) and body.get("prompt"):
+                payload["prompt"] = str(body["prompt"])[:400]
+            qid = self.db.queue_push(payload, priority=20)
             return {"ok": True, "queue_id": qid}
 
         @app.post("/api/flow/dump/request")

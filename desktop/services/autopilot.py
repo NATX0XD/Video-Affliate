@@ -138,7 +138,15 @@ class AutoPilot:
         ทีละคลิปในเธรดเดียวต่อเครื่อง — ยิงขนานบนเครื่องเดียวกันไม่ได้อยู่ดี (ติด _device_lock)
         และแยกเธรดต่อเครื่องไว้เพื่อให้หลายเครื่องยังโพสต์พร้อมกันได้
         """
-        ids = [i for i in (job_ids or []) if isinstance(i, int)]
+        # id อาจมาเป็นสตริงจากหน้าเว็บ ("12") — เส้นทางโพสต์ทีละคลิปใช้ path param ที่ FastAPI
+        # แปลงให้เอง แต่เส้นทางหลายคลิปรับ JSON ตรง ๆ แล้วเคยกรองทิ้งทั้งหมดด้วย isinstance(int)
+        # ผลคือเลือกไว้กี่คลิปก็ตอบว่า "ยังไม่ได้เลือกคลิป" ทั้งที่ตัวเดียวทำได้ปกติ
+        ids = []
+        for i in (job_ids or []):
+            try:
+                ids.append(int(i))
+            except (TypeError, ValueError):
+                continue
         if not ids:
             return {"ok": False, "error": "ยังไม่ได้เลือกคลิป"}
         if not ready_enabled(cfg.load()):
@@ -147,21 +155,24 @@ class AutoPilot:
         if want and not self._device_online(want):
             return {"ok": False, "error": f"เครื่องที่เลือก ({want}) ออฟไลน์"}
 
-        by_device, skipped = {}, []
+        by_device, skipped, why = {}, [], []
         for jid in ids:
             job = self.db.get(jid)
-            if not job or job["status"] != GENERATED:
-                skipped.append(jid)
-                continue
+            if not job:
+                skipped.append(jid); why.append(f"#{jid} ไม่พบคลิป"); continue
+            if job["status"] != GENERATED:
+                skipped.append(jid); why.append(f"#{jid} สถานะ {job['status']} (ต้องเป็นพร้อมโพสต์)"); continue
             tgt = want or (job.get("assigned_serial") or "").strip() or self._pick_device()
-            if not tgt or not self._device_online(tgt):
-                skipped.append(jid)
-                continue
+            if not tgt:
+                skipped.append(jid); why.append(f"#{jid} ไม่มีมือถือเชื่อมต่อ"); continue
+            if not self._device_online(tgt):
+                skipped.append(jid); why.append(f"#{jid} เครื่อง {tgt} ออฟไลน์"); continue
             by_device.setdefault(tgt, []).append(jid)
 
         if not by_device:
-            return {"ok": False, "error": "ไม่มีคลิปที่โพสต์ได้ (ต้องพร้อมโพสต์ + มีเครื่องออนไลน์)",
-                    "skipped": skipped}
+            # บอกเหตุผลรายคลิป — เดิมตอบเหมารวมแล้วผู้ใช้ไล่ต่อไม่ได้ว่าติดอะไร
+            return {"ok": False, "error": "ไม่มีคลิปที่โพสต์ได้ — " + (" · ".join(why[:6]) or "ต้องพร้อมโพสต์ + มีเครื่องออนไลน์"),
+                    "skipped": skipped, "reasons": why}
 
         s = cfg.load()
         queued = 0
