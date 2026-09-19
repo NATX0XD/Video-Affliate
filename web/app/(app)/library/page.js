@@ -49,6 +49,23 @@ export default function LibraryPage() {
   const [confirmDel, setConfirmDel] = useState(false)
   const toast = useToast()
 
+  // เปิดหน้านี้พร้อมข้อมูลสินค้าติดมาใน URL → เด้งกล่อง "เพิ่มคลิปเข้าคลัง" ที่กรอกให้แล้ว
+  // ใช้ตอนสร้างคลิปได้แต่โหลดไฟล์ลงเครื่องไม่สำเร็จ: ผู้ใช้เซฟคลิปจาก Flow เองแล้วเอาเข้าระบบต่อ
+  // โดยไม่ต้องพิมพ์ชื่อ/ราคา/ลิงก์ใหม่ทีละช่อง
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search)
+    if (!q.get('upload')) return
+    setForm({
+      __prefill: true,
+      product:    q.get('name') || '',
+      price:      q.get('price') || '',
+      commission: q.get('commission') || '',
+      link:       q.get('link') || '',
+    })
+    window.history.replaceState({}, '', window.location.pathname)
+  }, [])
+
   // เปิดโฟลเดอร์ที่เก็บไฟล์ในเครื่อง — โปรแกรมหลักเป็นคนเปิดให้ (เบราว์เซอร์แตะไฟล์ไม่ได้)
   const reveal = async (v) => {
     try {
@@ -278,7 +295,8 @@ export default function LibraryPage() {
       )}
 
       {/* Add/Edit clip modal */}
-      {form && <ClipFormModal clip={form === 'new' ? null : form}
+      {form && <ClipFormModal clip={form === 'new' || form?.__prefill ? (form?.__prefill ? form : null) : form}
+                 prefill={!!form?.__prefill}
                  onClose={() => setForm(null)} onDone={() => { setForm(null); load() }} />}
 
       {/* Per-clip delete confirm */}
@@ -308,8 +326,9 @@ export default function LibraryPage() {
 }
 
 // ── โมดอลเพิ่ม/แก้ไขคลิป ──
-function ClipFormModal({ clip, onClose, onDone }) {
-  const editing = !!clip
+function ClipFormModal({ clip, onClose, onDone, prefill = false }) {
+  // prefill = มีข้อมูลสินค้าติดมาแต่ยังไม่มีคลิปในระบบ → ยังเป็นการ "เพิ่มใหม่" ไม่ใช่แก้ไข
+  const editing = !!clip && !prefill
   const [file, setFile]   = useState(null)
   const [src, setSrc]     = useState('')
   const [name, setName]   = useState(clip?.product || '')
@@ -320,6 +339,25 @@ function ClipFormModal({ clip, onClose, onDone }) {
   const [err, setErr]     = useState('')
   const [coverFile, setCoverFile] = useState(null)
   const [coverSrc, setCoverSrc]   = useState('')
+  // เลือกสินค้าจากคลังแทนการพิมพ์เอง — ชื่อ/ราคา/คอมมิชชัน/ลิงก์ต้องตรงกับที่ใช้ตอนโพสต์
+  // พิมพ์เองมีโอกาสสะกดหรือวางลิงก์ผิด แล้วคลิปไปโผล่ผิดสินค้า
+  const [prodList, setProdList] = useState([])
+  useEffect(() => {
+    if (editing) return
+    let alive = true
+    api.products?.().then(d => { if (alive) setProdList(d?.products || []) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [editing])
+  const pickProduct = (uid) => {
+    const p = prodList.find(x => String(x.id) === String(uid))
+    if (!p) return
+    setName(p.name || '')
+    setPrice(p.price != null ? String(p.price) : '')
+    const c = p.commission
+    setComm(c == null ? '' : String(typeof c === 'object' ? (c.rate ?? '') : c).replace(/[^\d.]/g, ''))
+    setLink(p.cart_link || '')
+  }
 
   useEffect(() => () => { if (src) URL.revokeObjectURL(src); if (coverSrc) URL.revokeObjectURL(coverSrc) }, [src, coverSrc])
 
@@ -408,6 +446,19 @@ function ClipFormModal({ clip, onClose, onDone }) {
 
         {/* ข้อมูล */}
         <div className="flex flex-col gap-2.5 mt-4">
+          {/* เลือกจากสินค้าที่มีในระบบ แล้วช่องด้านล่างจะเติมให้เอง (แก้ต่อได้) */}
+          {!editing && prodList.length > 0 && (
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] text-muted-foreground">เลือกสินค้าจากคลัง (เติมข้อมูลให้อัตโนมัติ)</span>
+              <select defaultValue="" onChange={e => pickProduct(e.target.value)}
+                className="px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground outline-none focus:border-accent/50">
+                <option value="">— เลือกสินค้า หรือกรอกเองด้านล่าง —</option>
+                {prodList.map(p => (
+                  <option key={p.id} value={p.id}>{String(p.name || '').slice(0, 60)}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <input value={name} onChange={e => setName(e.target.value)} placeholder="ชื่อสินค้า"
             className="px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-foreground outline-none focus:border-accent/50 placeholder:text-muted-foreground" />
           <div className="grid grid-cols-2 gap-2.5">

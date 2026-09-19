@@ -4,13 +4,24 @@ import { motion } from 'motion/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Package, RefreshCw, Search, ExternalLink, Sparkles, Check, CheckSquare, Square,
-  ShoppingCart, Loader2, LayoutGrid, Rows3, Trash2, AlertTriangle,
+  ShoppingCart, Loader2, LayoutGrid, Rows3, Trash2, AlertTriangle, Upload,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { useToast } from '@/components/ui/Toast'
 import { api } from '@/lib/api'
+import Link from 'next/link'
 import { productUid, hasCart, productName, productPrice, productImg, commissionRate } from '@/lib/gen-options'
+
+// ลิงก์ไปหน้าคลังคลิปพร้อมข้อมูลสินค้า → กล่อง "เพิ่มคลิปเข้าคลัง" จะกรอกให้เอง
+const uploadHref = (p) => {
+  const q = new URLSearchParams({ upload: '1' })
+  const name = productName(p); if (name) q.set('name', name)
+  const price = productPrice(p); if (price) q.set('price', String(price))
+  const rate = commissionRate(p); if (rate != null) q.set('commission', String(rate))
+  const link = p.cart_link || p.links?.affiliate_link || ''; if (link) q.set('link', link)
+  return `/library?${q.toString()}`
+}
 
 const AFFILIATE_URL = 'https://affiliate.shopee.co.th/offer/product_offer'
 
@@ -131,10 +142,17 @@ function ProductRow({ p, selected, onToggle, onDelete }) {
         {st === 'queued' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500">ในคิว</span>}
         {st === 'new'    && <span className="text-[10px] text-muted-foreground">ยังไม่สร้าง</span>}
       </td>
-      <td className="px-3 py-2 w-10 text-right">
+      <td className="px-3 py-2 w-20 text-right whitespace-nowrap">
+        {/* ทางออกตอนสร้างคลิปได้แต่โหลดไฟล์ลงเครื่องไม่สำเร็จ — เซฟคลิปจาก Flow เองแล้วเอาเข้าระบบ
+            ข้อมูลสินค้าติดไปกับลิงก์ จะได้ไม่ต้องพิมพ์ชื่อ/ราคา/ลิงก์ใหม่ */}
+        <Link href={uploadHref(p)} onClick={e => e.stopPropagation()}
+          title="มีไฟล์คลิปอยู่แล้ว — เพิ่มเข้าคลังเพื่อรอโพสต์"
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-accent hover:bg-accent-wash transition-colors cursor-pointer inline-block align-middle">
+          <Upload size={14} />
+        </Link>
         <button type="button" onClick={e => { e.stopPropagation(); onDelete() }}
           title="ลบสินค้านี้" aria-label="ลบสินค้านี้"
-          className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer">
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer align-middle">
           <Trash2 size={14} />
         </button>
       </td>
