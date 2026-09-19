@@ -251,7 +251,23 @@ if (window._flowAutomatorLoaded) {
     if (typeof originalShowPicker === "function") {
       try { proto.showPicker = function (...args) { return capture.call(this, originalShowPicker, args); }; } catch {}
     }
+    // ★ การแก้ prototype ข้างบนอยู่คนละ JS context กับหน้าเว็บ จึงกันได้แค่คลิกที่เราสั่งเอง
+    //   ตอนหน้าเว็บเรียก input.click() ของมันเอง กล่องเลือกไฟล์ของระบบจะยังเด้งขึ้นมาบังทุกอย่าง
+    //   แต่ DOM event ใช้ร่วมกันทั้งสองฝั่ง — ดักตอน capture แล้ว preventDefault จึงกันได้จริง
+    const onCapture = (e) => {
+      const t = e.target;
+      if (t && t.tagName === "INPUT" && t.type === "file") {
+        _capturedFileInput = t;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        try { log && log("กันกล่องเลือกไฟล์ของระบบไว้แล้ว — จะแนบไฟล์เบื้องหลังแทน"); } catch {}
+      }
+    };
+    try { window.addEventListener("click", onCapture, true); } catch {}
+    try { document.addEventListener("click", onCapture, true); } catch {}
     return () => {
+      try { window.removeEventListener("click", onCapture, true); } catch {}
+      try { document.removeEventListener("click", onCapture, true); } catch {}
       try { proto.click = originalClick; } catch {}
       if (typeof originalShowPicker === "function") { try { proto.showPicker = originalShowPicker; } catch {} }
     };
@@ -503,8 +519,16 @@ if (window._flowAutomatorLoaded) {
   // (อัปเฉยๆ รูปจะลอยอยู่ใน library ไม่ผูกกับ prompt → ต้องกดเพิ่มเองรูปถึงเป็นภาพอ้างอิงตอน generate)
   //   ⋮ ซ่อนจน hover → ใช้ trustedHoverEl (เมาส์จริง) ให้มันโผล่ ก่อนคลิก
   // รูปจริงใน library (ตัดไอคอน/avatar เล็กออก) — ใช้นับก่อน/หลังอัป
+  // ── เกณฑ์ขนาด/ตำแหน่ง อิง "สัดส่วนของจอ" ไม่ใช่พิกเซลตายตัว ──────────────
+  // ผู้ใช้แต่ละคนจอคนละขนาด และซูมเบราว์เซอร์ได้ (Ctrl +/-) ซึ่งทำให้ทุกอย่างเป็น px ใหญ่/เล็กตามไปด้วย
+  // ตัวเลขตายตัวอย่าง "กว้างไม่เกิน 360px" จึงพังทันทีที่ซูม 150% หรือเปิดจอเล็ก
+  // ค่าอ้างอิงเดิมมาจากจอ 1512x850 → เก็บเป็นอัตราส่วนแล้วคูณกลับด้วยขนาดจอจริง
+  const VW = () => Math.max(320, window.innerWidth || 1512);
+  const VH = () => Math.max(320, window.innerHeight || 850);
+  const px = (n, base = 1512) => (n / base) * VW();          // เทียบความกว้าง
+  const pxY = (n, base = 850) => (n / base) * VH();          // เทียบความสูง
   const tileImgs = () => [...document.querySelectorAll("img,video")]
-    .filter((im) => { const r = im.getBoundingClientRect(); return isVisible(im) && r.width >= 64 && r.height >= 64; });
+    .filter((im) => { const r = im.getBoundingClientRect(); return isVisible(im) && r.width >= Math.min(64, px(64)) && r.height >= Math.min(64, px(64)); });
 
   async function addImageToPrompt(log, beforeSet) {
     const L = (m) => { try { log && log(m); } catch {} };
@@ -2095,7 +2119,7 @@ if (window._flowAutomatorLoaded) {
     }
     // เลือก "pill จริง" = เล็กสุดที่ขนาดสมเหตุผล (ไม่ใช่ container ครอบทั้งแถบ → คลิก center โดนที่ว่าง = ป๊อปอัปไม่เปิด)
     cands.sort((a, b) => a.getBoundingClientRect().width - b.getBoundingClientRect().width);
-    return cands.find((el) => { const r = el.getBoundingClientRect(); return r.width >= 60 && r.width <= 480 && r.height >= 20 && r.height <= 90; }) || cands[0] || null;
+    return cands.find((el) => { const r = el.getBoundingClientRect(); return r.width >= px(60) && r.width <= px(480) && r.height >= pxY(20) && r.height <= pxY(90); }) || cands[0] || null;
   }
   // Flow UI ใหม่ใช้ป้ายอังกฤษ (Image/Video/Frames/Ingredients) — map ไทย↔อังกฤษ ให้ตัวเลือกเจอทั้งคู่
   const MODE_ALT = {
@@ -2133,7 +2157,7 @@ if (window._flowAutomatorLoaded) {
         return wants.some((w) => t === w || stripped === w || stripped.split(/\s+/).includes(w));
       })
       // ตัด sidebar ซ้าย (x<110 เช่น "image ดูรูปภาพ") ออก — ป๊อปอัปโหมดอยู่กลาง/ขวาจอเสมอ
-      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= 360 && r.height > 4 && r.height <= 130 && r.left > 110 && r.top > 8; });
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.width <= Math.max(360, px(360)) && r.height > 4 && r.height <= Math.max(130, pxY(130)) && r.left > Math.min(110, px(110)) && r.top > 8; });
     cands.sort((a, b) => (a.innerText || a.textContent || "").length - (b.innerText || b.textContent || "").length);
     let el = cands[0] || null;
     // ปีนขึ้นหา "ปุ่มจริง" ที่ครอบ (เผื่อ match โดน icon span ข้างใน) → CDP click แม่นกว่า
@@ -2222,8 +2246,8 @@ if (window._flowAutomatorLoaded) {
       const er = ed ? ed.getBoundingClientRect() : null;
       const out = deepAll('div,span,button,[role="button"]')
         .filter(isVisible)
-        .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 260 && r.height > 8 && r.height <= 260; })
-        .filter((el) => !er || (el.getBoundingClientRect().top >= er.top - 260 && el.getBoundingClientRect().top <= er.bottom + 200))
+        .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= px(260) && r.height > 8 && r.height <= px(260); })
+        .filter((el) => !er || (el.getBoundingClientRect().top >= er.top - Math.max(220, pxY(260)) && el.getBoundingClientRect().top <= er.bottom + Math.max(180, pxY(200))))
         .map((el) => norm(el.innerText || el.textContent))
         .filter((t) => t && t.length <= 24);
       return [...new Set(out)].slice(0, 12).join(" · ") || "(ไม่เจอช่องไหนเลย)";
@@ -2238,10 +2262,11 @@ if (window._flowAutomatorLoaded) {
     const er = ed ? ed.getBoundingClientRect() : null;
     const cands = deepAll('div,span,button,[role="button"]')
       .filter(isVisible)
-      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= 220 && r.height > 8 && r.height <= 220; })
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 8 && r.width <= px(220) && r.height > 8 && r.height <= px(220); })
       // แถว "เริ่ม ⇄ สิ้นสุด" อยู่ "เหนือ" ช่องพิมพ์ราว 100-140px (วัดจากหน้าจริง: ช่องเฟรม y=481 · ช่องพิมพ์ y=593)
       // กรอบเดิมมองขึ้นไปแค่ 60px จึงกรองช่องเฟรมทิ้งทั้งที่มันอยู่บนจอ
-      .filter((el) => { if (!er) return true; const r = el.getBoundingClientRect(); return r.top >= er.top - 260 && r.top <= er.bottom + 200; });
+      // ใช้ค่าที่มากกว่าระหว่าง "สัดส่วนจอ" กับ "พื้นขั้นต่ำ" — จอเล็ก/ซูมเข้าเยอะทำให้สัดส่วนหดจนต่ำกว่าระยะจริงของ UI ได้
+      .filter((el) => { if (!er) return true; const r = el.getBoundingClientRect(); return r.top >= er.top - Math.max(220, pxY(260)) && r.top <= er.bottom + Math.max(180, pxY(200)); });
     const isSendish = (el) => {
       const t = norm(el.innerText || el.textContent);
       const a = `${el.getAttribute?.("aria-label") || ""} ${el.getAttribute?.("data-testid") || ""}`;
@@ -2365,7 +2390,7 @@ if (window._flowAutomatorLoaded) {
       // ★ ห้ามแตะปุ่มส่ง — พลาดกดตอนอยู่โหมดวิดีโอ = เสีย 15 เครดิตต่อครั้ง
       if (/arrow_forward|arrow_upward|\bsend\b|^ส่ง/i.test((el.innerText || "") + " " + (el.getAttribute("aria-label") || ""))) return false;
       const r = el.getBoundingClientRect();
-      return r.left > 110 && r.width >= 24 && r.width <= 420 && r.height >= 16 && r.height <= 60
+      return r.left > px(110) && r.width >= px(24) && r.width <= px(420) && r.height >= pxY(16) && r.height <= pxY(60)
         && r.top >= er.top - 20 && r.top <= er.bottom + 140;
     }).sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
   }
@@ -2389,7 +2414,7 @@ if (window._flowAutomatorLoaded) {
   function dumpComposer() {
     try {
       const ed = findEditable();
-      const top = ed ? ed.getBoundingClientRect().top - 80 : window.innerHeight * 0.6;
+      const top = ed ? ed.getBoundingClientRect().top - pxY(80) : window.innerHeight * 0.6;
       const seen = new Set(); const out = [];
       const cands = deepAll('button,[role="button"],[tabindex],div,span');
       cands.sort((a, b) => (a.tagName === "BUTTON" ? 0 : 1) - (b.tagName === "BUTTON" ? 0 : 1));   // ปุ่มก่อน กันโดนตัดทิ้ง
@@ -2607,12 +2632,12 @@ if (window._flowAutomatorLoaded) {
       }
       return {
         im, src: im.currentSrc || im.src || "", width: Math.round(r.width), height: Math.round(r.height),
-        visible: r.width >= 96 && r.height >= 96 && r.bottom > 0 && r.top < innerHeight,
+        visible: r.width >= Math.min(96, px(96)) && r.height >= Math.min(96, px(96)) && r.bottom > 0 && r.top < innerHeight,
         label: parts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim(),
       };
     })
     // ไม่กรองตาม viewport: ผลลัพธ์อาจอยู่ในแกลเลอรีด้านล่างจอ แต่ยังอยู่ใน DOM แล้ว
-    .filter((x) => x.width >= 96 && x.height >= 96 && x.src && !/avatar|profile|favicon|logo|icon/i.test(x.label));
+    .filter((x) => x.width >= Math.min(96, px(96)) && x.height >= Math.min(96, px(96)) && x.src && !/avatar|profile|favicon|logo|icon/i.test(x.label));
   // Flow ตัวใหม่ตั้งป้ายการ์ดผลลัพธ์ว่า "การ์ดแสดงรูปภาพผู้ใช้" ซึ่งไม่ตรงคำเดิมสักคำ
   // และ id ในลิงก์เป็น base64url (มีตัวพิมพ์ใหญ่/ขีดล่าง) ไม่ใช่ hex อย่างที่เคยเทียบไว้
   // สองอย่างนี้รวมกันทำให้ "เห็นรูปเต็มจอแต่จับได้ 0 ใบ"
@@ -2947,6 +2972,17 @@ if (window._flowAutomatorLoaded) {
       if (sendBtn && (!enterStarted || afterEnter === before2 || match(afterEnter, prompt))) {
         log(`Enter ${enterStarted ? "เริ่มงานแล้ว" : "ยังไม่เริ่มงานจริง"} → คลิก arrow_forward ด้วย trusted click`);
         await trustedClickEl(sendBtn, log); await sleep(1800);
+      }
+      // ถ้ากล่องเลือกไฟล์ของระบบเด้งค้างอยู่ คลิก/คีย์ของเราจะไม่ถึงหน้าเว็บเลย → กดส่งไม่ติด
+      // เดิมไหลไปรอผล 2 นาทีแล้วค่อยบอก "timeout" ซึ่งไม่ได้บอกสาเหตุจริงสักนิด
+      if (!isGenerating()) {
+        const started = await waitFor(() => (isGenerating() ? true : null), 15000, 1500);
+        if (!started) {
+          const d = dumpBtns(null, "send-guard");
+          return { ok: false, uploads,
+            error: `กดส่งแล้ว Flow ไม่เริ่มสร้างรูป — มักเกิดจากกล่องเลือกไฟล์ของ Windows/macOS เด้งค้างอยู่หน้าเบราว์เซอร์ ` +
+                   `(ปิดกล่องนั้นแล้วสั่งใหม่) | ปุ่มส่ง=${findSendBtn() ? "พบ" : "ไม่พบ"} · แถบพิมพ์: ${dumpComposer().slice(0, 200)} · ${d.slice(0, 200)}` };
+        }
       }
       log("รอ Nano Banana สร้างรูป…");
       // เช็กลิมิตเฉพาะรอบแรก — รอบสลับรุ่นรอแค่ "รูปใหม่" (กัน false-positive จากข้อความ error เก่าที่ค้างใน DOM)
