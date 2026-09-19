@@ -2975,13 +2975,23 @@ if (window._flowAutomatorLoaded) {
           && !/add_2|เพิ่มสื่อ|moodboard|โลโก้|ระดมความคิด|แสดงวิธีคิด/i.test(`${t} ${a}`);
       }).sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left)[0];
       log(`ตรวจการส่ง: Enter=${afterEnter !== before2 ? "เปลี่ยน" : "ไม่เปลี่ยน"} · ปุ่มส่ง=${sendBtn ? "พบ" : "ไม่พบ"}`);
-      // บางรอบ Flow ล้างช่องหลังรับ Enter แต่ยังไม่เริ่มงานจริง
-      // (ไม่มี spinner/สถานะกำลังสร้าง) — อย่าถือว่าช่องว่าง = ส่งสำเร็จ
-      // คลิกปุ่มเริ่มสร้างซ้ำเฉพาะตอนที่ยังไม่มีสัญญาณ generation เพื่อกันส่งซ้ำ
-      const enterStarted = afterEnter !== before2 && !match(afterEnter, prompt) && isGenerating();
-      if (sendBtn && (!enterStarted || afterEnter === before2 || match(afterEnter, prompt))) {
-        log(`Enter ${enterStarted ? "เริ่มงานแล้ว" : "ยังไม่เริ่มงานจริง"} → คลิก arrow_forward ด้วย trusted click`);
-        await trustedClickEl(sendBtn, log); await sleep(1800);
+      // ★ ก่อนหน้านี้ลองแค่ "Enter แล้วคลิกปุ่มหนึ่งครั้ง" ถ้าคลิกนั้นไม่เข้าก็ยอมแพ้แล้วไปนั่งรอ 2 นาที
+      //   จากหน้าจริง: พรอมป์พิมพ์แล้ว รูปอ้างอิงติดแล้ว โหมดถูกแล้ว เหลือแค่ปุ่มส่งไม่ทำงาน
+      //   วิธีคลิกแต่ละแบบเข้าไม่เหมือนกันแล้วแต่ overlay/โฟกัส → ไล่ลองทุกวิธีแล้ววัดผลทุกครั้ง
+      const startedNow = () => isGenerating() || (boxText(box) !== before2 && !match(boxText(box), prompt));
+      if (!startedNow()) {
+        const WAYS = [
+          ["คลิกปุ่มส่ง (trusted)", async () => { const b = sendBtn || findSendBtn(); if (b) await trustedClickEl(b, log); }],
+          ["โฟกัสปุ่มแล้ว Enter",   async () => { const b = sendBtn || findSendBtn(); if (b) await trustedKeyActivate(b, log); }],
+          ["ยิง event ตรงที่ปุ่ม",   async () => { const b = sendBtn || findSendBtn(); if (b) { try { nativeClickEl(b); } catch {} try { b.click(); } catch {} } }],
+          ["Enter ซ้ำในช่องพิมพ์",  async () => { await trustedClickEl(realEditable(box), log); await sleep(250); await sendTrusted({ action: "flow_trusted_key" }); }],
+        ];
+        for (const [name, run] of WAYS) {
+          await run();
+          const ok = await waitFor(() => (startedNow() ? true : null), 5000, 700);
+          log(`ส่งด้วย "${name}": ${ok ? "เริ่มงานแล้ว ✓" : "ยังไม่เริ่ม"}`);
+          if (ok) break;
+        }
       }
       // ถ้ากล่องเลือกไฟล์ของระบบเด้งค้างอยู่ คลิก/คีย์ของเราจะไม่ถึงหน้าเว็บเลย → กดส่งไม่ติด
       // เดิมไหลไปรอผล 2 นาทีแล้วค่อยบอก "timeout" ซึ่งไม่ได้บอกสาเหตุจริงสักนิด
