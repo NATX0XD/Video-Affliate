@@ -375,7 +375,8 @@ export function Onboarding({ status = {}, onRefresh, onDone, initialShop = '' })
               {(step === 1 || step === 2) && (
                 <Button variant="link" size="sm" onClick={next}
                         className="text-muted-foreground">
-                  ข้ามไปก่อน
+                  {/* บอกผลของการข้ามให้ชัด — เดิมเขียนแค่ "ข้ามไปก่อน" คนใหม่เลยข้ามคีย์ไปโดยไม่รู้ว่าสร้างคลิปไม่ได้ */}
+                  {step === 1 ? 'ข้ามไปก่อน (ยังสร้างคลิปไม่ได้)' : 'ข้ามไปก่อน'}
                 </Button>
               )}
               {step < STEPS.length - 1 ? (
@@ -425,6 +426,21 @@ function StepKey({ apiKey, setApiKey, keySet, keyOk, keyTesting, onTest, flowEma
   return (
     <StepBody icon={KeyRound} title={termTh('google_api_key')}
               desc="รหัสลับให้ AI ช่วยคิดข้อความ/สคริปต์คลิป — ขอฟรีที่ aistudio.google.com/apikey">
+      {/* ขั้นนี้คือขั้นที่คนติดตั้งใหม่สะดุดบ่อยที่สุด — บอกให้ชัดว่า "ไม่มีคีย์ = สร้างคลิปไม่ได้" */}
+      <div className="rounded-xl border border-accent/30 bg-accent-wash p-3">
+        <p className="text-foreground text-xs font-semibold flex items-center gap-1.5">
+          <AlertTriangle size={13} className="text-accent shrink-0" /> ต้องมีคีย์นี้ก่อนจึงจะสร้างคลิปได้
+        </p>
+        <ol className="text-muted-foreground text-[11px] mt-1.5 leading-relaxed list-decimal ml-4 flex flex-col gap-0.5">
+          <li>กดปุ่ม "ขอคีย์ฟรี (Google AI Studio)" ด้านล่าง → ล็อกอินบัญชี Google</li>
+          <li>กด "Create API key" → ก๊อปข้อความที่ขึ้นต้นด้วย <code className="text-foreground">AIza…</code></li>
+          <li>วางลงช่องด้านล่าง แล้วกด "ทดสอบคีย์" ให้ขึ้น "ใช้งานได้"</li>
+        </ol>
+        <p className="text-muted-foreground text-[11px] mt-1.5 leading-relaxed">
+          ฟรี ไม่ต้องผูกบัตร · คีย์เก็บไว้ในเครื่องคุณเท่านั้น · ใส่ทีหลังได้ที่หน้า "ตั้งค่า" แต่จะยังสร้างคลิปไม่ได้จนกว่าจะใส่
+        </p>
+      </div>
+
       <FormField label={termTh('google_api_key')} info={termHint('google_api_key')} htmlFor="ob-key"
                  hint={keySet ? 'ตั้งไว้แล้ว — เว้นว่างเพื่อใช้คีย์เดิม หรือกรอกใหม่เพื่อเปลี่ยน' : 'คีย์ขึ้นต้นด้วย AIza…'}>
         <Input id="ob-key" type="password" value={apiKey}

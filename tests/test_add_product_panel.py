@@ -23,6 +23,9 @@ def _check(monkeypatch, png: str, activity: str) -> bool:
     p = AutoPoster.__new__(AutoPoster)
     p.TAG = "POST"
     p.log = lambda *a, **k: None
+    # __new__ ข้าม __init__ → ต้องตั้งขนาดจอเอง ไม่งั้น _find_orange_pill โยน
+    # AttributeError แล้วถูก except กลืน → คืน None เสมอ = เทสต์ผ่าน/ไม่ผ่านด้วยเหตุผลผิด
+    p._w, p._h = 1080, 2340
     p._current_activity = lambda s: activity
     data = (FIX / png).read_bytes()
 

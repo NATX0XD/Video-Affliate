@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/Toast'
 import { termTh, termHint, MSG } from '@/lib/copy'
 import { Eye, EyeOff, Save, Check, MessageSquare, Share2, Store, KeyRound, Wrench, RefreshCw, Users, Zap, ShieldCheck } from 'lucide-react'
 import { FlowAccounts } from '@/components/settings/FlowAccounts'
+import { ReadinessPanel } from '@/components/settings/ReadinessPanel'
 
 // สิ่งที่เกิดขึ้นหลังสร้างคลิปเสร็จ — ค่าเดียวกับที่เลือกตอนติดตั้ง (review_mode)
 const REVIEW_MODES = [
@@ -198,6 +199,12 @@ export default function SettingsPage() {
             <h2 className="text-foreground text-[26px] lg:text-[30px] font-extrabold tracking-tight leading-none">ตั้งค่าระบบ</h2>
             <p className="text-muted-foreground text-sm mt-2">ข้อมูลร้าน แพลตฟอร์มปลายทาง และแคปชัน</p>
           </motion.div>
+
+          {/* ══ ความพร้อมระบบ ═══════════════════════════ */}
+          <Section title="ความพร้อมระบบ" subtitle="เช็กในที่เดียวว่าอะไรพร้อมแล้ว อะไรยังขาด — อัปเดตเองทุก 10 วินาที" />
+          <div className="py-7 border-b border-border">
+            <ReadinessPanel />
+          </div>
 
           {/* ══ ข้อมูลร้าน ════════════════════════════════ */}
           <Section title="ข้อมูลส่วนตัวของร้าน" subtitle="ชื่อร้านใช้เป็นบล็อกข้อมูลในแคปชัน และแสดงในรายงาน" />

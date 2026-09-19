@@ -95,6 +95,20 @@ function CreateInner() {
     if (!products.length) return
     setBusy(true)
     try {
+      // ไม่มีคีย์ AI = ส่วนขยายเขียนพรอมป์ไม่ได้ แล้วงานจะค้างในคิวแบบเงียบ ๆ
+      // เช็กก่อนยิงเข้าคิว แล้วบอกวิธีแก้เป็นภาษาไทย ดีกว่าปล่อยให้ไปตายทีหลัง
+      const setup = await api.getSetup().catch(() => null)
+      if (setup && !setup.google_api_key_set) {
+        toast.error('ยังไม่ได้ใส่คีย์ AI (Gemini) — สร้างคลิปไม่ได้ ไปที่หน้า "ตั้งค่า" → หัวข้อ "คีย์ AI (Gemini)" วางคีย์แล้วกดบันทึก (ขอคีย์ฟรีที่ aistudio.google.com/apikey)', { duration: 14000 })
+        setBusy(false)
+        return
+      }
+      // ส่วนขยายไม่ได้ต่อ = งานจะกองรออยู่ในคิวจนกว่าจะเปิด Chrome — เตือนแต่ยังส่งให้ (ต่อทีหลังได้)
+      const st = await api.status().catch(() => null)
+      if (st && !st.extension?.connected) {
+        toast.warning('ส่วนขยาย Chrome ยังไม่ได้เชื่อมต่อ — งานจะรออยู่ในคิวจนกว่าจะเปิด Chrome แล้วกด reload ที่ chrome://extensions', { duration: 12000 })
+      }
+
       const snapshot = o.charId === 'self' ? selfPhoto : (presetSnap || captureModel())
       // จับตั้งแต่ตรงนี้ ดีกว่าปล่อยไปล้มในส่วนขยายแล้วขึ้น "ไม่มีรูปหน้า (flow_char_img)"
       // เกิดได้เมื่อโหลดเทมเพลตที่อ้างรูปในคลังซึ่งถูกลบไปแล้ว

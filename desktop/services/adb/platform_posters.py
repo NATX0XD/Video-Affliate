@@ -37,10 +37,10 @@ class TikTokPoster(BasePoster):
         if dry_run:
             self.log("[TIKTOK] DRY RUN — พิมพ์ caption แล้ว หยุดก่อนโพสต์ ✓")
             return True
-        # โพสต์
+        # โพสต์ — แตะติดแล้วยังต้องยืนยันว่าหน้าเขียนโพสต์ปิดจริง
         if not self._tap_find(serial, ["Post", "โพสต์"], name="post", settle=5):
             return False
-        return True
+        return self._confirm_posted(serial, ["Post", "โพสต์"])
 
 
 class ReelsPoster(BasePoster):
@@ -66,10 +66,10 @@ class ReelsPoster(BasePoster):
         if dry_run:
             self.log("[REELS] DRY RUN — พิมพ์ caption แล้ว หยุดก่อนแชร์ ✓")
             return True
-        # แชร์
+        # แชร์ — แตะติดแล้วยังต้องยืนยันว่าหน้าเขียนโพสต์ปิดจริง
         if not self._tap_find(serial, ["Share now", "Share", "แชร์เลย", "แชร์"], name="share", settle=5):
             return False
-        return True
+        return self._confirm_posted(serial, ["Share now", "Share", "แชร์เลย", "แชร์"])
 
 
 class InstagramPoster(BasePoster):
@@ -97,10 +97,10 @@ class InstagramPoster(BasePoster):
         if dry_run:
             self.log("[IG] DRY RUN — พิมพ์ caption แล้ว หยุดก่อนแชร์ ✓")
             return True
-        # Share
+        # Share — แตะติดแล้วยังต้องยืนยันว่าหน้าเขียนโพสต์ปิดจริง
         if not self._tap_find(serial, ["Share", "แชร์"], name="share", settle=5):
             return False
-        return True
+        return self._confirm_posted(serial, ["Share", "แชร์"])
 
 
 class YouTubePoster(BasePoster):
@@ -129,7 +129,7 @@ class YouTubePoster(BasePoster):
         if dry_run:
             self.log("[YT] DRY RUN — พิมพ์ caption แล้ว หยุดก่อนอัปโหลด ✓")
             return True
-        # อัปโหลด
+        # อัปโหลด — แตะติดแล้วยังต้องยืนยันว่าหน้าเขียนโพสต์ปิดจริง
         if not self._tap_find(serial, ["Upload Short", "Upload", "อัปโหลด"], name="upload", settle=5):
             return False
-        return True
+        return self._confirm_posted(serial, ["Upload Short", "Upload", "อัปโหลด"])

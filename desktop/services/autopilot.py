@@ -174,8 +174,17 @@ class AutoPilot:
                 self.log(f"[AUTO] โพสต์ชุด {len(jids)} คลิป → {tgt}")
                 for jid in jids:
                     job = self.db.get(jid)
-                    if job:
-                        self._post_one(job, tgt, s)
+                    if not job:
+                        continue
+                    # ★ คลิปท้ายชุดนั่งรอคิวได้นานมาก (คลิปละไม่เกิน 600 วิ × หลายคลิป)
+                    #   ระหว่างนั้น _sweep_stale อาจดึงมันกลับเป็น 'generated' แล้ว worker
+                    #   ของเครื่องนี้ claim ไปโพสต์ — ถ้าชุดนี้โพสต์ต่อโดยไม่ดูสถานะ = โพสต์ซ้ำ
+                    #   (สถานะไม่ใช่ posting แล้ว = มีคนอื่นถือคิวนี้อยู่ หรือถูกดึงกลับเข้าคิว)
+                    if job.get("status") != POSTING:
+                        self.log(f"[AUTO] ข้ามคลิป #{jid} ในชุด — สถานะเปลี่ยนเป็น "
+                                 f"'{job.get('status')}' ระหว่างรอคิว (มีตัวอื่นรับไปแล้ว)")
+                        continue
+                    self._post_one(job, tgt, s)
 
             threading.Thread(target=run, daemon=True,
                              name=f"PostBatch-{tgt}").start()
@@ -236,18 +245,31 @@ class AutoPilot:
     # ตั้งยาวกว่าเพดานเวลาต่อโพสต์ (600 วิ) เท่าตัว — ไม่มีทางไปดึงงานที่กำลังทำอยู่
     STALE_POSTING_SEC = 1200
 
+    def _stale_secs(self) -> int:
+        """เพดาน 'ค้างนานเกินไป' ต้องยาวกว่าเวลาโพสต์จริงเสมอ
+
+        post_timeout_sec ตั้งค่าได้ในหน้าตั้งค่า — ถ้าผู้ใช้ตั้งไว้ ≥ 1200 วิ ค่าคงที่เดิม
+        จะไปดึงคลิป "ที่กำลังโพสต์อยู่จริง" กลับเข้าคิว แล้วอีก worker หยิบไปโพสต์ซ้ำ
+        """
+        try:
+            limit = int(cfg.load().get("post_timeout_sec", 600) or 600)
+        except Exception:
+            limit = 600
+        return max(self.STALE_POSTING_SEC, limit * 2 + 300)
+
     def _sweep_stale(self):
         """กู้คลิปที่ค้างกลางทางกลับเข้าคิว — ไม่ต้องรอผู้ใช้ปิดเปิดโปรแกรม"""
         if not self.db:
             return
+        secs = self._stale_secs()
         try:
-            ids = self.db.requeue_stale_posting(self.STALE_POSTING_SEC)
+            ids = self.db.requeue_stale_posting(secs)
         except Exception as e:
             self.log(f"[AUTO] กู้คลิปค้างไม่สำเร็จ: {e}")
             return
         if ids:
             self.log(f"[AUTO] พบคลิปค้างสถานะ 'กำลังโพสต์' {len(ids)} คลิป "
-                     f"(เกิน {self.STALE_POSTING_SEC // 60} นาที — มือถือหลุดหรือค้างกลางทาง) "
+                     f"(เกิน {secs // 60} นาที — มือถือหลุดหรือค้างกลางทาง) "
                      f"→ ดึงกลับเข้าคิวให้โพสต์ใหม่")
 
     def _loop(self):

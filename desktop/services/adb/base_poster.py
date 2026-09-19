@@ -106,10 +106,17 @@ class BasePoster:
 
     # ── UIAutomator: หา element จาก text/desc/id (ทนความละเอียด) ──
 
+    # ห้ามใช้ /sdcard: Android รุ่นใหม่ (เจอบน Android 16) shell เขียนไม่ได้ —
+    # dump รายงานว่าสำเร็จแต่ไฟล์ไม่เกิด แล้ว cat คืนไฟล์เก่า/ว่าง (ดู post_verifier)
+    UI_REMOTE = "/data/local/tmp/vgap_ui_post.xml"
+
     def _ui_dump(self, serial: str):
-        self.adb._adb("shell", "uiautomator", "dump", "/sdcard/ui_post.xml",
+        # ลบไฟล์เดิมก่อนเสมอ: ถ้า dump ล้ม (window ไม่ idle) ไฟล์รอบก่อนยังอยู่
+        # แล้ว cat จะคืน "หน้าเดิม" มาแบบเนียน ๆ → หาปุ่มเจอบนหน้าที่ผ่านไปแล้ว
+        self.adb._adb("shell", "rm", "-f", self.UI_REMOTE, serial=serial, timeout=8)
+        self.adb._adb("shell", "uiautomator", "dump", self.UI_REMOTE,
                       serial=serial, timeout=12)
-        ok, out = self.adb._adb("shell", "cat", "/sdcard/ui_post.xml",
+        ok, out = self.adb._adb("shell", "cat", self.UI_REMOTE,
                                 serial=serial, timeout=10)
         if not ok or "<hierarchy" not in out:
             return None
@@ -117,6 +124,43 @@ class BasePoster:
             return ET.fromstring(out)
         except Exception:
             return None
+
+    def _nodes_match(self, root, candidates) -> bool:
+        """มี element ที่ตรงกับ candidates อยู่บนหน้านี้ไหม (text/content-desc)"""
+        for n in root.iter("node"):
+            t, d = n.get("text", ""), n.get("content-desc", "")
+            for q in candidates:
+                if self._match(t, q, False) or self._match(d, q, False):
+                    return True
+        return False
+
+    def _confirm_posted(self, serial, candidates, secs: float = 25.0):
+        """หลังกดปุ่มโพสต์/แชร์ — ยืนยันว่าหน้าเขียนโพสต์ปิดไปจริง
+
+        "แตะปุ่มติด" ไม่เท่ากับ "โพสต์ขึ้น": ถ้าแอปเด้ง error หรือติดเงื่อนไขอะไรก็ตาม
+        จะค้างหน้าเดิมโดยปุ่มยังอยู่ เดิมทุก poster คืน True ทันทีหลังแตะ แล้ว
+        verify_post ที่หา keyword ไม่เจอจะตัดสินว่า "สำเร็จ (conservative)" →
+        คลิปถูกย้ายเข้า "เสร็จสิ้น" ทั้งที่ไม่เคยขึ้น
+
+        คืน True = ปุ่มหายจากจอแล้ว · "unverified" = ปุ่มยังอยู่ หรืออ่านหน้าจอไม่ได้
+        (ไม่คืน False เพราะ autopilot จะลองใหม่ให้ ซึ่งเสี่ยงโพสต์ซ้ำถ้าอันแรกขึ้นจริง)
+        """
+        end = time.time() + secs
+        read_ok = False
+        while time.time() < end:
+            root = self._ui_dump(serial)
+            if root is not None:
+                read_ok = True
+                if not self._nodes_match(root, candidates):
+                    self.log(f"[{self.TAG}] ✓ ปุ่ม {candidates[0]!r} หายจากจอแล้ว — ส่งโพสต์ไปแล้ว")
+                    return True
+            time.sleep(2)
+        if read_ok:
+            self.log(f"[{self.TAG}] ⚠ กดแล้วแต่ปุ่ม {candidates[0]!r} ยังอยู่บนจอหลัง {secs:.0f} วิ — "
+                     f"อาจยังไม่ได้โพสต์ (ไม่ลองใหม่อัตโนมัติ กันโพสต์ซ้ำ) โปรดเปิดแอปตรวจ")
+        else:
+            self.log(f"[{self.TAG}] ⚠ อ่านหน้าจอไม่ได้หลังกดโพสต์ — ยืนยันไม่ได้ว่าขึ้นจริง")
+        return "unverified"
 
     @staticmethod
     def _node_center(node):
@@ -451,7 +495,13 @@ class BasePoster:
         try:
             ok = self._run_flow(serial, video_path, caption, has_adbkb, dry_run)
             if ok and not dry_run:
-                ok = self._maybe_verify(serial)
+                verdict = self._maybe_verify(serial)
+                # _run_flow บอกแล้วว่า "ยืนยันไม่ได้" → ตัวยืนยันลดชั้นได้อย่างเดียว
+                # ห้ามยกขึ้นเป็นสำเร็จ: verify_post ตอบ "สำเร็จ (conservative)" ทุกครั้ง
+                # ที่หา keyword ไม่เจอ ซึ่งเป็นเคสปกติของหน้าฟีดที่ dump ไม่ผ่าน
+                if ok == "unverified" and verdict is not False:
+                    verdict = "unverified"
+                ok = verdict
                 # ประกาศผลสุดท้ายที่นี่ที่เดียว — หลังหลักฐานสำรองทุกชั้นตัดสินแล้ว
                 if ok == "unverified":
                     why = getattr(self, "_verify_reason", "") or "อ่านหน้าจอไม่ได้"

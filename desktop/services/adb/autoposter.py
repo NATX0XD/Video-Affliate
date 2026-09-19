@@ -335,6 +335,10 @@ class AutoPoster(BasePoster):
             # (เงื่อนไขที่ต้องใช้ node จะได้ False กับลิสต์ว่าง แล้วตกไป dump ตามปกติ)
             try:
                 if pred([], act, UF):
+                    # บอกด้วยว่าผ่านด้วยหลักฐานอะไร — ไม่งั้น log เงียบสนิทตรงจุดที่
+                    # ตัดสินใจเดินต่อ แล้วเวลาไปพลาดขั้นถัดไปจะไล่ย้อนไม่ได้ว่าหน้าไหน
+                    self.log(f"[{self.TAG}] {key}: ชื่อหน้าตรงแล้ว "
+                             f"({act.split('/')[-1] or '?'}) → ผ่าน")
                     return True
             except Exception:
                 pass
@@ -908,12 +912,34 @@ class AutoPoster(BasePoster):
         return self._tap_post_until_left(serial)
 
     def _wait_leave_publish(self, serial: str, secs: int) -> bool:
-        """รอจน Shopee ออกจากหน้า publish — จริง = ออกแล้ว (คลิปขึ้นจริง)"""
+        """รอจน Shopee ออกจากหน้า publish — จริง = ออกแล้ว (คลิปขึ้นจริง)
+
+        ★ "อ่านชื่อหน้าไม่ได้" ไม่เท่ากับ "ออกจากหน้าแล้ว"
+          _current_activity คืน "" ได้ทั้งตอน dumpsys ไทม์เอาต์/มือถือหลุดชั่วขณะ
+          เดิมเช็คแค่ `"PublishVideoActivity" not in act` → "" ผ่านเงื่อนไขทันที
+          กลายเป็นหลักฐานว่า "โพสต์ขึ้นแล้ว" ทั้งที่ยังค้างหน้าเดิม แล้ว _maybe_verify
+          ยกผล unverified ขึ้นเป็นสำเร็จด้วย _left_publish → งานถูกย้ายเข้า "เสร็จสิ้น"
+          โดยไม่มีคลิปขึ้นจริง (ผู้ใช้ไม่มีทางรู้เลยว่าหาย)
+
+        ★ ออกไปอยู่นอกแอป Shopee (แอปเด้ง/ถูกปิด) ก็ไม่ใช่หลักฐานว่าโพสต์ขึ้น —
+          ไม่ถือว่าสำเร็จ แต่ก็ไม่ฟันธงว่าล้ม ปล่อยให้ชั้นยืนยันผลตัดสิน (กันโพสต์ซ้ำ)
+        """
+        blind = 0
         for _ in range(secs):
-            if "PublishVideoActivity" not in self._current_activity(serial):
-                self._left_publish = True
-                return True
+            act = self._current_activity(serial)
+            if not act:
+                blind += 1
+            elif "PublishVideoActivity" not in act:
+                if act.startswith(self.PACKAGE):
+                    self._left_publish = True
+                    return True
+                self.log(f"[{self.TAG}] ⚠ หลุดออกไปนอกแอป Shopee ({act.split('/')[0]}) — "
+                         f"ไม่ถือเป็นหลักฐานว่าโพสต์ขึ้น")
+                return False
             time.sleep(1)
+        if blind:
+            self.log(f"[{self.TAG}] อ่านชื่อหน้าไม่ได้ {blind}/{secs} รอบระหว่างรอผลโพสต์ — "
+                     f"ยังสรุปไม่ได้ว่าออกจากหน้าโพสต์แล้วหรือยัง")
         return False
 
     def _tap_post_until_left(self, serial: str) -> bool:
@@ -930,15 +956,26 @@ class AutoPoster(BasePoster):
            ให้ autopilot เอาไปลองใหม่ตามรอบ backoff
         """
         self._dismiss_keyboard(serial)     # คีย์บอร์ดทับปุ่มโพสต์ทั้งแถบ (เจอจริงบน SM-P585Y)
-        on_publish = "PublishVideoActivity" in self._current_activity(serial)
+        act0 = self._current_activity(serial)
+        if not act0:
+            # อ่านชื่อหน้าไม่ได้ ≠ "ไม่ได้อยู่หน้าโพสต์" — เดิมตกไปทาง `not on_publish`
+            # แล้ว return True หลังกดครั้งเดียว = รายงานว่าโพสต์สำเร็จโดยไม่มีหลักฐานเลย
+            # _run_flow เพิ่งยืนยันว่าอยู่หน้า publish ก่อนเข้ามาขั้นนี้ → ถือว่ายังอยู่
+            # แล้วให้หลักฐาน "ออกจากหน้า publish" เป็นตัวตัดสินตามปกติ
+            self.log("[POST] อ่านชื่อหน้าไม่ได้ก่อนกดโพสต์ — ถือว่ายังอยู่หน้าโพสต์ "
+                     "แล้วรอหลักฐานว่าออกจากหน้าจริง")
+        elif "PublishVideoActivity" not in act0:
+            # อ่านได้และไม่ใช่หน้าโพสต์จริง ๆ = flow หลุดไปแล้ว การแตะพิกัดปุ่มโพสต์
+            # บนหน้าอื่นคือแตะมั่ว ห้ามรายงานว่าสำเร็จ (ยังไม่ได้โพสต์ → retry ไม่ซ้ำ)
+            self.log(f"[POST] ✗ ไม่ได้อยู่หน้าโพสต์แล้ว (อยู่ {act0.split('/')[-1] or '?'}) — "
+                     f"ไม่กดปุ่มโพสต์ ถือว่ายังไม่ได้โพสต์")
+            return False
         self._left_publish = False
         taps = 0
         for i in range(1, self.POST_TAP_TRIES + 1):
             self.log("[POST] กดโพสต์..." + (f" (รอบ {i}/{self.POST_TAP_TRIES})" if i > 1 else ""))
             self._tap_r(serial, "post_button", settle=5)
             taps = i
-            if not on_publish:
-                return True                # ไม่ได้เริ่มจากหน้า publish → ใช้หลักฐานนี้ตัดสินไม่ได้
             if self._wait_leave_publish(serial, 25 if i == 1 else 15):
                 break
             if i == self.POST_TAP_TRIES:
