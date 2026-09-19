@@ -1093,6 +1093,10 @@ class WebServer:
             if key and key != cfg.MASK:
                 cfg.set_secret("google_api_key", key)
                 self.emit_log("[SETTINGS] อัปเดต Google API key แล้ว")
+            useapi_token = (body.get("useapi_token") or "").strip()
+            if useapi_token and useapi_token != cfg.MASK:
+                cfg.set_secret("useapi_token", useapi_token)
+                self.emit_log("[SETTINGS] อัปเดต useapi token แล้ว")
             cfg.save(body)             # strips secrets; masked values are ignored
             # AutoPoster/AutoPilot อ่าน cfg.load() สดทุกครั้ง — ไม่ต้อง push เข้า worker
             # ยกเว้นสวิตช์ลูปโพสต์: ต้องสั่งเปิด/ปิดให้ตรงกับโหมดที่เพิ่งบันทึก
@@ -1755,6 +1759,123 @@ class WebServer:
             self.db.add_usage("gemini", kind, qty=qty, tokens=tokens, cost=cost)
             return {"ok": True}
 
+        # ── useapi.net backup backend (ไม่ยุ่งกับ extension/content/flow.js) ──
+        @app.get("/api/useapi/status")
+        def useapi_status():
+            import config as cfg
+            s = cfg.load()
+            return {
+                "ok": True,
+                "backend": s.get("flow_backend", "chrome"),
+                "token_set": bool(s.get("useapi_token")),
+                "default_backend": "chrome",
+            }
+
+        @app.get("/api/useapi/accounts")
+        async def useapi_accounts():
+            import config as cfg
+            from services.flow_api import FlowApiError, UseApiClient
+            client = UseApiClient(cfg.load().get("useapi_token", ""))
+            try:
+                data = await asyncio.to_thread(client.list_accounts)
+                return {"ok": True, "accounts": data}
+            except FlowApiError as exc:
+                return JSONResponse({"ok": False, "error": str(exc), "fallback": "chrome"},
+                                    status_code=400 if exc.status is None else exc.status)
+
+        @app.get("/api/useapi/accounts/{email:path}")
+        async def useapi_account(email: str):
+            import config as cfg
+            from services.flow_api import FlowApiError, UseApiClient
+            client = UseApiClient(cfg.load().get("useapi_token", ""))
+            try:
+                data = await asyncio.to_thread(client.get_account, email)
+                return {"ok": True, "account": data}
+            except FlowApiError as exc:
+                return JSONResponse({"ok": False, "error": str(exc), "fallback": "chrome"},
+                                    status_code=400 if exc.status is None else exc.status)
+
+        @app.post("/api/useapi/dry-run")
+        async def useapi_dry_run(body: dict):
+            from services.flow_api import UseApiClient
+            try:
+                payloads = {
+                    "image": UseApiClient.build_image_payload(
+                        body.get("prompt", ""), body.get("references") or [],
+                        body.get("image_model", "nano-banana-2-lite"),
+                        int(body.get("image_count", 1) or 1), body.get("email", "")),
+                    "video": UseApiClient.build_video_payload(
+                        body.get("prompt", ""), body.get("start_image", "dry-run-start"),
+                        body.get("end_image", "dry-run-end"),
+                        body.get("video_model", "veo-3.1-fast"),
+                        int(body.get("duration", 8) or 8), body.get("email", "")),
+                }
+                print(json.dumps(payloads, ensure_ascii=False, indent=2))
+                return {"ok": True, "dry_run": True, "payloads": payloads}
+            except (TypeError, ValueError) as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
+
+        @app.post("/api/useapi/generate")
+        async def useapi_generate(body: dict):
+            """Run one complete API-backed I2V job; failure is explicit Chrome fallback."""
+            import base64
+            import config as cfg
+            from services.flow_api import FlowApiError, FlowFile, UseApiClient
+
+            settings = cfg.load()
+            client = UseApiClient(settings.get("useapi_token", ""))
+            product_id = str(body.get("product_id") or f"useapi{int(time.time() * 1000)}")
+
+            def decode_asset(value: str) -> FlowFile | str:
+                if not isinstance(value, str) or not value.startswith("data:"):
+                    return value
+                head, sep, encoded = value.partition(",")
+                if not sep:
+                    raise ValueError("data URL ของรูปไม่ถูกต้อง")
+                mime = head[5:].split(";", 1)[0] or "image/jpeg"
+                return FlowFile(base64.b64decode(encoded), mime, f"{product_id}.jpg")
+
+            def asset_id(value: str, email: str = "") -> str:
+                candidate = decode_asset(value)
+                if isinstance(candidate, FlowFile):
+                    response = client.upload_asset(candidate, email=email)
+                    return client.media_generation_id(response)
+                if not candidate:
+                    raise ValueError("ไม่พบ asset reference")
+                return str(candidate)
+
+            try:
+                email = str(body.get("email") or "")
+                refs = [asset_id(v, email) for v in (body.get("references") or [])]
+                # If the caller supplies reference images and asks for an image,
+                # expose the still result too; otherwise use the supplied frames.
+                still = None
+                if body.get("create_still"):
+                    still = await asyncio.to_thread(
+                        client.create_image, body.get("prompt", ""), refs,
+                        body.get("image_model", "nano-banana-2-lite"), 1, email)
+                start = asset_id(str(body.get("start_image") or ""), email)
+                end = asset_id(str(body.get("end_image") or ""), email)
+                submitted = await asyncio.to_thread(
+                    client.create_video, body.get("prompt", ""), start, end,
+                    body.get("video_model", "veo-3.1-fast"),
+                    int(body.get("duration", 8) or 8), email)
+                job = await asyncio.to_thread(client.poll_job, client.job_id(submitted))
+                url = client.video_url(job)
+                out = cfg.PENDING_DIR / f"{product_id}.mp4"
+                await asyncio.to_thread(client.download_mp4, url, out)
+                return {"ok": True, "backend": "useapi", "product_id": product_id,
+                        "path": str(out), "job": job, "still": still}
+            except (FlowApiError, ValueError, OSError, base64.binascii.Error) as exc:
+                # Never fail silently: preserve the original Chrome queue payload
+                # when supplied so the extension can continue with the default path.
+                fallback_id = None
+                if self.db and isinstance(body.get("chrome_payload"), dict):
+                    fallback_id = self.db.queue_push(body["chrome_payload"], priority=1)
+                self.emit_log(f"[USEAPI] ล้มเหลว → fallback Chrome: {exc}", level="warn", source="USEAPI")
+                return {"ok": False, "backend": "useapi", "fallback": "chrome",
+                        "fallback_queue_id": fallback_id, "error": str(exc)}
+
         @app.post("/api/flow/video")
         async def flow_video(body: dict):
             """รับวิดีโอที่ extension สร้างเสร็จ → เซฟลง pending + sidecar(link) พร้อมโพสต์.
@@ -2028,6 +2149,15 @@ class WebServer:
         def flow_dump_get():
             """ผลตรวจล่าสุด + สั่งตรวจรอบใหม่ด้วย ?refresh=1 (extension จะหยิบไปทำภายใน ~15 วิ)."""
             return {"ok": True, "dump": getattr(self, "_flow_dump", None)}
+
+        @app.post("/api/ext/reload")
+        async def ext_reload():
+            """สั่งให้ส่วนขยายโหลดตัวเองใหม่จากดิสก์ — ใช้หลังกดอัปเดตโปรแกรม."""
+            if not self.db:
+                return {"ok": False}
+            qid = self.db.queue_push({"type": "ext_reload"}, priority=20)
+            self.emit_log("[EXT] สั่งส่วนขยายโหลดตัวเองใหม่", level="info", source="EXT")
+            return {"ok": True, "queue_id": qid}
 
         @app.post("/api/flow/dump/request")
         async def flow_dump_request():

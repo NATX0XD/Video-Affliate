@@ -1303,6 +1303,19 @@ async function pollQueue() {
   const p = item.payload || item;
   // งานตรวจสภาพ: ถามหน้า Flow ว่าตัวหาองค์ประกอบยังเจอของจริงไหม แล้วส่งผลกลับ desktop
   // มีไว้เพื่อไม่ต้องไปเปิด DevTools หรือสั่งเมนู Chrome ด้วยมือเวลา Google เปลี่ยนหน้า
+  // โหลดส่วนขยายใหม่จากดิสก์เอง — หลังอัปเดตโปรแกรม โค้ดใหม่ลงดิสก์แล้วแต่ Chrome ยังรันตัวเก่า
+  // ที่ผ่านมาต้องให้คนไปกด reload ที่ chrome://extensions ทุกครั้ง แล้วมักลืม เลยเทสโค้ดเก่าซ้ำ
+  if (p && p.type === 'ext_reload') {
+    try {
+      const base = await apiBase();
+      await fetch(`${base}/api/queue/done`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: item.id }),
+      }).catch(() => {});
+      await chrome.storage.local.remove('vgap_queue_lock').catch(() => {});
+      chrome.runtime.reload();   // ★ ตัดจบตรงนี้ โค้ดหลังบรรทัดนี้ไม่ได้รัน
+    } catch (e) { console.warn('[VGAP] ext_reload failed', e); }
+    return;
+  }
   if (p && p.type === 'flow_dump') {
     try {
       const base = await apiBase();

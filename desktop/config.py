@@ -67,6 +67,7 @@ ENV_KEYS = {
     "claude_api_key": "CLAUDE_API_KEY",
     "google_api_key": "GOOGLE_API_KEY",
     "did_api_key":    "DID_API_KEY",
+    "useapi_token":   "USEAPI_TOKEN",
 }
 
 def _load_dotenv():
@@ -115,6 +116,8 @@ DEFAULT = {
     "hot_folder": str(PENDING_DIR),
     "shop_name": "",
     "flow_email": "",            # อีเมล Google ที่ใช้ล็อกอิน Flow ในเบราว์เซอร์ (แสดงให้ผู้ใช้ยืนยัน)
+    "flow_backend": "chrome",     # chrome (เดิม) | useapi (สำรอง; ต้องตั้ง token ก่อน)
+    "useapi_token": "",            # secret; เก็บผ่าน .env ไม่ลง settings.json
     # Video generation settings
     "age_group": "ทุกวัย",
     "personality": "สนุกสนาน",
